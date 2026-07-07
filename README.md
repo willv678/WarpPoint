@@ -1,2 +1,11 @@
-# WarpPoint
-A low-overhead C++ background utility to automatically synchronize save states between homebrewed Nintendo Switch systems and personal computers.
+# WarpPoint 🛸
+
+WarpPoint is a low-overhead C++ utility designed to  built to seamlessly bridge the gap between your desktop gaming setup and your homebrewed Nintendo Switch.
+
+The goal is to eliminate manual SD card swapping, FTP configuration, or tedious file-management loops by automating data transfer over the local network.
+
+## Features
+
+* **Automated Syncing:** Automatically detects target devices on the local network and moves save states into the appropriate directories.
+* **Zero-Configuration Handshake:** Uses a lightweight peer-to-peer UDP broadcast discovery protocol so you don't have to manually edit configuration files or hardcode static IP addresses.
+* **Low-Footprint C++ Engine:** Built natively to run as a non-blocking background daemon on the host machine and a deterministic, resource-constrained client on the Switch hardware.
