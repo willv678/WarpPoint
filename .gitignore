@@ -67,3 +67,14 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# OS / local dev
+.DS_Store
+dummy_output/
+watch/
+sample_payload.bin
+
+# Switch build artifacts
+switch/*.elf
+switch/*.nacp
+switch/*.nro

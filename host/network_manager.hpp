@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,11 +11,13 @@ struct Announce {
 };
 
 class NetworkManager {
-public:
+ public:
   NetworkManager();
   ~NetworkManager();
 
-  // Broadcast a DISCOVER and collect ANNOUNCE responses for 'timeout_ms' milliseconds.
-  std::vector<Announce> discoverPeers(int timeout_ms);
-};
+  // Broadcast DISCOVER (advertising hostReceivePort) and collect ANNOUNCE replies.
+  std::vector<Announce> discoverPeers(int timeout_ms, uint16_t hostReceivePort);
 
+  // Fire-and-forget DISCOVER beacons so the Switch learns this host's IP/port.
+  void beaconDiscover(uint16_t hostReceivePort);
+};
