@@ -1,25 +1,48 @@
 #include "transfer_client.hpp"
 #include "../common/protocol.hpp"
 #include "../common/wire.hpp"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <cstring>
+
 #include <fstream>
 #include <iostream>
+#include <vector>
 
-static uint64_t to_be64(uint64_t x) {
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  return x;
-#else
-  return ((uint64_t)htonl((uint32_t)(x & 0xFFFFFFFF)) << 32) | htonl((uint32_t)(x >> 32));
-#endif
+namespace {
+
+bool sendFully(int sock, const void* data, size_t length) {
+  const auto* bytes = static_cast<const char*>(data);
+  size_t sent = 0;
+  while (sent < length) {
+    const ssize_t chunk = send(sock, bytes + sent, length - sent, 0);
+    if (chunk <= 0) {
+      return false;
+    }
+    sent += static_cast<size_t>(chunk);
+  }
+  return true;
 }
 
-bool pushFile(const std::string& addr, uint16_t port, const std::string& srcPath, const std::string& destRelPath) {
+bool recvFully(int sock, void* data, size_t length) {
+  auto* bytes = static_cast<char*>(data);
+  size_t received = 0;
+  while (received < length) {
+    const ssize_t chunk = recv(sock, bytes + received, length - received, 0);
+    if (chunk <= 0) {
+      return false;
+    }
+    received += static_cast<size_t>(chunk);
+  }
+  return true;
+}
+
+}  // namespace
+
+bool pushFile(const std::string& addr, uint16_t port, const std::string& srcPath,
+              const std::string& destRelPath) {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) {
     perror("socket");
@@ -35,13 +58,12 @@ bool pushFile(const std::string& addr, uint16_t port, const std::string& srcPath
     return false;
   }
 
-  if (connect(sock, (sockaddr*)&remote, sizeof(remote)) < 0) {
+  if (connect(sock, reinterpret_cast<sockaddr*>(&remote), sizeof(remote)) < 0) {
     perror("connect");
     close(sock);
     return false;
   }
 
-  // Read file
   std::ifstream ifs(srcPath, std::ios::binary);
   if (!ifs) {
     std::cerr << "Failed to open source file\n";
@@ -49,45 +71,42 @@ bool pushFile(const std::string& addr, uint16_t port, const std::string& srcPath
     return false;
   }
   ifs.seekg(0, std::ios::end);
-  uint64_t size = ifs.tellg();
+  const auto endPos = ifs.tellg();
+  if (endPos < 0) {
+    std::cerr << "Failed to size source file\n";
+    close(sock);
+    return false;
+  }
+  const uint64_t size = static_cast<uint64_t>(endPos);
   ifs.seekg(0);
 
-  // Compute CRC
-  std::vector<char> buf((size_t)size);
-  ifs.read(buf.data(), (std::streamsize)size);
-  uint32_t crc = WarpPoint::crc32(buf.data(), (size_t)size);
+  std::vector<char> buf(static_cast<size_t>(size));
+  if (size > 0) {
+    ifs.read(buf.data(), static_cast<std::streamsize>(size));
+  }
+  const uint32_t crc = WarpPoint::crc32(buf.data(), buf.size());
 
-  // Send FileHeader
-  WarpPoint::FileHeader fh{};
-  fh.path_len = (uint32_t)destRelPath.size();
-  fh.file_size = size;
-  fh.crc32 = crc;
+  uint8_t header[4 + 8 + 4];
+  WarpPoint::writeBe32(header + 0, static_cast<uint32_t>(destRelPath.size()));
+  WarpPoint::writeBe64(header + 4, size);
+  WarpPoint::writeBe32(header + 12, crc);
 
-  uint32_t path_len_n = htonl(fh.path_len);
-  uint64_t size_n = to_be64(fh.file_size);
-  uint32_t crc_n = htonl(fh.crc32);
-
-  if (send(sock, &path_len_n, sizeof(path_len_n), 0) != sizeof(path_len_n)) { perror("send"); close(sock); return false; }
-  if (send(sock, &size_n, sizeof(size_n), 0) != sizeof(size_n)) { perror("send"); close(sock); return false; }
-  if (send(sock, &crc_n, sizeof(crc_n), 0) != sizeof(crc_n)) { perror("send"); close(sock); return false; }
-
-  // Send path
-  if (send(sock, destRelPath.data(), destRelPath.size(), 0) != (ssize_t)destRelPath.size()) { perror("send"); close(sock); return false; }
-
-  // Send payload in chunks
-  size_t offset = 0;
-  const size_t chunkSize = 64 * 1024;
-  while (offset < buf.size()) {
-    size_t toSend = std::min(chunkSize, buf.size() - offset);
-    ssize_t s = send(sock, buf.data() + offset, toSend, 0);
-    if (s <= 0) { perror("send"); close(sock); return false; }
-    offset += (size_t)s;
+  if (!sendFully(sock, header, sizeof(header)) ||
+      !sendFully(sock, destRelPath.data(), destRelPath.size()) ||
+      !sendFully(sock, buf.data(), buf.size())) {
+    perror("send");
+    close(sock);
+    return false;
   }
 
-  // Wait for simple ACK (1 byte)
-  char ack = 0;
-  ssize_t r = recv(sock, &ack, 1, 0);
-  close(sock);
-  return r > 0 && ack == 1;
-}
+  // Tell the peer we are done sending so it can finish reading.
+  shutdown(sock, SHUT_WR);
 
+  char ack = 0;
+  if (!recvFully(sock, &ack, 1)) {
+    close(sock);
+    return false;
+  }
+  close(sock);
+  return ack == 1;
+}
