@@ -1,0 +1,41 @@
+name: Build Switch App
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build Nintendo Switch Application
+        run: |
+          cd switch
+          make
+
+      - name: Upload Build Artifact (for Action Runs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: warppoint_switch.nro
+          path: switch/warppoint_switch.nro
+
+      - name: Create Nightly Release
+        if: github.ref == 'refs/heads/main'
+        uses: marvinpinto/action-automatic-releases@latest
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "nightly"
+          prerelease: true
+          title: "Nightly Build"
+          files: |
+            switch/warppoint_switch.nro
