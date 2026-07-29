@@ -18,12 +18,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build Nintendo Switch Application
+      - name: Configure CMake
         run: |
-          cd switch
-          make
+          cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake
 
-      - name: Upload Build Artifact (for Action Runs)
+      - name: Build Target
+        run: |
+          cmake --build build --target warp_host -j$(nproc)
+
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: warppoint_switch.nro
