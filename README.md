@@ -1,4 +1,4 @@
-# WarpPoint 🛸
+# WarpPoint 🛸 [wip]
 
 WarpPoint is a low-overhead C++ utility designed to  built to seamlessly bridge the gap between your desktop gaming setup and your homebrewed Nintendo Switch.
 
