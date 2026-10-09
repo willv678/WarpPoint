@@ -1,14 +1,33 @@
 # WarpPoint 🛸
 
-WarpPoint is a low-overhead C++ utility designed to  built to seamlessly bridge the gap between your desktop gaming setup and your homebrewed Nintendo Switch.
+Automatic save sync between a desktop Switch emulator and your homebrewed Nintendo Switch, over your local network.
 
-The goal is to eliminate manual SD card swapping, FTP configuration, or tedious file-management loops by automating data transfer over the local network.
+Play on your Mac (or PC) at full resolution, close the game, pick up your Switch, and keep going from the same save. Then go back the other way. No SD card swapping, FTP, cloud accounts or IP addresses.
 
-## Features
+* **Real game saves:** Ryujinx-family (Ryujinx, Ryubing, Astris) and yuzu-family emulators ↔ native Switch titles.
+* **Homebrew emulator saves too:** any folder ↔ any SD-card folder (RetroArch, etc.).
+* **Safe by default:** three-way state comparison, a backup before every overwrite, and conflicts keep both copies.
+* **Hands-off on the Switch:** runs as a background sysmodule with a Tesla overlay for status.
+* **One host codebase** for macOS, Windows and Linux.
 
-* **Automated Syncing:** Automatically detects target devices on the local network and moves save states into the appropriate directories.
-* **Zero-Configuration Handshake:** Uses a lightweight peer-to-peer UDP broadcast discovery protocol so you don't have to manually edit configuration files or hardcode static IP addresses.
-* **Low-Footprint C++ Engine:** Built natively to run as a non-blocking background daemon on the host machine and a deterministic, resource-constrained client on the Switch hardware.
+> **Status:** being rebuilt as v2. The v1 prototype (one-way file push) works but is being replaced.
+> See [`ROADMAP.md`](ROADMAP.md) for progress and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design.
+
+## Building
+
+Host (macOS / Linux / Windows):
+
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build
+```
+
+Switch (requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `switch-dev`; see `scripts/setup_devkitpro_mac.sh`):
+
+```sh
+make -C switch
+```
 
 <pre align="center">
 

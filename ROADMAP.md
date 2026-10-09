@@ -1,112 +1,61 @@
 # WarpPoint Roadmap
 
-Track from first idea → polished product. Check items off as they land.
+The design lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Each milestone ends with
+something you can run. Spikes (S) are small experiments that come before the work that depends
+on them.
 
-Original vision: zero-config C++ utility that syncs emulator saves between PC/Mac and a homebrewed Nintendo Switch over LAN.
+## Where we are (v1 prototype)
 
----
-
-## Phase 0 — Toolchain & scaffolding
-
-- [x] Install Xcode CLT + devkitPro / `switch-dev`
-- [x] Repo layout: `common/`, `host/`, `dummy_client/`, `switch/`, `tests/`
-- [x] CMake host build + libnx Switch Makefile
-- [x] Hello-world `.nro` builds and runs on hardware
+The v1 prototype pushes single files in both directions using events and a 5 s echo suppression.
+It works over LAN but has no state tracking, backups, conflict handling or path validation,
+and it buffers whole files in memory. v2 replaces it. Pieces worth keeping: the big-endian wire
+helpers, temp-then-rename writes, and the UDP discovery code.
 
 ---
 
-## Phase 1 — Network discovery (handshake)
+## M0: Foundation
+- [ ] Fix CI: Switch `.nro` via `make -C switch` in devkitA64, plus host build and tests on macOS, Linux and Windows
+- [ ] Real test framework (assertions, `ctest` discovers tests)
+- [ ] Repo restructure per architecture §8; remove v1 leftovers (`dummy_client`, checked-in sample files)
 
-- [x] Shared protocol (`common/protocol.hpp`, wire/CRC helpers)
-- [x] Host UDP DISCOVER broadcast
-- [x] Dummy client ANNOUNCE reply (Mac ↔ Mac test)
-- [x] Switch UDP discovery responder
-- [ ] Reliable LAN auto-discovery without `target=` in config  
-      *(fallback `target=ip:port` works today; subnet broadcast still flaky on some Wi‑Fi)*
+## M1: Sync core on desktop (no Switch needed)
+- [ ] `common/`: SHA-256, frame codec, path validation, unit hashing
+- [ ] Planner (pure function) with exhaustive decision-table tests
+- [ ] State store (sync bases, devices), backup store, conflict store
+- [ ] Protocol v2 session: Hello, ListUnits, ReadUnit, WriteUnit, chunked streaming
+- [ ] `agent-desktop` + `Folder` adapter
+- [ ] Integration tests: push, pull, offline edits, conflict, interrupted transfer
+- [ ] `warppoint run | status | resolve | backups` CLI
+- [ ] Cross-platform `net/` shim (Winsock)
 
----
+## M2: Switch `.nro` agent, SD folders
+- [ ] Port the agent core to libnx; `SdFolderStorage`
+- [ ] Announce beacon + probe reply; host discovery listener and last-known address
+- [ ] Hardware test: RetroArch save folder Mac ↔ Switch, both directions, conflict case
 
-## Phase 2 — File watch + transfer (Mac → peer)
+## M3: Real game saves
+- [ ] S: Ryujinx `0/` vs `1/` semantics and `imkvdb.arc` parsing
+- [ ] S: save-data mount, write and commit from an `.nro`; journal limits on a large save
+- [ ] `RyujinxFamily` adapter (Astris, Ryubing, Ryujinx) with auto-detect
+- [ ] `SaveDataStorage` + "title running" busy check
+- [ ] Switch user ↔ emulator profile mapping in config
+- [ ] Hardware test: FE3H Astris ↔ Switch round trip
 
-- [x] Host file watcher (poll + size-stable debounce)
-- [x] TCP FILE_PUSH (header + path + payload + CRC)
-- [x] Dummy client receive → write to `dummy_output/`
-- [x] Host daemon: config → discover/target → watch → auto-push
-- [x] Unit smoke test for CRC (`tests/test_wire`)
+## M4: Background on the Switch
+- [ ] S: sysmodule NPDM permissions for save data; memory and socket budget
+- [ ] Sysmodule build of the agent (boot2, auto-start)
+- [ ] IPC service + Tesla overlay: status, last sync per game, Sync now, pairing code
+- [ ] Hardware test: no app opened; sync happens after the game is closed
 
----
+## M5: "Just works" polish
+- [ ] `YuzuFamily` adapter (Eden, Citron, Sudachi, ...)
+- [ ] Start at login (LaunchAgent, Windows startup task, systemd user unit)
+- [ ] Pairing code trust
+- [ ] Notifications for conflict, failure and first pairing
+- [ ] Packaging: macOS, Windows, Linux release artifacts; Switch release zip (sysmodule + overlay + nro)
+- [ ] Tray / menu-bar UI
 
-## Phase 3 — Real Switch client (Mac → Switch)
-
-- [x] libnx `.nro` with UDP + TCP server
-- [x] Write to SD (`sdmc:/WarpPoint/...`) with temp + rename
-- [x] End-to-end: edit `watch/game.sav` → file on Switch SD
-- [x] Manual target override via `warppoint.conf`
-
-**Current milestone:** one-way Mac → Switch works on hardware.
-
----
-
-## Phase 4 — Bidirectional sync
-
-- [x] Mac host also listens for TCP pushes (receive path on port 40001)
-- [x] Switch watches `sdmc:/WarpPoint/...` for local changes
-- [x] Switch pushes changed files back to Mac
-- [x] Conflict policy for MVP: **last-write-wins** (timestamp / sequence via suppress window)
-- [x] Ignore echo loops (don’t re-push a file you just wrote from the peer)
-- [x] Dummy client can optionally push too (Mac ↔ Mac bidirectional test)
-
-**Current milestone:** bidirectional implemented — verify on hardware (edit file on Switch SD → appears in Mac `watch/`).
-
----
-
-## Phase 5 — Real emulator paths & UX
-
-- [ ] Document mapping: Ryujinx / Yuzu / etc. save dirs → Switch Atmosphere paths
-- [ ] Example `warppoint.conf` for common emulators
-- [ ] Extension filter (`.sav`, `.bin`, `.dat`, …) + ignore `.tmp` / lockfiles
-- [ ] Optional: watch multiple folders
-- [ ] Clear console status on Switch (peer connected, last sync time, errors)
-
----
-
-## Phase 6 — Reliability & polish
-
-- [ ] Auto-rediscover peer when IP changes / Switch reboots (no manual restart)
-- [ ] Retry with backoff on failed transfer
-- [ ] Larger saves: streaming without loading whole file in RAM (already chunked; verify big files)
-- [ ] CRC verify on both sides (Switch already verifies; keep host path solid)
-- [ ] macOS Local Network permission note in README
-- [ ] Guest Wi‑Fi / AP isolation troubleshooting
-- [ ] Clean README: install, build, deploy `.nro`, run host, config
-- [ ] Optional: launch host at login (LaunchAgent / background service)
-
----
-
-## Phase 7 — Stretch (post-MVP)
-
-- [ ] Switch sysmodule (runs in background without keeping `.nro` open)
-- [ ] Better conflict UI / keep both versions on conflict
-- [ ] Encrypted / authenticated transfers (if used off trusted LAN)
-- [ ] Windows host build
-- [ ] GUI tray app (status, last sync, open watch folder)
-
----
-
-## How to use this
-
-1. Work top-down; finish Phase 4 before chasing Phase 7.
-2. Prefer Mac ↔ dummy bidirectional tests before Switch hardware for Phase 4.
-3. Update checkboxes in this file when a milestone is verified on your machine.
-
----
-
-## Quick status (2026-07-19)
-
-| Direction | Status |
-|-----------|--------|
-| Mac → Dummy | Done |
-| Mac → Switch | Done |
-| Switch → Mac | Implemented — needs hardware verify |
-| Dummy → Mac | Implemented — Mac↔Mac test |
-| Zero-config UDP | Partial (manual `target=` works; host beacons DISCOVER for reverse) |
+## Later
+- Restore a backup from the overlay
+- Multiple Switches
+- Version-mismatch warnings using game version metadata
