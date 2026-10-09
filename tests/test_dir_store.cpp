@@ -75,6 +75,19 @@ TEST_CASE("locations cannot escape the root") {
   CHECK_FALSE(store.status({{"bad key", "game"}})[0].error.empty());
 }
 
+TEST_CASE("protected top-level folders are refused") {
+  TempDir tmp;
+  DirStore::Options opt;
+  opt.root = tmp.path();
+  opt.protectedDirs = {"atmosphere", "Nintendo"};
+  DirStore store(opt);
+  CHECK(store.resolve("atmosphere/contents").empty());
+  CHECK(store.resolve("ATMOSPHERE").empty());
+  CHECK(store.resolve("nintendo/save").empty());
+  CHECK_FALSE(store.resolve("retroarch/saves").empty());
+  CHECK_FALSE(store.resolve("games/atmosphere").empty());
+}
+
 TEST_CASE("write replaces the whole unit and keeps a backup") {
   TempDir tmp;
   DirStore src = makeStore(tmp);

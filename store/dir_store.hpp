@@ -28,6 +28,9 @@ class DirStore : public UnitStore {
     int keepBackups = 5;
     // A unit whose newest file is younger than this is reported busy (still being written).
     std::chrono::milliseconds settleTime{2000};
+    // Relative locations whose first path segment matches one of these (case-insensitive)
+    // are refused. On the Switch this keeps hosts out of the CFW and system folders.
+    std::vector<std::string> protectedDirs;
   };
 
   explicit DirStore(Options options);

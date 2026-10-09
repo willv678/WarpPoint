@@ -12,8 +12,12 @@
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
+#ifdef __SWITCH__
+#include <switch.h>
+#else
 #include <ifaddrs.h>
 #include <net/if.h>
+#endif
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -115,6 +119,8 @@ bool init() {
 #ifdef _WIN32
   WSADATA data;
   return WSAStartup(MAKEWORD(2, 2), &data) == 0;
+#elif defined(__SWITCH__)
+  return true;  // the caller owns socketInitialize()/socketExit()
 #else
   ::signal(SIGPIPE, SIG_IGN);
   return true;
@@ -321,7 +327,15 @@ bool UdpSocket::recvFrom(void* buf, size_t cap, size_t& len, std::string& fromAd
 
 std::vector<std::string> broadcastAddresses() {
   std::vector<std::string> out = {"255.255.255.255"};
-#ifndef _WIN32
+#if defined(__SWITCH__)
+  // nifm reports addresses in network byte order.
+  u32 ip = 0, mask = 0, gateway = 0, dns1 = 0, dns2 = 0;
+  if (R_SUCCEEDED(nifmGetCurrentIpConfigInfo(&ip, &mask, &gateway, &dns1, &dns2)) && mask != 0) {
+    in_addr b{};
+    b.s_addr = (ip & mask) | ~mask;
+    out.push_back(addrToString(b));
+  }
+#elif !defined(_WIN32)
   ifaddrs* ifs = nullptr;
   if (::getifaddrs(&ifs) == 0) {
     for (ifaddrs* i = ifs; i != nullptr; i = i->ifa_next) {

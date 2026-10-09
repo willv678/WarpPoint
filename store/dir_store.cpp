@@ -19,6 +19,13 @@ constexpr size_t kReadChunk = 64 * 1024;
 // (FAT on the Switch SD card rounds to 2 s) could otherwise hide a same-size rewrite.
 constexpr auto kCacheMinAge = std::chrono::seconds(5);
 
+std::string lower(std::string s) {
+  for (char& c : s) {
+    if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+  }
+  return s;
+}
+
 std::string sanitizeKey(const std::string& key) {
   std::string out = key;
   std::replace(out.begin(), out.end(), '/', '_');
@@ -226,6 +233,10 @@ fs::path DirStore::resolve(const std::string& location) const {
   }
   if (!isSafeRelativePath(location) || options_.root.empty()) {
     return {};
+  }
+  const std::string first = lower(location.substr(0, location.find('/')));
+  for (const auto& d : options_.protectedDirs) {
+    if (first == lower(d)) return {};
   }
   return (options_.root / p).lexically_normal();
 }
