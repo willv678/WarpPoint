@@ -1,0 +1,6 @@
+add_library(warp_net STATIC net.cpp)
+target_include_directories(warp_net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(warp_net PUBLIC warp_common PRIVATE warp_warnings)
+if(WIN32)
+  target_link_libraries(warp_net PUBLIC ws2_32)
+endif()

@@ -21,8 +21,9 @@ endif()
 
 add_subdirectory(common)
 add_subdirectory(store)
+add_subdirectory(net)
+add_subdirectory(agent)
 add_subdirectory(host)
-add_subdirectory(dummy_client)
 
 if(WARPPOINT_BUILD_TESTS)
   add_subdirectory(tests)

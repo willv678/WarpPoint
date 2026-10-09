@@ -1,5 +1,6 @@
 // A UnitStore where each unit is a directory on a local filesystem.
 // Used by the host for folder-backed saves and by the desktop agent as its "SD card".
+// A directory with no (non-ignored) files counts as absent.
 #pragma once
 #include "unit_store.hpp"
 

@@ -91,8 +91,11 @@ For each unit, `H` is the host hash, `S` is the Switch hash and `B` is the base.
 | `H == B`, `S != B` | Switch changed: **pull** S → host |
 | `S == B`, `H != B` | Host changed: **push** H → Switch |
 | `H != B`, `S != B`, `H != S` | **Conflict**: keep both, copy nothing, notify |
-| No `B`, one side missing | Copy from the side that has it |
+| One side missing (any `B`) | Copy from the side that has it. Deletions are never propagated |
 | No `B`, both present and different | **Conflict** (first pairing never guesses) |
+
+A unit with no save files in it (only an empty folder, or only ignored junk) counts as missing.
+Emulators often create empty save folders on first launch.
 
 Guards that apply before any copy:
 
@@ -162,7 +165,7 @@ One portable core (session handling, unit listing, hashing, staging) compiled th
 
 | Build | Purpose |
 |-------|---------|
-| `agent-desktop` | Runs on the Mac against a temp directory. Used for integration tests and CI. |
+| `warppoint-agent` | Runs on a computer and serves a folder as the "SD card". Used for development, tests and CI. |
 | `.nro` | Development on real hardware: console log, easy restart. |
 | sysmodule + overlay | The real product. Auto-starts at boot (`atmosphere/contents/<tid>/` + `boot2.flag`). |
 
@@ -215,8 +218,8 @@ Per-OS app data dir (`~/Library/Application Support/WarpPoint`, `%APPDATA%\WarpP
 `~/.local/share/warppoint`):
 
 ```text
-config.toml      units, profile mappings, adapters, optional target
-state.json       sync bases per (device, unit), known devices, last address
+config.toml      units, profile mappings, adapters, optional target (a small TOML subset)
+state.txt        host id, sync bases per (device, unit), conflicts, known devices (tab-separated)
 backups/<unit>/<timestamp>-<side>/...
 conflicts/<unit>/<timestamp>-{host,switch}/...
 warppoint.log
@@ -227,12 +230,15 @@ warppoint.log
 ## 8. Repository layout (target)
 
 ```text
-common/     protocol (frames, codec), sha256, path validation, unit hashing — builds everywhere
-agent/      portable agent core + desktop storage backend + agent-desktop executable
-host/       sync engine (planner, state, backups), adapters, discovery, CLI
-platform/   sockets / OS shims for the host and agent-desktop
-switch/     nro/   sysmodule/   overlay/   (libnx Makefiles, reuse common/ + agent/)
-tests/      unit tests (planner table, codec, paths, hashing) + host↔agent-desktop integration
+common/     protocol v2 (framing, messages), sha256, path validation, UnitStore interface
+            — no exceptions/RTTI, builds for the Switch too
+store/      DirStore: a unit = a directory (staging, compare-and-swap commit, backups)
+net/        the only platform-specific networking code (BSD sockets / Winsock)
+agent/      portable session server + warppoint-agent (desktop stand-in for the Switch)
+host/       planner, state store, sync engine, RemoteStore, discovery, config, warppoint CLI
+switch/     libnx app (v1 today; becomes the v2 agent in M2, then sysmodule/ and overlay/)
+tests/      doctest unit + session + loopback TCP tests
+scripts/    e2e_test.sh: real host and agent processes, run in CI
 docs/       this file, emulator notes, hardware test checklist
 ```
 

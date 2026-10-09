@@ -265,13 +265,17 @@ UnitStatus DirStore::scan(const fs::path& dir) {
     }
     return st;
   }
-  st.exists = true;
 
   std::vector<std::string> paths;
   if (!listFiles(dir, paths)) {
     st.error = "cannot list " + dir.string();
     return st;
   }
+  // A folder with no save files in it (e.g. freshly created by an emulator) is not a save.
+  if (paths.empty()) {
+    return st;
+  }
+  st.exists = true;
 
   const auto now = fs::file_time_type::clock::now();
   std::vector<FileDigest> digests;
@@ -422,7 +426,7 @@ std::unique_ptr<UnitWriter> DirStore::write(const UnitRef& ref, const std::strin
 
 void DirStore::backupOrRemove(const std::string& key, const fs::path& old) {
   std::error_code ec;
-  if (options_.backupDir.empty() || options_.keepBackups <= 0) {
+  if (options_.backupDir.empty() || options_.keepBackups <= 0 || fs::is_empty(old, ec)) {
     fs::remove_all(old, ec);
     return;
   }

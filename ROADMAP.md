@@ -18,17 +18,20 @@ helpers, temp-then-rename writes, and the UDP discovery code.
 - [x] Real test framework (vendored doctest; `ctest` runs it)
 - [x] Host logic split into `warp_host_core` library; `-Wall -Wextra -Wpedantic` on our targets
 - [x] Commit `switch/Makefile` (it was being ignored by `.gitignore`)
-- Moved to M1: Windows CI (needs the socket shim) and removing `dummy_client` (replaced by `agent-desktop`)
 
 ## M1: Sync core on desktop (no Switch needed)
-- [ ] `common/`: SHA-256, frame codec, path validation, unit hashing
-- [ ] Planner (pure function) with exhaustive decision-table tests
-- [ ] State store (sync bases, devices), backup store, conflict store
-- [ ] Protocol v2 session: Hello, ListUnits, ReadUnit, WriteUnit, chunked streaming
-- [ ] `agent-desktop` + `Folder` adapter
-- [ ] Integration tests: push, pull, offline edits, conflict, interrupted transfer
-- [ ] `warppoint run | status | resolve | backups` CLI
-- [ ] Cross-platform `net/` shim (Winsock)
+- [x] `common/`: SHA-256, frame codec, path validation, unit hashing
+- [x] Planner (pure function) with exhaustive decision-table tests
+- [x] State store (sync bases, devices, conflicts), rolling backups, conflict snapshots
+- [x] Protocol v2 session: Hello, Status, Read, Write (compare-and-swap), chunked streaming
+- [x] `warppoint-agent` desktop stand-in + folder units
+- [x] Session tests: push, pull, offline edits, conflict, dropped connection, path escapes
+- [x] `scripts/e2e_test.sh`: real processes via discovery, run in CI on macOS and Linux
+- [x] `warppoint run [--once] | status | resolve` CLI
+- [x] Cross-platform `net/` layer (Winsock); Windows in the CI matrix
+- [x] v1 host and `dummy_client` removed
+- [ ] `warppoint backups` (list and restore)
+- [ ] Directed broadcast addresses on Windows (only 255.255.255.255 today)
 
 ## M2: Switch `.nro` agent, SD folders
 - [ ] Port the agent core to libnx; `SdFolderStorage`

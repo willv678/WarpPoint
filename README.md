@@ -20,13 +20,37 @@ Host (macOS / Linux / Windows):
 ```sh
 cmake -S . -B build
 cmake --build build
-ctest --test-dir build
+ctest --test-dir build            # unit tests
+scripts/e2e_test.sh build         # host + agent end-to-end (macOS / Linux)
 ```
 
 Switch (requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `switch-dev`; see `scripts/setup_devkitpro_mac.sh`):
 
 ```sh
 make -C switch
+```
+
+## Trying it without a Switch
+
+`warppoint-agent` is the Switch agent built for your computer. It serves a folder as if it were the SD card:
+
+```sh
+build/agent/warppoint-agent --root /tmp/fake-sd
+```
+
+Then point the host at your saves. `warppoint run` creates a config template on first launch
+(`~/Library/Application Support/WarpPoint/config.toml` on macOS):
+
+```toml
+[unit.retroarch]
+host = "~/Library/Application Support/RetroArch/saves"
+switch = "sdmc:/retroarch/cores/savefiles"
+```
+
+```sh
+build/host/warppoint run       # finds the agent automatically and keeps both sides in sync
+build/host/warppoint status    # units, known Switches, open conflicts
+build/host/warppoint resolve retroarch host   # settle a conflict (or: switch)
 ```
 
 <pre align="center">

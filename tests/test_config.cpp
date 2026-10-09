@@ -2,45 +2,64 @@
 
 #include <doctest/doctest.h>
 
-#include <filesystem>
-#include <fstream>
-#include <string>
+using namespace WarpPoint;
 
-namespace {
+TEST_CASE("config: units, settings and comments") {
+  const std::string text = R"(
+# comment
+target = "192.168.1.42:40000"  # trailing comment
+keep_backups = 3
 
-std::string writeTempConfig(const std::string& name, const std::string& contents) {
-  const auto path = std::filesystem::temp_directory_path() / ("warppoint_test_" + name + ".conf");
-  std::ofstream(path) << contents;
-  return path.string();
+[unit.retroarch]
+host = "/Users/me/RetroArch/saves"
+switch = "sdmc:/retroarch/cores/savefiles/"
+
+[unit.mgba]   # another
+host = "relative/dir"
+switch = "/mgba/saves"
+)";
+  std::string error;
+  const auto cfg = parseConfig(text, "/base", error);
+  REQUIRE_MESSAGE(cfg, error);
+  CHECK(cfg->target.value_or("") == "192.168.1.42:40000");
+  CHECK(cfg->keepBackups == 3);
+  REQUIRE(cfg->units.size() == 2);
+  CHECK(cfg->units[0].key == "dir/retroarch");
+#ifndef _WIN32
+  CHECK(cfg->units[0].hostLocation == "/Users/me/RetroArch/saves");
+#endif
+  CHECK(cfg->units[0].remoteLocation == "retroarch/cores/savefiles");
+  CHECK(cfg->units[1].hostLocation ==
+        (std::filesystem::path("/base") / "relative/dir").lexically_normal().string());
+  CHECK(cfg->units[1].remoteLocation == "mgba/saves");
 }
 
-}  // namespace
-
-TEST_CASE("config parses mapping and target") {
-  const auto path = writeTempConfig("ok",
-                                    "# comment\n"
-                                    "watch_dir=/tmp/saves -> sd_base_dir=switch/saves\n"
-                                    "target=192.168.1.42:40000\n");
-  const auto cfg = loadConfig(path);
-  REQUIRE(cfg.has_value());
-  CHECK(cfg->watchDir == "/tmp/saves");
-  CHECK(cfg->sdBaseDir == "switch/saves");
-  REQUIRE(cfg->targetAddr.has_value());
-  CHECK(*cfg->targetAddr == "192.168.1.42");
-  CHECK(cfg->targetPort == 40000);
+TEST_CASE("config: the template parses") {
+  std::string error;
+  const auto cfg = parseConfig(kConfigTemplate, "/", error);
+  REQUIRE_MESSAGE(cfg, error);
+  CHECK(cfg->units.empty());
 }
 
-TEST_CASE("config without a mapping is rejected") {
-  CHECK_FALSE(loadConfig(writeTempConfig("nomap", "target=1.2.3.4:40000\n")).has_value());
+TEST_CASE("config: errors name the line") {
+  std::string error;
+  CHECK_FALSE(parseConfig("keep_backups = \"ten\"\n", "/", error));
+  CHECK(error.find("line 1") != std::string::npos);
+
+  CHECK_FALSE(parseConfig("\n\ntypo_setting = 1\n", "/", error));
+  CHECK(error.find("line 3") != std::string::npos);
+
+  CHECK_FALSE(parseConfig("[unit.a]\nhost = \"/x\"\n", "/", error));  // missing switch
+  CHECK_FALSE(parseConfig("[unit.a]\nhost = \"/x\"\nswitch = \"sdmc:/../atmosphere\"\n", "/", error));
+  CHECK_FALSE(parseConfig("[unit.a b]\n", "/", error));
+  CHECK_FALSE(parseConfig("[unit.a]\n[unit.a]\n", "/", error));
+  CHECK_FALSE(parseConfig("target = \"unterminated\n", "/", error));
 }
 
-TEST_CASE("config with an invalid target port is rejected") {
-  CHECK_FALSE(loadConfig(writeTempConfig("badport",
-                                         "watch_dir=/tmp -> sd_base_dir=x\n"
-                                         "target=1.2.3.4:99999\n"))
-                  .has_value());
-}
-
-TEST_CASE("missing config file is rejected") {
-  CHECK_FALSE(loadConfig("/nonexistent/warppoint.conf").has_value());
+TEST_CASE("switch paths normalize to SD-relative") {
+  CHECK(normalizeSwitchPath("sdmc:/a/b") == "a/b");
+  CHECK(normalizeSwitchPath("/a/b/") == "a/b");
+  CHECK(normalizeSwitchPath("a") == "a");
+  CHECK(normalizeSwitchPath("sdmc:/").empty());
+  CHECK(normalizeSwitchPath("../x").empty());
 }

@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   host:
@@ -12,8 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Windows joins once the cross-platform socket layer lands (M1).
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -22,10 +21,14 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build --parallel
+        run: cmake --build build --config Release --parallel
 
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+      - name: Unit tests
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: End-to-end test
+        if: runner.os != 'Windows'
+        run: scripts/e2e_test.sh build
 
   switch:
     name: Switch (.nro)

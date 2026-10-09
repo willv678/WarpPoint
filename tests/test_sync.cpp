@@ -177,6 +177,16 @@ TEST_CASE("engine: first pairing with different saves on both sides is a conflic
   CHECK(rig.pass().action == SyncAction::Conflict);
 }
 
+TEST_CASE("engine: an empty folder on one side is not a save") {
+  Rig rig;
+  writeFile(rig.hostFile("slot00"), "host save");
+  fs::create_directories(rig.tmp / "sd/game");  // emulator created its save dir, nothing in it
+  writeFile(rig.swFile(".DS_Store"), "junk");
+  const auto r = rig.pass();
+  CHECK(r.action == SyncAction::Push);
+  CHECK(readFile(rig.swFile("slot00")) == "host save");
+}
+
 TEST_CASE("engine: deleted unit is restored, not propagated") {
   Rig rig;
   writeFile(rig.hostFile("slot00"), "keep me");
