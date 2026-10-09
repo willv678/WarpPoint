@@ -1,44 +1,69 @@
-name: Build Switch App
+name: Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
-  build:
+  host:
+    name: Host (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows joins once the cross-platform socket layer lands (M1).
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  switch:
+    name: Switch (.nro)
     runs-on: ubuntu-latest
     container:
       image: devkitpro/devkita64:latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configure CMake
-        run: |
-          cmake -B build -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake
+      - name: Build
+        run: make -C switch -j"$(nproc)"
 
-      - name: Build Target
-        run: |
-          cmake --build build --target warp_host -j$(nproc)
-
-      - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: warppoint_switch.nro
+          name: warppoint_switch
           path: switch/warppoint_switch.nro
+          if-no-files-found: error
 
-      - name: Create Nightly Release
-        if: github.ref == 'refs/heads/main'
-        uses: marvinpinto/action-automatic-releases@latest
+  nightly:
+    name: Nightly release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [host, switch]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "nightly"
-          prerelease: true
-          title: "Nightly Build"
-          files: |
-            switch/warppoint_switch.nro
+          name: warppoint_switch
+
+      - name: Publish nightly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly warppoint_switch.nro \
+            --prerelease \
+            --target "${GITHUB_SHA}" \
+            --title "Nightly build" \
+            --notes "Automated build of ${GITHUB_SHA}."

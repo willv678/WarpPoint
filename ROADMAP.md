@@ -14,9 +14,11 @@ helpers, temp-then-rename writes, and the UDP discovery code.
 ---
 
 ## M0: Foundation
-- [ ] Fix CI: Switch `.nro` via `make -C switch` in devkitA64, plus host build and tests on macOS, Linux and Windows
-- [ ] Real test framework (assertions, `ctest` discovers tests)
-- [ ] Repo restructure per architecture §8; remove v1 leftovers (`dummy_client`, checked-in sample files)
+- [x] Fix CI: Switch `.nro` via `make -C switch` in devkitA64, host build and tests on macOS and Linux, nightly release
+- [x] Real test framework (vendored doctest; `ctest` runs it)
+- [x] Host logic split into `warp_host_core` library; `-Wall -Wextra -Wpedantic` on our targets
+- [x] Commit `switch/Makefile` (it was being ignored by `.gitignore`)
+- Moved to M1: Windows CI (needs the socket shim) and removing `dummy_client` (replaced by `agent-desktop`)
 
 ## M1: Sync core on desktop (no Switch needed)
 - [ ] `common/`: SHA-256, frame codec, path validation, unit hashing
