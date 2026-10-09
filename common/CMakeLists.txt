@@ -1,6 +1,12 @@
+# Portable code shared by the host, the desktop agent and the Switch agent.
+# Must build without exceptions or RTTI (see switch/Makefile).
 add_library(warp_common STATIC
-  protocol.hpp
-  wire.hpp
+  codec.cpp
+  messages.cpp
+  paths.cpp
+  sha256.cpp
+  stream.cpp
+  unit_store.cpp
   wire.cpp
 )
 

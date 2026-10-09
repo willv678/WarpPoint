@@ -20,6 +20,7 @@ if(WARPPOINT_BUILD_TESTS)
 endif()
 
 add_subdirectory(common)
+add_subdirectory(store)
 add_subdirectory(host)
 add_subdirectory(dummy_client)
 
