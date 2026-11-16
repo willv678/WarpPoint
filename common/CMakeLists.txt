@@ -1,5 +1,13 @@
 # Portable code shared by the host, the desktop agent and the Switch agent.
 # Must build without exceptions or RTTI (the Switch build turns them off).
-# Header-only for now; .cpp files get listed here as they arrive.
-add_library(warp_common INTERFACE)
-target_include_directories(warp_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+add_library(warp_common STATIC
+  codec.cpp
+  messages.cpp
+  paths.cpp
+  sha256.cpp
+  stream.cpp
+  unit_store.cpp
+  wire.cpp
+)
+target_include_directories(warp_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(warp_common PRIVATE warp_warnings)

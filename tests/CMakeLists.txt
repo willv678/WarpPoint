@@ -1,6 +1,7 @@
 # One test binary. Add new test_*.cpp files to the list as they're written.
 add_executable(warp_tests
   test_main.cpp
+  test_common.cpp
   test_net.cpp
 )
 target_include_directories(warp_tests PRIVATE third_party/doctest)
