@@ -1,0 +1,3 @@
+// doctest supplies main() when this is defined in exactly one file.
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include "doctest.h"
