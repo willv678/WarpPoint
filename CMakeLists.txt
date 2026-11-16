@@ -13,6 +13,10 @@ target_compile_options(warp_warnings INTERFACE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 
-# Code folders get added here as they're written (spike/, common/, host/, ...).
+find_package(Threads REQUIRED)
+
+# Code folders, added as they're brought in.
+add_subdirectory(common)
+add_subdirectory(net)
 
 add_subdirectory(tests)
