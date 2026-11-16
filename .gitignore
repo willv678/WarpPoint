@@ -79,3 +79,10 @@ switch/*.map
 switch/*.elf
 switch/*.nacp
 switch/*.nro
+
+# Switch build output in any switch/ subproject
+switch/**/build/
+switch/**/*.nro
+switch/**/*.elf
+switch/**/*.nacp
+switch/**/*.map
