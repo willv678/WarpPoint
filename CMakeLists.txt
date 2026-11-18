@@ -18,6 +18,7 @@ find_package(Threads REQUIRED)
 # Code folders, added as they're brought in.
 add_subdirectory(common)
 add_subdirectory(net)
+add_subdirectory(agent)
 add_subdirectory(host)
 
 add_subdirectory(tests)

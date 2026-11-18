@@ -49,6 +49,9 @@ class UnitStore {
  public:
   virtual ~UnitStore() = default;
 
+  // Every save this store has, by key.
+  virtual bool list(std::vector<UnitRef>& out, std::string& error) = 0;
+
   virtual std::vector<UnitStatus> status(const std::vector<UnitRef>& refs) = 0;
 
   // Stream the unit into sink. On success, unitHash is the hash of exactly what was sent.
