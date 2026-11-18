@@ -1,7 +1,7 @@
 #include "backup_store.hpp"
 
 #include "paths.hpp"
-#include "sha256.hpp"
+#include "staged_writer.hpp"
 #include "state_store.hpp"  // randomHexId
 
 #include <nlohmann/json.hpp>
@@ -10,7 +10,6 @@
 #include <chrono>
 #include <ctime>
 #include <fstream>
-#include <set>
 #include <sstream>
 
 namespace WarpPoint {
@@ -43,95 +42,25 @@ void utcNow(std::string& compact, std::string& iso) {
 
 }  // namespace
 
-// Receives one backup into a staging folder. Every file is checked against the
-// sender's SHA-256 and the whole save against its unit hash before it becomes a backup.
-class BackupWriter : public UnitWriter {
+// A backup is a staged save plus info.json, moved into place in one rename.
+class BackupWriter : public StagedWriter {
  public:
   BackupWriter(BackupStore& store, fs::path staging, BackupInfo info)
-      : store_(store), staging_(std::move(staging)), info_(std::move(info)) {}
+      : StagedWriter(std::move(staging)), store_(store), info_(std::move(info)) {}
 
-  ~BackupWriter() override { abort(); }
-
-  bool beginFile(const std::string& path, uint64_t size) override {
-    if (out_.is_open()) return fail("file " + current_ + " was not finished");
-    if (!isSafeRelativePath(path)) return fail("unsafe path in save: " + path);
-    if (!seen_.insert(path).second) return fail("file sent twice: " + path);
-    const fs::path dest = staging_ / "files" / path;
-    std::error_code ec;
-    fs::create_directories(dest.parent_path(), ec);
-    out_.open(dest, std::ios::binary | std::ios::trunc);
-    if (!out_) return fail("cannot create " + dest.string());
-    current_ = path;
-    expected_ = size;
-    written_ = 0;
-    sha_.reset();
-    return true;
-  }
-
-  bool writeChunk(const uint8_t* data, size_t len) override {
-    if (!out_.is_open()) return fail("data outside of a file");
-    if (written_ + len > expected_) return fail(current_ + " is bigger than announced");
-    out_.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(len));
-    if (!out_) return fail("write failed for " + current_);
-    sha_.update(data, len);
-    written_ += len;
-    return true;
-  }
-
-  bool endFile(const std::string& sha256) override {
-    if (!out_.is_open()) return fail("no file to end");
-    out_.close();
-    if (written_ != expected_) return fail(current_ + " is smaller than announced");
-    const std::string actual = sha_.finishHex();
-    if (actual != sha256) return fail(current_ + " failed its checksum");
-    digests_.push_back({current_, written_, actual});
-    info_.bytes += written_;
-    return true;
-  }
-
-  bool commit(const std::string& unitHash) override {
-    if (done_) return fail("already finished");
-    if (out_.is_open()) return fail("file " + current_ + " was not finished");
-    if (digests_.empty()) return fail("a backup needs at least one file");
-    if (computeUnitHash(digests_) != unitHash) return fail("save hash does not match its files");
+ protected:
+  bool install(const fs::path& staging, const std::string& unitHash,
+               const std::vector<FileDigest>& files, std::string& error) override {
     info_.hash = unitHash;
-    info_.files = digests_.size();
-    if (!store_.commitStaged(staging_, info_, error_)) {
-      abort();
-      return false;
-    }
-    done_ = true;
-    return true;
+    info_.files = files.size();
+    info_.bytes = 0;
+    for (const auto& f : files) info_.bytes += f.size;
+    return store_.commitStaged(staging, info_, error);
   }
-
-  void abort() override {
-    if (done_) return;
-    done_ = true;
-    if (out_.is_open()) out_.close();
-    std::error_code ec;
-    fs::remove_all(staging_, ec);
-  }
-
-  std::string error() const override { return error_; }
 
  private:
-  bool fail(std::string why) {
-    error_ = std::move(why);
-    return false;
-  }
-
   BackupStore& store_;
-  fs::path staging_;
   BackupInfo info_;
-  std::ofstream out_;
-  std::string current_;
-  uint64_t expected_ = 0;
-  uint64_t written_ = 0;
-  Sha256 sha_;
-  std::set<std::string> seen_;
-  std::vector<FileDigest> digests_;
-  std::string error_;
-  bool done_ = false;
 };
 
 BackupStore::BackupStore(fs::path root, size_t keepPerUnit)
