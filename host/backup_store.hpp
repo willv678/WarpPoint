@@ -19,7 +19,7 @@
 
 namespace WarpPoint {
 
-constexpr size_t kDefaultKeepBackups = 10;
+constexpr size_t kDefaultKeepBackups = 4;
 
 struct BackupInfo {
   std::string id;       // assigned on commit
