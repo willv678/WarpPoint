@@ -24,6 +24,8 @@ enum class Msg : uint8_t {
   ReadReq = 12,     // host -> agent: stream a unit back
   WriteReq = 13,    // host -> agent: replace a unit (compare-and-swap)
   WriteReady = 14,  // agent -> host: go ahead and stream
+  ListReq = 15,     // host -> agent: which saves do you have?
+  ListResp = 16,    // agent -> host: their keys (encoded like a StatusReq's ref list)
   FileBegin = 20,   // a unit stream: (FileBegin Chunk* FileEnd)* UnitEnd
   Chunk = 21,
   FileEnd = 22,

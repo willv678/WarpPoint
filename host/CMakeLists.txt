@@ -1,10 +1,16 @@
 # The Mac side's logic, as a library so the CLI, the future app and the tests share it.
 add_library(warp_host_core STATIC
   backup_store.cpp
+  discovery.cpp
   planner.cpp
+  remote_store.cpp
   state_store.cpp
 )
 target_include_directories(warp_host_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # nlohmann/json: Mac-side only, never compiled for the Switch.
 target_include_directories(warp_host_core PUBLIC ${PROJECT_SOURCE_DIR}/third_party)
-target_link_libraries(warp_host_core PUBLIC warp_common PRIVATE warp_warnings)
+target_link_libraries(warp_host_core PUBLIC warp_common warp_net PRIVATE warp_warnings)
+
+# `warp`: the Mac command line (for now a developer tool: find, list, pull).
+add_executable(warp warp_main.cpp)
+target_link_libraries(warp PRIVATE warp_host_core warp_warnings)
