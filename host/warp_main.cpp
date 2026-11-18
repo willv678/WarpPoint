@@ -5,21 +5,29 @@
 //   warp list   [--ip ADDR]   the saves the Switch has
 //   warp status KEY [--ip ADDR]
 //   warp pull   KEY [--ip ADDR]   copy one save from the Switch into the Mac's backups
+//   warp users                    Switch users, emulator profiles, and how they're linked
+//   warp link SWITCH_USER EMULATOR_USER
+//   warp sync [KEY...]            sync every save the emulator has (or just these)
+//   warp resolve KEY mac|switch   settle a conflict, then sync that save
 //
-// Which Switch: --ip, else $WARP_SWITCH_IP, else ~/.config/warppoint/switch-ip,
-// else whatever answers a discovery probe.
+// Which Switch: --ip, else $WARP_SWITCH_IP, else "switchAddress" in config.json,
+// else ~/.config/warppoint/switch-ip, else whatever answers a discovery probe.
 // Where data lives: $WARP_DATA_DIR, else ~/Library/Application Support/WarpPoint.
 #include "backup_store.hpp"
+#include "config.hpp"
 #include "discovery.hpp"
 #include "net.hpp"
 #include "remote_store.hpp"
+#include "ryujinx_store.hpp"
 #include "state_store.hpp"
+#include "sync_engine.hpp"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,7 +42,11 @@ int usage() {
                "usage: warp find\n"
                "       warp list   [--ip ADDR]\n"
                "       warp status KEY [--ip ADDR]\n"
-               "       warp pull   KEY [--ip ADDR]\n");
+               "       warp pull   KEY [--ip ADDR]\n"
+               "       warp users\n"
+               "       warp link SWITCH_USER EMULATOR_USER\n"
+               "       warp sync [KEY...]\n"
+               "       warp resolve KEY mac|switch\n");
   return 2;
 }
 
@@ -59,9 +71,12 @@ std::optional<Peer> discover(int timeoutMs) {
   return d.find(timeoutMs);
 }
 
+Config g_config;
+
 std::optional<std::string> configuredAddress(const std::string& flag) {
   if (!flag.empty()) return flag;
   if (const char* e = std::getenv("WARP_SWITCH_IP"); e && *e) return std::string(e);
+  if (!g_config.switchAddress.empty()) return g_config.switchAddress;
   std::ifstream in(home() / ".config" / "warppoint" / "switch-ip");
   std::string ip;
   if (in >> ip && !ip.empty()) return ip;
@@ -167,7 +182,7 @@ int cmdPull(Session& s, const std::string& key) {
     std::fprintf(stderr, "This Switch's WarpPoint can't send saves.\n");
     return 1;
   }
-  BackupStore backups(dataDir() / "backups");
+  BackupStore backups(dataDir() / "backups", g_config.keepBackups);
   std::string error;
   auto writer = backups.begin(key, "switch", "manual-pull", error);
   if (!writer) {
@@ -197,6 +212,108 @@ int cmdPull(Session& s, const std::string& key) {
   return st->hash == newest.hash ? 0 : 1;
 }
 
+RyujinxStore emulatorStore() {
+  const fs::path root = g_config.emulatorPath.empty() ? defaultRyujinxRoot() : g_config.emulatorPath;
+  return RyujinxStore(root, g_config.users,
+                      [] { return processRunning({"Astris", "Ryujinx", "Ryubing"}); });
+}
+
+int cmdUsers(Session& s) {
+  std::vector<UnitRef> refs;
+  std::string error;
+  if (!s.store->list(refs, error)) {
+    std::fprintf(stderr, "List failed: %s\n", error.c_str());
+    return 1;
+  }
+  std::map<std::string, int> switchUsers;  // user id -> number of saves
+  for (const auto& r : refs) switchUsers[r.key.substr(r.key.rfind('/') + 1)]++;
+  std::printf("\nSwitch users (by number of saves):\n");
+  for (const auto& [id, n] : switchUsers) {
+    const auto link = g_config.users.find(id);
+    std::printf("  %s  %3d saves%s%s\n", id.c_str(), n,
+                link != g_config.users.end() ? "  -> linked to " : "",
+                link != g_config.users.end() ? link->second.c_str() : "");
+  }
+  auto emu = emulatorStore();
+  std::vector<EmulatorProfile> profiles;
+  if (!emu.profiles(profiles, error)) {
+    std::fprintf(stderr, "\nEmulator profiles: %s\n", error.c_str());
+    return 1;
+  }
+  std::printf("\nEmulator profiles (%s):\n", emu.root().c_str());
+  for (const auto& p : profiles) std::printf("  %s  %s\n", p.userId.c_str(), p.name.c_str());
+  std::printf("\nLink one with: warp link SWITCH_USER EMULATOR_USER\n");
+  return 0;
+}
+
+bool isHex32(const std::string& s) {
+  return s.size() == 32 && s.find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+
+int cmdLink(const std::string& sw, const std::string& emuUser) {
+  if (!isHex32(sw) || !isHex32(emuUser)) {
+    std::fprintf(stderr, "Both ids are 32 lowercase hex characters (see `warp users`).\n");
+    return 1;
+  }
+  g_config.users[sw] = emuUser;
+  std::string error;
+  if (!saveConfig(dataDir() / "config.json", g_config, error)) {
+    std::fprintf(stderr, "%s\n", error.c_str());
+    return 1;
+  }
+  std::printf("Linked Switch user %s to emulator profile %s.\n", sw.c_str(), emuUser.c_str());
+  return 0;
+}
+
+const char* describe(SyncAction a) {
+  switch (a) {
+    case SyncAction::None: return "in sync";
+    case SyncAction::Push: return "copied Mac -> Switch";
+    case SyncAction::Pull: return "copied Switch -> Mac";
+    case SyncAction::Conflict: return "CONFLICT";
+  }
+  return "?";
+}
+
+int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
+  if (g_config.users.empty()) {
+    std::fprintf(stderr, "No users linked yet. Run `warp users`, then `warp link`.\n");
+    return 1;
+  }
+  auto emu = emulatorStore();
+  std::string error;
+  if (keys.empty()) {
+    std::vector<UnitRef> refs;
+    if (!emu.list(refs, error)) {
+      std::fprintf(stderr, "%s\n", error.c_str());
+      return 1;
+    }
+    for (const auto& r : refs) keys.push_back(r.key);
+  }
+  BackupStore backups(dataDir() / "backups", g_config.keepBackups);
+  SyncEngine engine(emu, *s.store, state, backups, s.agent.deviceId, hasCap(s.agent, "write"));
+  const auto reports = engine.runPass(keys);
+  int failed = 0;
+  for (const auto& r : reports) {
+    const char* what = r.skipped ? "skipped" : !r.ok ? "FAILED" : describe(r.action);
+    std::printf("  %s  %s%s%s\n", r.key.c_str(), what, r.message.empty() ? "" : ": ",
+                r.message.c_str());
+    if (!r.ok && !r.skipped) ++failed;
+  }
+  std::printf("%zu saves checked.\n", reports.size());
+  return failed ? 1 : 0;
+}
+
+int cmdResolve(Session& s, StateStore& state, const std::string& key, const std::string& side) {
+  if (side != "mac" && side != "switch") return usage();
+  if (!state.resolve(s.agent.deviceId, key, side == "mac")) {
+    std::fprintf(stderr, "No recorded conflict for %s (run `warp sync` first).\n", key.c_str());
+    return 1;
+  }
+  std::printf("Keeping the %s's copy.\n", side == "mac" ? "Mac" : "Switch");
+  return cmdSync(s, state, {key});
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -214,8 +331,19 @@ int main(int argc, char** argv) {
   const std::string& cmd = args[0];
 
   net::init();
+  {
+    std::string error;
+    if (!loadConfig(dataDir() / "config.json", g_config, error)) {
+      std::fprintf(stderr, "%s\n", error.c_str());
+      return 1;
+    }
+  }
   if (cmd == "find") return cmdFind();
-  if (cmd != "list" && !((cmd == "status" || cmd == "pull") && args.size() == 2)) return usage();
+  if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
+  const bool known = cmd == "list" || cmd == "users" || cmd == "sync" ||
+                     ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
+                     (cmd == "resolve" && args.size() == 3);
+  if (!known) return usage();
 
   StateStore state(dataDir() / "state.json");
   std::string error;
@@ -229,6 +357,9 @@ int main(int argc, char** argv) {
   if (cmd == "list") rc = cmdList(*session);
   if (cmd == "status") rc = cmdStatus(*session, args[1]);
   if (cmd == "pull") rc = cmdPull(*session, args[1]);
+  if (cmd == "users") rc = cmdUsers(*session);
+  if (cmd == "sync") rc = cmdSync(*session, state, {args.begin() + 1, args.end()});
+  if (cmd == "resolve") rc = cmdResolve(*session, state, args[1], args[2]);
   if (!state.save(error)) std::fprintf(stderr, "warning: %s\n", error.c_str());
   return rc;
 }

@@ -4,7 +4,11 @@ add_library(warp_host_core STATIC
   discovery.cpp
   planner.cpp
   remote_store.cpp
+  ryujinx_store.cpp
+  staged_writer.cpp
   state_store.cpp
+  sync_engine.cpp
+  config.cpp
 )
 target_include_directories(warp_host_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # nlohmann/json: Mac-side only, never compiled for the Switch.

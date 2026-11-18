@@ -4,12 +4,10 @@
 #include "backup_store.hpp"
 #include "discovery.hpp"
 #include "remote_store.hpp"
-#include "sha256.hpp"
 #include "test_support.hpp"
 
 #include "doctest.h"
 
-#include <map>
 #include <mutex>
 
 using namespace WarpPoint;
@@ -18,62 +16,6 @@ using namespace testsupport;
 namespace {
 
 const std::string kShantae = "game/0100000000000001/0000000000000000000000000000000a";
-
-// Read-only, in memory: what the Switch's save store looks like from the outside.
-class MemoryStore : public UnitStore {
- public:
-  std::map<std::string, std::map<std::string, std::string>> saves;
-
-  bool list(std::vector<UnitRef>& out, std::string&) override {
-    out.clear();
-    for (const auto& [key, files] : saves) out.push_back({key});
-    return true;
-  }
-
-  std::vector<UnitStatus> status(const std::vector<UnitRef>& refs) override {
-    std::vector<UnitStatus> out;
-    for (const auto& r : refs) {
-      UnitStatus st;
-      if (const auto it = saves.find(r.key); it != saves.end()) {
-        st.exists = true;
-        st.hash = hashOf(it->second);
-      }
-      out.push_back(st);
-    }
-    return out;
-  }
-
-  bool read(const UnitRef& ref, UnitSink& sink, std::string& unitHash,
-            std::string& error) override {
-    const auto it = saves.find(ref.key);
-    if (it == saves.end()) {
-      error = "no such save";
-      return false;
-    }
-    for (const auto& [path, data] : it->second) {
-      const auto* bytes = reinterpret_cast<const uint8_t*>(data.data());
-      if (!sink.beginFile(path, data.size()) || !sink.writeChunk(bytes, data.size()) ||
-          !sink.endFile(sha256Hex(data.data(), data.size()))) {
-        return false;
-      }
-    }
-    unitHash = hashOf(it->second);
-    return true;
-  }
-
-  std::unique_ptr<UnitWriter> write(const UnitRef&, const std::string&,
-                                    std::string& error) override {
-    error = "read-only";
-    return nullptr;
-  }
-
- private:
-  static std::string hashOf(const std::map<std::string, std::string>& files) {
-    std::vector<FileDigest> d;
-    for (const auto& [path, data] : files) d.push_back({path, data.size(), sha256Hex(data.data(), data.size())});
-    return computeUnitHash(d);
-  }
-};
 
 struct Harness {
   MemoryStore store;
