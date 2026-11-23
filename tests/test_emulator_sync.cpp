@@ -581,15 +581,17 @@ TEST_CASE("library: Stop Syncing hides a game and keeps its saves; starting agai
 TEST_CASE("setup: reports the emulator, the console's users and the links") {
   LibraryHarness h;
   const std::string second = std::string(31, '0') + "2";
+  const std::string deleted = std::string(31, '0') + "9";  // an account removed since
   saveConsoleList(h.data.path(), "switch-1", "Will's Switch",
-                  {{kShantae}, {"game/0100000000000099/" + kSwitchUser}},
+                  {{kShantae}, {"game/0100000000000099/" + kSwitchUser},
+                   {"game/0100000000000077/" + deleted}},
                   {{kSwitchUser, "Will"}, {second, "Guest"}});
   const auto j = parse(h.core->setupJson());
   CHECK(j["emulator"]["found"] == true);
   CHECK(j["emulator"]["path"] == h.emu.root().string());
   CHECK(j["console"] == "Will's Switch");
   CHECK(j["needsSetup"] == false);
-  REQUIRE(j["consoleUsers"].size() == 2);
+  REQUIRE(j["consoleUsers"].size() == 2);  // not the deleted account's leftover save
   for (const auto& u : j["consoleUsers"]) {
     if (u["id"] == kSwitchUser) {
       CHECK(u["name"] == "Will");

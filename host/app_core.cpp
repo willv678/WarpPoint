@@ -373,7 +373,11 @@ std::string AppCore::setupJson() {
   if (console.contains("users") && console["users"].is_array()) {
     for (const auto& u : console["users"]) names[u.value("id", "")] = u.value("name", "");
   }
-  for (const auto& [id, n] : saves) names.emplace(id, "");
+  // A console that lists its accounts is the truth: saves of other ids belong to
+  // accounts deleted since. Without that list (an older Switch app), go by the saves.
+  if (names.empty()) {
+    for (const auto& [id, n] : saves) names.emplace(id, "");
+  }
   json users = json::array();
   for (const auto& [id, name] : names) {
     if (id.empty()) continue;
