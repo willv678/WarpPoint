@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 
 #include <algorithm>
+#include <functional>
 #include <cstdio>
 #include <set>
 
@@ -294,12 +295,20 @@ bool copyIn(const std::string& from, const std::string& rel, std::string& error)
 // into the real save in one commit.
 class SwitchSaveWriter : public StagedWriter {
  public:
-  SwitchSaveWriter(std::filesystem::path staging, std::string key, std::string expected)
-      : StagedWriter(std::move(staging)), key_(std::move(key)), expected_(std::move(expected)) {}
+  SwitchSaveWriter(std::filesystem::path staging, std::string key, std::string expected,
+                   std::function<bool()> inUse)
+      : StagedWriter(std::move(staging)),
+        key_(std::move(key)),
+        expected_(std::move(expected)),
+        inUse_(std::move(inUse)) {}
 
  protected:
   bool install(const std::filesystem::path& staging, const std::string& unitHash,
                const std::vector<FileDigest>& files, std::string& error) override {
+    if (inUse_ && inUse_()) {
+      error = "the game was started on the Switch during the sync; nothing was changed";
+      return false;
+    }
     MountedSave save;
     if (!save.open(key_, error, /*writable=*/true)) return false;
     // Compare-and-swap: the save must still be what the Mac saw when it decided.
@@ -329,6 +338,7 @@ class SwitchSaveWriter : public StagedWriter {
  private:
   std::string key_;
   std::string expected_;
+  std::function<bool()> inUse_;
 };
 
 std::string stagingName() {
@@ -339,10 +349,18 @@ std::string stagingName() {
 
 }  // namespace
 
-SaveStore::SaveStore(std::string stagingRoot) : stagingRoot_(std::move(stagingRoot)) {
+SaveStore::SaveStore(std::string stagingRoot, std::function<uint64_t()> runningTitle)
+    : stagingRoot_(std::move(stagingRoot)), runningTitle_(std::move(runningTitle)) {
   // Leftovers from a write that was cut off (power, crash). Never part of a save.
   std::error_code ec;
   std::filesystem::remove_all(stagingRoot_, ec);
+}
+
+bool SaveStore::inUse(const std::string& key) const {
+  u64 titleId = 0;
+  AccountUid uid{};
+  if (!runningTitle_ || !parseKey(key, titleId, uid)) return false;
+  return titleId == runningTitle_();
 }
 
 bool SaveStore::list(std::vector<UnitRef>& out, std::string& error) {
@@ -370,6 +388,13 @@ std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
   std::vector<UnitStatus> out;
   for (const auto& ref : refs) {
     UnitStatus st;
+    if (inUse(ref.key)) {
+      // The game is running: it owns its save. Say so without opening it.
+      st.busy = true;
+      st.exists = true;
+      out.push_back(st);
+      continue;
+    }
     MountedSave save;
     std::string error;
     if (!save.open(ref.key, error)) {
@@ -402,6 +427,10 @@ std::unique_ptr<UnitWriter> SaveStore::write(const UnitRef& ref, const std::stri
                                              std::string& error) {
   // Check early so a refusal comes before the Mac sends anything. install() checks
   // again right before the swap.
+  if (inUse(ref.key)) {
+    error = "the game is running on the Switch; close it first";
+    return nullptr;
+  }
   std::string current;
   {
     MountedSave save;
@@ -417,7 +446,8 @@ std::unique_ptr<UnitWriter> SaveStore::write(const UnitRef& ref, const std::stri
     return nullptr;
   }
   return std::make_unique<SwitchSaveWriter>(std::filesystem::path(stagingRoot_) / stagingName(),
-                                            ref.key, expectedHash);
+                                            ref.key, expectedHash,
+                                            [this, key = ref.key] { return inUse(key); });
 }
 
 }  // namespace WarpPoint

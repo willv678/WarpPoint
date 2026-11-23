@@ -2,6 +2,7 @@
 // console's game saves. All sync decisions happen on the Mac.
 #include "agent_runtime.hpp"
 #include "save_store.hpp"
+#include "switch_env.hpp"
 #include "switch_titles.hpp"
 
 #include <switch.h>
@@ -14,8 +15,12 @@
 
 namespace {
 
-constexpr const char* kDataDir = "sdmc:/config/warppoint";
-constexpr const char* kVersion = "0.7.0";
+using WarpPoint::kDataDir;
+using WarpPoint::currentIp;
+using WarpPoint::deviceName;
+using WarpPoint::loadOrCreateDeviceId;
+using WarpPoint::networkConnected;
+constexpr const char* kVersion = "1.0.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
@@ -37,58 +42,6 @@ void drainLog() {
     if (g_nxlink) std::fprintf(stderr, "%s\n", g_logQueue.front().c_str());
     g_logQueue.pop_front();
   }
-}
-
-std::string loadOrCreateDeviceId() {
-  const std::string path = std::string(kDataDir) + "/device-id";
-  char buf[33] = {};
-  if (FILE* f = std::fopen(path.c_str(), "r")) {
-    const size_t n = std::fread(buf, 1, 16, f);
-    std::fclose(f);
-    if (n == 16) return std::string(buf, 16);
-  }
-  u8 bytes[8];
-  randomGet(bytes, sizeof(bytes));
-  static constexpr char kHex[] = "0123456789abcdef";
-  std::string id;
-  for (const u8 b : bytes) {
-    id += kHex[b >> 4];
-    id += kHex[b & 0xF];
-  }
-  if (FILE* f = std::fopen(path.c_str(), "w")) {
-    std::fputs(id.c_str(), f);
-    std::fclose(f);
-  }
-  return id;
-}
-
-std::string deviceName() {
-  std::string name = "Nintendo Switch";
-  if (R_SUCCEEDED(setsysInitialize())) {
-    SetSysDeviceNickName nick{};
-    if (R_SUCCEEDED(setsysGetDeviceNickname(&nick)) && nick.nickname[0] != '\0') {
-      name = nick.nickname;
-    }
-    setsysExit();
-  }
-  return name;
-}
-
-std::string currentIp() {
-  u32 ip = 0;
-  if (R_FAILED(nifmGetCurrentIpAddress(&ip))) return "";
-  char buf[16];
-  std::snprintf(buf, sizeof(buf), "%u.%u.%u.%u", ip & 0xFF, (ip >> 8) & 0xFF, (ip >> 16) & 0xFF,
-                ip >> 24);
-  return buf;
-}
-
-bool networkConnected() {
-  NifmInternetConnectionType type{};
-  u32 strength = 0;
-  NifmInternetConnectionStatus status{};
-  return R_SUCCEEDED(nifmGetInternetConnectionStatus(&type, &strength, &status)) &&
-         status == NifmInternetConnectionStatus_Connected;
 }
 
 // Runs the console UI until the user exits. Returns false if they quit before Wi-Fi came up.
@@ -137,7 +90,11 @@ int main(int, char**) {
 
   g_nxlink = nxlinkConnectToHost(false, true) >= 0;
 
-  WarpPoint::SaveStore store(std::string(kDataDir) + "/staging");
+  // The game running "under" this app (title takeover) keeps its save busy too.
+  const bool havePm = R_SUCCEEDED(pmdmntInitialize()) && R_SUCCEEDED(pminfoInitialize());
+  WarpPoint::SaveStore store(std::string(kDataDir) + "/staging", [havePm] {
+    return havePm ? WarpPoint::runningApplication() : 0;
+  });
   {
     std::vector<WarpPoint::UnitRef> saves;
     std::string error;
@@ -169,7 +126,9 @@ int main(int, char**) {
   WarpPoint::AgentRuntime runtime;
   std::string error;
   if (!runtime.start(cfg, error)) {
-    std::printf("Could not start: %s\nPress + to exit.\n", error.c_str());
+    std::printf("Could not start: %s\n", error.c_str());
+    std::printf("If WarpPoint is installed to run in the background, it's already running:\n"
+                "use it from the Tesla overlay instead of this app.\nPress + to exit.\n");
   } else {
     std::printf("Name: %s\nIP:   %s\n\n", cfg.identity.name.c_str(), currentIp().c_str());
     std::printf("Waiting for your Mac. Run `warp list` on it.\n");
@@ -191,6 +150,10 @@ int main(int, char**) {
   runtime.stop();
   appletSetMediaPlaybackState(false);
   if (g_nxlink) std::fflush(stderr);
+  if (havePm) {
+    pminfoExit();
+    pmdmntExit();
+  }
   if (haveUsers) accountExit();
   setExit();
   if (haveTitles) nsExit();

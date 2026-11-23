@@ -12,13 +12,13 @@ include $(DEVKITPRO)/libnx/switch_rules
 #---------------------------------------------------------------------------------
 TARGET		:=	warppoint
 BUILD		:=	build
-SOURCES		:=	source ../../common ../../agent ../../net
+SOURCES		:=	source ../common ../../common ../../agent ../../net
 DATA		:=	data
-INCLUDES	:=	include ../../common ../../agent ../../net
+INCLUDES	:=	include ../common ../../common ../../agent ../../net
 
 APP_TITLE	:=	WarpPoint
 APP_AUTHOR	:=	willvarner
-APP_VERSION	:=	0.7.0
+APP_VERSION	:=	1.0.0
 
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE

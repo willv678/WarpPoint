@@ -10,6 +10,8 @@
 #pragma once
 #include "unit_store.hpp"
 
+#include <cstdint>
+#include <functional>
 #include <string>
 
 namespace WarpPoint {
@@ -17,7 +19,9 @@ namespace WarpPoint {
 class SaveStore : public UnitStore {
  public:
   // stagingRoot: an SD card folder for incoming saves, e.g. "sdmc:/config/warppoint/staging".
-  explicit SaveStore(std::string stagingRoot);
+  // runningTitle: the game running right now (0 = none). Its save is in use: reported
+  // busy, never written. Without it, nothing counts as running (the app is in front).
+  explicit SaveStore(std::string stagingRoot, std::function<uint64_t()> runningTitle = {});
 
   bool list(std::vector<UnitRef>& out, std::string& error) override;
   std::vector<UnitStatus> status(const std::vector<UnitRef>& refs) override;
@@ -27,7 +31,10 @@ class SaveStore : public UnitStore {
                                     std::string& error) override;
 
  private:
+  bool inUse(const std::string& key) const;
+
   std::string stagingRoot_;
+  std::function<uint64_t()> runningTitle_;
 };
 
 }  // namespace WarpPoint
