@@ -13,17 +13,18 @@
   <img src="docs/images/library.png" width="720" alt="The WarpPoint library window: games with their icons and sync status">
 </p>
 
-WarpPoint is a small menu bar app for the Mac plus a homebrew app for the Switch. While both are
-on the same Wi-Fi, they find each other and copy each game's save to whichever side is behind.
-You never pick files or folders: WarpPoint knows where every game keeps its save on both sides.
+WarpPoint is a small menu bar app for the Mac plus a background module for the Switch. While
+both are on the same Wi-Fi, they find each other and copy each game's save to whichever side is
+behind. You never pick files or folders, and you don't open anything to sync: close a game on
+either side and its save is on the other a few seconds later.
 
-**Version 0.7** works with Astris (and other Ryujinx-based
-emulators) on an Apple Silicon Mac, and a Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere).
+**Version 1.0** works with Astris (and other Ryujinx-based emulators) on an Apple Silicon Mac,
+and a Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere).
 
 ## What it does
 
-- **Syncs on its own.** When you open WarpPoint on the Switch, the Mac notices and syncs. When
-  you stop a game in Astris, its save goes to the Switch a couple of seconds later.
+- **Syncs on its own, both ways.** Close a game on the Switch and its save lands in Astris; stop
+  a game in Astris and its save goes to the Switch. Nothing to open on either side.
 - **Never guesses.** If a save changed on both sides since they last agreed, WarpPoint asks
   which one to keep instead of picking.
 - **Backs up before it overwrites anything,** on either side. The newest 4 backups of each save
@@ -42,25 +43,34 @@ emulators) on an Apple Silicon Mac, and a Switch running [Atmosphère](https://g
 
 **On the Mac** (Apple Silicon, macOS 14 or later):
 
-1. Download `WarpPoint-0.7.0.dmg` from [Releases](../../releases) and drag WarpPoint to Applications.
+1. Download `WarpPoint-1.0.0.dmg` from [Releases](../../releases) and drag WarpPoint to Applications.
 2. Open it. This build isn't signed with an Apple developer certificate yet, so macOS will
    refuse the first time: open **System Settings → Privacy & Security** and click **Open Anyway**.
 3. When macOS asks whether WarpPoint may find devices on your local network, click **Allow**.
    That's how it hears your Switch.
 
-**On the Switch** (Atmosphère):
+**On the Switch** (Atmosphère, with [Tesla](https://github.com/WerWolv/Tesla-Menu) or
+another overlay menu if you want the overlay):
 
-1. Copy `warppoint.nro` from the same release into `/switch/` on the SD card.
-2. Open the homebrew menu and start **WarpPoint**. For full memory, open the homebrew menu
-   by holding **R** while starting any game.
+1. Unzip `WarpPoint-Switch-1.0.0.zip` onto the root of the SD card. It adds the background
+   module (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
+   (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
+2. Restart the Switch.
+
+Don't want anything running in the background? Delete `atmosphere/contents/4200000000005750/`
+and open **WarpPoint** from the homebrew menu whenever you want to sync instead. (The two can't
+run at the same time.)
 
 A setup window then walks you through the rest: it finds Astris, waits for the Switch, and asks
 which Astris profile goes with which Switch user.
 
 ## Using it
 
-Keep WarpPoint open on the Switch while you want to sync; the Mac app does everything else from
-the menu bar. Click the UFO for status and recent syncs, or **Open Library…** for your games:
+Mostly, you don't. On the Switch, the **WarpPoint overlay** (open your overlay menu in any game)
+shows whether it's running and when it last synced, and has **Sync now**, **pause**, and
+switches to run it and to start it at boot.
+
+On the Mac, click the UFO for status and recent syncs, or **Open Library…** for your games:
 
 - **+ Add Game** lists the games on your Switch that aren't in Astris yet. Pick one to bring its
   save over.
@@ -68,10 +78,9 @@ the menu bar. Click the UFO for status and recent syncs, or **Open Library…** 
 - **Right-click a game** to sync now, show its save in Finder, or stop syncing it (nothing is
   deleted).
 
-## Limits of 0.7
+## Limits of 1.0
 
-- **The WarpPoint app has to be open on the Switch** to sync. A background version with a Tesla
-  overlay is planned for 1.0.
+- **The Switch has to be awake** to sync; a sleeping Switch catches up when it wakes.
 - **WarpPoint can't create a save on the Switch yet.** A game you've only played on the Mac
   waits quietly until you've started it once on the Switch; then you pick which save to keep.
 - **New saves in Astris need Astris quit,** because Astris keeps its list of saves in memory
@@ -82,14 +91,16 @@ the menu bar. Click the UFO for status and recent syncs, or **Open Library…** 
 ## How it works
 
 ```
-Mac                                                   Switch (homebrew app)
+Mac                                                   Switch
 ┌──────────────────────────────────────────┐          ┌───────────────────────────┐
-│ Menu bar app (Swift)                     │          │ WarpPoint .nro (C++)      │
+│ Menu bar app (Swift)                     │          │ Background module (C++)   │
 │   │  C interface: host/capi/warp_core.h  │   Wi-Fi  │   reads and writes saves  │
 │ Engine (C++): AutoSync → SyncEngine      │◄────────►│   through the console's   │
 │   ├── Astris store (save index + folders)│  TCP     │   own save service, the   │
-│   └── Switch store (talks to the .nro)   │  + UDP   │   one JKSV uses           │
-└──────────────────────────────────────────┘          └───────────────────────────┘
+│   └── Switch store (talks to the Switch) │  + UDP   │   one JKSV uses           │
+└──────────────────────────────────────────┘          │ Tesla overlay: status and │
+                                                      │   controls, via files     │
+                                                      └───────────────────────────┘
 ```
 
 - **Saves are named, not located.** Both sides call a save `game/<title id>/<user id>`. The Mac
@@ -97,11 +108,14 @@ Mac                                                   Switch (homebrew app)
 - **Deciding** is a small pure function: each side's current fingerprint (a SHA-256 over the
   save's files) against the last one both sides agreed on. One side changed: copy it. Both
   changed: ask.
-- **Discovery**: the Switch app announces itself on the network every 2 seconds; the Mac listens.
+- **Discovery and triggers**: the Switch announces itself on the network every 2 seconds, with a
+  counter that goes up whenever a game closes there. The Mac syncs when the Switch appears and
+  when that counter changes.
 - **Astris** keeps each save in a numbered folder with a committed copy (`0`) and a scratch copy
   (`1`), and a save index (`imkvdb.arc`) that says which folder belongs to which game. WarpPoint
   writes both copies, scratch first, and adds index rows in the emulator's own sort order.
-- **A running game** is detected by the lock file Astris holds open in that game's save folder.
+- **A running game** is detected by the lock file Astris holds open in that game's save folder,
+  and on the Switch by asking the system which game is running.
 
 The engine is built to be extended: a new emulator is one new "store" class (`host/`), and a new
 console is anything that speaks the same protocol (`common/messages.hpp`).
@@ -115,8 +129,10 @@ You need Xcode, CMake and Ninja (`brew install cmake ninja`), and for the Switch
 cmake -S . -B build -G Ninja && cmake --build build   # engine, `warp` CLI, tests
 ctest --test-dir build --output-on-failure            # run the tests
 app/mac/build.sh                                      # build-release/WarpPoint.app
-(cd switch/agent && make)                             # switch/agent/warppoint.nro
-app/mac/make-dmg.sh                                   # everything for a release
+(cd switch/sysmodule && make)                         # the background module (.nsp)
+(cd switch/overlay && make)                           # the Tesla overlay (.ovl)
+(cd switch/agent && make)                             # the app (.nro)
+./make-release.sh                                     # everything for a release
 ```
 
 `build/host/warp` is a command line for the same engine: `warp list`, `warp sync downwell`,
