@@ -119,6 +119,7 @@ int main(int, char**) {
     cfg.identity.caps.push_back("users");
   }
   cfg.log = logLine;
+  randomGet(&cfg.initialGeneration, sizeof(cfg.initialGeneration));
 
   // Keep the console awake while the app is open so syncs aren't cut off by auto-sleep.
   appletSetMediaPlaybackState(true);

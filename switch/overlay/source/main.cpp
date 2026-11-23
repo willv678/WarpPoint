@@ -192,7 +192,7 @@ class MainGui : public tsl::Gui {
       line2_ = "";
     } else {
       line1_ = s.connected ? "Syncing with " + s.host : "Ready";
-      line2_ = s.host.empty() ? "Open WarpPoint on your Mac." : "Mac: " + s.host;
+      line2_ = s.host.empty() ? "Waiting for your Mac" : "Mac: " + s.host;
     }
     // Just when: what moved is the Mac's job to show.
     line3_ = !on || s.paused ? ""

@@ -14,6 +14,7 @@ bool AgentRuntime::start(const AgentConfig& config, std::string& error) {
     return false;
   }
   stop_ = false;
+  generation_ = config.initialGeneration;
   discovery_ = std::thread([this] { discoveryLoop(); });
   server_ = std::thread([this] { serverLoop(); });
   return true;

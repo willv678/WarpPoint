@@ -281,6 +281,8 @@ int main(int, char**) {
     cfg.identity.caps.push_back("users");
   }
   cfg.log = logLine;
+  // A fresh start must look new to the Mac (see AgentConfig::initialGeneration).
+  randomGet(&cfg.initialGeneration, sizeof(cfg.initialGeneration));
 
   AgentRuntime runtime;
   bool running = false;
@@ -310,6 +312,7 @@ int main(int, char**) {
     }
     if (!running && online) {
       std::string error;
+      randomGet(&cfg.initialGeneration, sizeof(cfg.initialGeneration));  // look new again
       if (runtime.start(cfg, error)) {
         running = true;
         runtime.setPaused(paused);
