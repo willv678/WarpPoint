@@ -263,7 +263,9 @@ bool decodeDiscovery(const uint8_t* data, size_t len, DiscoveryKind& kind, Annou
   announce.deviceId = r.str();
   announce.name = r.str();
   announce.generation = r.remaining() >= 4 ? r.u32() : 0;  // older agents don't send it
-  return r.done();
+  // Anything after that is from a newer agent: ignore it rather than drop the whole
+  // announce, so a Mac never loses sight of a console that's been updated first.
+  return r.ok();
 }
 
 }  // namespace WarpPoint::proto

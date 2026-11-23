@@ -147,6 +147,11 @@ TEST_CASE("discovery: the announce carries a 'saves may have changed' counter") 
   REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
   CHECK(out.generation == 0);
   CHECK(out.name == "Switch");
+  // A newer agent's announce with fields this Mac doesn't know still reads.
+  auto newer = proto::encodeAnnounce(a);
+  newer.insert(newer.end(), {1, 2, 3, 4, 5});
+  REQUIRE(proto::decodeDiscovery(newer.data(), newer.size(), kind, out));
+  CHECK(out.generation == 7);
 }
 
 TEST_CASE("hello: capabilities are bounded so a peer can't flood us") {
