@@ -13,6 +13,8 @@ APP="$BUILD/WarpPoint.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$MAC/Support/Info.plist" "$APP/Contents/Info.plist"
+"$ROOT/branding/appicon/make-icon.sh" >/dev/null
+cp "$BUILD/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14.0 \
   -import-objc-header "$MAC/Support/bridging.h" -I "$ROOT/host/capi" \

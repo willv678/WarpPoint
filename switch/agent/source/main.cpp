@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
-constexpr const char* kVersion = "0.6.0";
+constexpr const char* kVersion = "0.7.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
