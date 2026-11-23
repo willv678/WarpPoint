@@ -1,10 +1,15 @@
 // Chunk E: the Ryujinx/Astris save store (on a fake emulator folder) and sync passes.
+#include "app_core.hpp"
+#include "auto_sync.hpp"
 #include "backup_store.hpp"
+#include "config.hpp"
 #include "ryujinx_store.hpp"
 #include "sync_engine.hpp"
 #include "test_support.hpp"
 
 #include "doctest.h"
+
+#include <nlohmann/json.hpp>
 
 using namespace WarpPoint;
 using namespace testsupport;
@@ -470,4 +475,86 @@ TEST_CASE("sync: an open emulator postpones copying, but conflicts are still rep
   auto r = h.sync();
   CHECK(r[0].skipped);
   CHECK(h.mac.saves.empty());
+}
+
+// ---- The library window's engine side ----
+
+namespace {
+// An AppCore whose config points at the fake emulator, with the Switch user linked.
+struct LibraryHarness {
+  FakeEmulator emu;
+  TempDir data;
+  bool emulatorOpen = false;
+  std::unique_ptr<AppCore> core;
+
+  LibraryHarness() {
+    Config c;
+    c.emulatorPath = emu.root();
+    c.users = {{kSwitchUser, kEmuUser}};
+    std::string error;
+    REQUIRE(saveConfig(data / "config.json", c, error));
+    core = std::make_unique<AppCore>(data.path(), [this] { return emulatorOpen; });
+  }
+};
+
+nlohmann::json parse(const std::string& s) { return nlohmann::json::parse(s); }
+}  // namespace
+
+TEST_CASE("library: every linked save, from the console's last list and the emulator") {
+  LibraryHarness h;
+  const std::string newGame = "game/0100000000000099/" + kSwitchUser;
+  const std::string otherUser = "game/0100000000000077/" + std::string(32, 'b');
+  saveConsoleList(h.data.path(), "switch-1", "Will's Switch",
+                  {{kShantae}, {newGame}, {otherUser}});
+  saveLastResults(h.data.path(), {{kShantae, SyncAction::None, true, false, ""}}, "Astris",
+                  "Will's Switch");
+
+  const auto j = parse(h.core->gamesJson());
+  CHECK(j["console"] == "Will's Switch");
+  CHECK(j["emulator"] == "Ryujinx");
+  CHECK(j["emulatorOpen"] == false);
+  const auto& games = j["games"];
+  REQUIRE(games.size() == 2);  // the unlinked user's save isn't WarpPoint's business
+  for (const auto& g : games) {
+    if (g["key"] == kShantae) {
+      CHECK(g["status"] == "synced");
+      CHECK(g["lastText"] == "in sync");
+      CHECK(g["inEmulator"] == true);
+    } else {
+      CHECK(g["key"] == newGame);
+      CHECK(g["status"] == "consoleOnly");
+      CHECK(g["inEmulator"] == false);
+    }
+  }
+}
+
+TEST_CASE("library: restoring a backup puts it in the emulator and keeps the current one") {
+  LibraryHarness h;
+  BackupStore backups(h.data / "backups");
+  std::string error;
+  auto w = backups.begin(kShantae, "switch", "before-pull", error);
+  REQUIRE(w);
+  const std::string oldHash = writeSave(*w, {{"SHANLRG.sav", "an older day"}});
+  REQUIRE(w->commit(oldHash));
+  const std::string id = backups.list(kShantae)[0].id;
+
+  REQUIRE_MESSAGE(h.core->restore(kShantae, id, error), error);
+  CHECK(readFile(h.emu.saveDir() / "0/SHANLRG.sav") == "an older day");
+  CHECK(readFile(h.emu.saveDir() / "1/SHANLRG.sav") == "an older day");
+  const auto after = backups.list(kShantae);
+  REQUIRE(after.size() == 2);
+  CHECK(after[0].reason == "before-restore");  // the replaced copy, newest
+  CHECK(readFile(backups.filesDir(kShantae, after[0].id) / "SHANLRG.sav") == "committed");
+
+  const auto list = parse(h.core->backupsJson(kShantae));
+  CHECK(list.size() == 2);
+  CHECK_FALSE(h.core->restore(kShantae, "no-such-backup", error));
+}
+
+TEST_CASE("library: bringing a game to the emulator needs the console here and the app closed") {
+  LibraryHarness h;
+  std::string error;
+  const std::string newGame = "game/0100000000000099/" + kSwitchUser;
+  CHECK_FALSE(h.core->bringToEmulator(newGame, error));
+  CHECK(error.find("open WarpPoint on your Switch") != std::string::npos);
 }

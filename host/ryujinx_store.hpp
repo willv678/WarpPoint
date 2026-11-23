@@ -69,6 +69,9 @@ class RyujinxStore : public UnitStore {
   // Whether a game is running in the emulator (any game save is in use).
   bool gameRunning() const;
 
+  // The folder holding this save's files (its committed copy), if the emulator has it.
+  std::optional<std::filesystem::path> saveFolder(const std::string& key) const;
+
  private:
   friend class RyujinxWriter;
 
@@ -98,6 +101,11 @@ class RyujinxStore : public UnitStore {
 
 // Whether a process with one of these names is running (macOS; false elsewhere for now).
 bool processRunning(const std::vector<std::string>& names);
+
+// Stream (or, with a null sink, just hash) every file under dir, the way saves are
+// read. hash is "" when there are no files. Used to restore a backup folder.
+bool streamFolder(const std::filesystem::path& dir, UnitSink* sink, std::string& hash,
+                  std::string& error);
 
 // Every file the processes with these names have open (macOS; empty elsewhere for now).
 std::vector<std::filesystem::path> openFilesOf(const std::vector<std::string>& names);

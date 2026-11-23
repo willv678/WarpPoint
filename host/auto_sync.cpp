@@ -5,6 +5,12 @@
 #include "session.hpp"
 #include "state_store.hpp"
 #include "title_cache.hpp"
+#include "emulator.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <ctime>
+#include <fstream>
 
 #include <algorithm>
 #include <optional>
@@ -12,6 +18,63 @@
 namespace WarpPoint {
 
 using Clock = std::chrono::steady_clock;
+using json = nlohmann::json;
+
+namespace {
+
+std::string nowUtc() {
+  const std::time_t t = std::time(nullptr);
+  std::tm tm{};
+  gmtime_r(&t, &tm);
+  char buf[32];
+  std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return buf;
+}
+
+void writeJson(const std::filesystem::path& file, const json& j) {
+  std::error_code ec;
+  std::filesystem::create_directories(file.parent_path(), ec);
+  const auto tmp = file.string() + ".tmp";
+  {
+    std::ofstream out(tmp);
+    out << j.dump(2) << "\n";
+    if (!out) return;
+  }
+  std::filesystem::rename(tmp, file, ec);
+}
+
+json readJson(const std::filesystem::path& file) {
+  std::ifstream in(file);
+  if (!in) return json::object();
+  json j = json::parse(in, nullptr, false);
+  return j.is_object() ? j : json::object();
+}
+
+}  // namespace
+
+void saveConsoleList(const std::filesystem::path& dataDir, const std::string& deviceId,
+                     const std::string& name, const std::vector<UnitRef>& saves) {
+  json keys = json::array();
+  for (const auto& r : saves) keys.push_back(r.key);
+  writeJson(dataDir / "consoles" / (deviceId + ".json"),
+            {{"name", name}, {"updated", nowUtc()}, {"saves", keys}});
+}
+
+void saveLastResults(const std::filesystem::path& dataDir, const std::vector<UnitReport>& reports,
+                     const std::string& local, const std::string& console) {
+  const auto file = dataDir / "last-sync.json";
+  json all = readJson(file);
+  const std::string at = nowUtc();
+  for (const auto& r : reports) {
+    all[r.key] = {{"action", actionName(r.action)},
+                  {"ok", r.ok && !r.skipped},
+                  {"text", r.skipped ? "skipped: " + r.message
+                           : !r.ok   ? "failed: " + r.message
+                                     : describeAction(r.action, local, console)},
+                  {"at", at}};
+  }
+  writeJson(file, all);
+}
 
 bool AutoSync::start(AutoSyncConfig config, std::string& error) {
   if (thread_.joinable()) return true;
@@ -29,6 +92,14 @@ bool AutoSync::start(AutoSyncConfig config, std::string& error) {
 void AutoSync::stop() {
   stop_ = true;
   if (thread_.joinable()) thread_.join();
+}
+
+void AutoSync::syncKeys(const std::vector<std::string>& keys) {
+  {
+    std::lock_guard<std::mutex> lock(extraMutex_);
+    extraKeys_.insert(extraKeys_.end(), keys.begin(), keys.end());
+  }
+  requested_ = true;
 }
 
 void AutoSync::emit(AutoSyncEvent e) {
@@ -117,6 +188,14 @@ bool AutoSync::runPass(const Peer& console) {
   if (!local->list(refs, error)) return fail(error);
   std::vector<std::string> keys;
   for (const auto& r : refs) keys.push_back(r.key);
+  std::vector<std::string> extra;
+  {
+    std::lock_guard<std::mutex> lock(extraMutex_);
+    extra.swap(extraKeys_);
+  }
+  for (const auto& k : extra) {
+    if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
+  }
 
   emit({AutoSyncEvent::Kind::PassStarted, session->agent.name, localName, {}, ""});
   BackupStore backups(cfg_.dataDir / "backups", cfg_.keepBackups);
@@ -125,12 +204,19 @@ bool AutoSync::runPass(const Peer& console) {
   const auto reports = engine.runPass(keys);
   if (!state.save(error)) return fail("could not save sync state: " + error);
 
-  // Names for anything new, so the app can show them.
-  TitleCache titles(cfg_.dataDir / "titles");
+  // Remember what the console has (the library shows it while the console is off),
+  // and fetch names for anything new.
+  std::vector<UnitRef> consoleSaves;
   std::vector<uint64_t> ids;
   for (const auto& r : reports) ids.push_back(titleIdOfKey(r.key));
+  if (session->store->list(consoleSaves, error)) {
+    saveConsoleList(cfg_.dataDir, session->agent.deviceId, session->agent.name, consoleSaves);
+    for (const auto& r : consoleSaves) ids.push_back(titleIdOfKey(r.key));
+  }
+  TitleCache titles(cfg_.dataDir / "titles");
   std::string titleError;
   fetchTitles(*session, titles, ids, false, titleError);
+  saveLastResults(cfg_.dataDir, reports, localName, session->agent.name);
 
   size_t copied = 0, conflicts = 0, problems = 0;
   for (const auto& r : reports) {

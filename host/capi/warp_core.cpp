@@ -56,6 +56,26 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
   return false;
 }
 
+char* warp_core_games(WarpCore* core) { return dup(core->core.gamesJson()); }
+
+char* warp_core_backups(WarpCore* core, const char* key) {
+  return dup(core->core.backupsJson(key ? key : ""));
+}
+
+bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, char** error) {
+  std::string e;
+  if (core->core.restore(key ? key : "", backupId ? backupId : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error) {
+  std::string e;
+  if (core->core.bringToEmulator(key ? key : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
 char* warp_core_data_dir(WarpCore* core) { return dup(core->core.dataDir().string()); }
 
 void warp_free(char* s) { std::free(s); }

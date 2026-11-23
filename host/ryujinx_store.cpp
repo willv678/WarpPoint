@@ -188,6 +188,10 @@ bool replaceDir(const fs::path& target, const fs::path& with, const fs::path& ol
 
 }  // namespace
 
+bool streamFolder(const fs::path& dir, UnitSink* sink, std::string& hash, std::string& error) {
+  return walk(dir, sink, hash, error);
+}
+
 bool parseSaveIndex(const std::vector<uint8_t>& d, std::vector<SaveIndexRecord>& out) {
   out.clear();
   if (d.size() < 12 || std::string(d.begin(), d.begin() + 4) != "IMKV") return false;
@@ -412,6 +416,13 @@ bool RyujinxStore::saveInUse(const fs::path& dir) const {
     if (normalPath(f) == lock) return true;
   }
   return false;
+}
+
+std::optional<fs::path> RyujinxStore::saveFolder(const std::string& key) const {
+  std::string error;
+  const auto dir = saveDir(key, error);
+  if (!dir) return std::nullopt;
+  return contentDir(*dir);
 }
 
 bool RyujinxStore::gameRunning() const {

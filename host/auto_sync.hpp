@@ -10,6 +10,10 @@
 // its save) and wait for the sync lock, so a `warp` command in a terminal
 // and AutoSync never run at the same time. Everything that happens is reported
 // through onEvent, which is called on AutoSync's thread.
+//
+// After every pass it also writes, for the library window:
+//   <data>/consoles/<device id>.json   the console's name and every save it has
+//   <data>/last-sync.json              each save's latest result and when
 #pragma once
 #include "discovery.hpp"
 #include "sync_engine.hpp"
@@ -20,6 +24,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -58,6 +63,12 @@ struct AutoSyncConfig {
   std::function<void(const AutoSyncEvent&)> onEvent;
 };
 
+// The library's records (see above). Exposed for tests and the CLI.
+void saveConsoleList(const std::filesystem::path& dataDir, const std::string& deviceId,
+                     const std::string& name, const std::vector<UnitRef>& saves);
+void saveLastResults(const std::filesystem::path& dataDir, const std::vector<UnitReport>& reports,
+                     const std::string& local, const std::string& console);
+
 class AutoSync {
  public:
   ~AutoSync() { stop(); }
@@ -67,6 +78,9 @@ class AutoSync {
   void stop();
   // Sync as soon as possible (the menu's "Sync now").
   void syncNow() { requested_ = true; }
+  // Also sync these saves next time, even though the emulator doesn't have them yet
+  // (that creates them there: "Bring to Astris").
+  void syncKeys(const std::vector<std::string>& keys);
 
   uint16_t port() const { return discovery_.port(); }
 
@@ -81,6 +95,8 @@ class AutoSync {
   std::thread thread_;
   std::atomic<bool> stop_{false};
   std::atomic<bool> requested_{false};
+  std::mutex extraMutex_;
+  std::vector<std::string> extraKeys_;
 };
 
 }  // namespace WarpPoint

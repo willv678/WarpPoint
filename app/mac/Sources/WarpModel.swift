@@ -35,6 +35,8 @@ final class WarpModel: ObservableObject {
   @Published private(set) var recent: [RecentSync] = []
   @Published private(set) var conflicts: [Conflict] = []
   @Published private(set) var beam: CGFloat = 0
+  @Published private(set) var library = Library()
+  @Published var libraryMessage: String?
   @Published var openAtLogin = SMAppService.mainApp.status == .enabled {
     didSet { setOpenAtLogin(openAtLogin) }
   }
@@ -44,6 +46,7 @@ final class WarpModel: ObservableObject {
   private var pulse: Timer?
   private var pulseStart = Date()
   private var failuresInARow = 0
+  private var libraryTimer: Timer?
 
   init() {
     let dir = ProcessInfo.processInfo.environment["WARP_DATA_DIR"]
@@ -59,6 +62,11 @@ final class WarpModel: ObservableObject {
     pump = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.drainEvents() }
     }
+    // The library's "is Astris open" and saves lists: cheap to read (no hashing).
+    libraryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.refreshLibrary() }
+    }
+    refreshLibrary()
   }
 
   var statusLine: String {
@@ -96,6 +104,45 @@ final class WarpModel: ObservableObject {
     }
   }
 
+  // MARK: - Library
+
+  func refreshLibrary() {
+    guard let raw = take(warp_core_games(core)), let data = raw.data(using: .utf8),
+          let lib = try? JSONDecoder().decode(Library.self, from: data) else { return }
+    library = lib
+  }
+
+  func backups(for key: String) -> [Backup] {
+    guard let raw = take(warp_core_backups(core, key)), let data = raw.data(using: .utf8) else {
+      return []
+    }
+    return (try? JSONDecoder().decode([Backup].self, from: data)) ?? []
+  }
+
+  func restore(_ game: Game, backup: Backup) {
+    let core = self.core
+    libraryMessage = "Restoring \(game.name)…"
+    Task.detached {
+      var error: UnsafeMutablePointer<CChar>?
+      let ok = warp_core_restore(core, game.key, backup.id, &error)
+      let message = ok ? "Restored. It goes to your Switch with the next sync."
+                       : "Couldn't restore: \(WarpModel.takeString(error) ?? "unknown error")"
+      await MainActor.run {
+        self.libraryMessage = message
+        self.refreshLibrary()
+      }
+    }
+  }
+
+  func bringToEmulator(_ game: Game) {
+    var error: UnsafeMutablePointer<CChar>?
+    if warp_core_bring_to_emulator(core, game.key, &error) {
+      libraryMessage = "Bringing \(game.name) over…"
+    } else {
+      libraryMessage = "Couldn't: \(take(error) ?? "unknown error")"
+    }
+  }
+
   func showDataFolder() {
     if let dir = take(warp_core_data_dir(core)) {
       NSWorkspace.shared.open(URL(fileURLWithPath: dir))
@@ -121,8 +168,10 @@ final class WarpModel: ObservableObject {
     case "consoleFound":
       console = s("console")
       problem = nil
+      refreshLibrary()
     case "consoleLost":
       console = nil
+      refreshLibrary()
       setSyncing(false)
       waitingForEmulator = false
     case "waiting":
@@ -136,6 +185,9 @@ final class WarpModel: ObservableObject {
       let ok = e["ok"] as? Bool ?? false
       let skipped = e["skipped"] as? Bool ?? false
       // Only what changed or went wrong is worth showing; "in sync" is the quiet norm.
+      if (!ok || skipped), libraryMessage?.hasPrefix("Bringing") == true {
+        libraryMessage = "\(s("name")): \(s("message"))"
+      }
       if action == "push" || action == "pull" || !ok || skipped {
         let text = skipped || !ok ? "\(s("text")): \(s("message"))" : s("text")
         recent.insert(RecentSync(name: s("name"), text: text, icon: s("icon"), ok: ok && !skipped,
@@ -149,6 +201,8 @@ final class WarpModel: ObservableObject {
       lastSummary = s("message")
       problem = nil
       refreshConflicts()
+      refreshLibrary()
+      if libraryMessage?.hasPrefix("Bringing") == true { libraryMessage = nil }
     case "passFailed":
       setSyncing(false)
       failuresInARow += 1

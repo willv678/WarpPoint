@@ -13,5 +13,10 @@ struct WarpPointApp: App {
       Image(nsImage: UFOIcon.image(beam: model.beam))
     }
     .menuBarExtraStyle(.window)
+
+    Window("WarpPoint Library", id: "library") {
+      LibraryView(model: model)
+    }
+    .defaultSize(width: 980, height: 640)
   }
 }
