@@ -11,6 +11,13 @@
 // write replaces folder 1 and then folder 0. If we're interrupted between the two,
 // Ryujinx's own recovery (rebuild a missing 0 from 1) still ends on one whole save.
 //
+// A write for a game the emulator has no save for creates one, as Ryujinx would on the
+// game's first start: a new numbered save folder, then a new row in the index (written
+// like a save: folder 1, then 0). The index is backed up first under
+// <root>/.warppoint/index-backups. Ryujinx keeps the index in memory while the app is
+// open (LibHac SaveDataIndexer loads it once), which is one more reason every write
+// waits until the emulator is closed.
+//
 // Keys use the Switch's user id ("game/<titleId>/<switch user>"); a one-time link maps
 // each Switch user to an emulator profile. Saves of unlinked profiles are invisible.
 #pragma once
@@ -64,6 +71,9 @@ class RyujinxStore : public UnitStore {
   std::optional<std::filesystem::path> saveDir(const std::string& key, std::string& error) const;
   // Hash of the save in saveDir ("" when it has no files).
   bool hashSave(const std::filesystem::path& dir, std::string& hash, std::string& error) const;
+  // Make a new save for key from staging/"files" and add it to the index.
+  bool createSave(const std::string& key, const std::filesystem::path& staging,
+                  std::string& error) const;
 
   std::filesystem::path root_;
   std::map<std::string, std::string> users_;

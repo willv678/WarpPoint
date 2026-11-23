@@ -8,6 +8,9 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <ctime>
+#include <tuple>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -216,7 +219,123 @@ bool parseSaveIndex(const std::vector<uint8_t>& d, std::vector<SaveIndexRecord>&
   return true;
 }
 
+namespace {
+
+constexpr const char* kIndexSave = "bis/system/save/8000000000000000";
+constexpr uint8_t kAccountSave = 1;  // SaveDataType.Account
+constexpr uint8_t kUserSpace = 1;    // SaveDataSpaceId.User
+// Sizes recorded in a new save's info file. Ryujinx never enforces them (its "extend
+// save" step is a no-op, LibHac ApplicationSaveDataManagement.ExtendSaveDataIfNeeded),
+// so a generous fixed value is fine for a game that never ran here.
+constexpr uint64_t kRecordedSaveSize = 64ull << 20;
+
+void put64(uint8_t* p, uint64_t v) {
+  for (int i = 0; i < 8; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
+}
+
+void put32(uint8_t* p, uint32_t v) {
+  for (int i = 0; i < 4; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
+}
+
+// One index row exactly as stored: 0x40-byte key (SaveDataAttribute) and
+// 0x40-byte value (SaveDataIndexerValue).
+struct RawEntry {
+  std::array<uint8_t, 0x40> key{};
+  std::array<uint8_t, 0x40> value{};
+};
+
+bool parseRawIndex(const std::string& d, std::vector<RawEntry>& out) {
+  out.clear();
+  const auto* b = reinterpret_cast<const uint8_t*>(d.data());
+  if (d.size() < 12 || d.compare(0, 4, "IMKV") != 0) return false;
+  const uint32_t count = le32(b + 8);
+  size_t pos = 12;
+  for (uint32_t i = 0; i < count; ++i) {
+    // Only rewrite an index we fully understand: every row 0x40 + 0x40.
+    if (d.size() - pos < 12 + 0x80 || d.compare(pos, 4, "IMEN") != 0 ||
+        le32(b + pos + 4) != 0x40 || le32(b + pos + 8) != 0x40) {
+      return false;
+    }
+    RawEntry e;
+    std::copy(b + pos + 12, b + pos + 12 + 0x40, e.key.begin());
+    std::copy(b + pos + 12 + 0x40, b + pos + 12 + 0x80, e.value.begin());
+    out.push_back(e);
+    pos += 12 + 0x80;
+  }
+  return pos == d.size();
+}
+
+// Ryujinx loads the index without sorting it (FlatMapKeyValueStore.LoadFrom appends)
+// and then searches it as if sorted, so rows must stay in its order:
+// program id, type, user id (high, low), static save id, index, rank
+// (LibHac SaveDataAttribute.CompareTo).
+bool keyLess(const RawEntry& a, const RawEntry& b) {
+  auto tuple = [](const RawEntry& e) {
+    const uint8_t* k = e.key.data();
+    return std::make_tuple(le64(k + 0x00), k[0x20], le64(k + 0x08), le64(k + 0x10),
+                           le64(k + 0x18), static_cast<uint16_t>(k[0x22] | k[0x23] << 8),
+                           k[0x21]);
+  };
+  return tuple(a) < tuple(b);
+}
+
+std::string serializeIndex(const std::vector<RawEntry>& rows) {
+  std::string out(12, '\0');
+  out.replace(0, 4, "IMKV");
+  put32(reinterpret_cast<uint8_t*>(&out[8]), static_cast<uint32_t>(rows.size()));
+  for (const auto& r : rows) {
+    std::string e(12, '\0');
+    e.replace(0, 4, "IMEN");
+    put32(reinterpret_cast<uint8_t*>(&e[4]), 0x40);
+    put32(reinterpret_cast<uint8_t*>(&e[8]), 0x40);
+    out += e;
+    out.append(reinterpret_cast<const char*>(r.key.data()), r.key.size());
+    out.append(reinterpret_cast<const char*>(r.value.data()), r.value.size());
+  }
+  return out;
+}
+
+// "20261123T171607Z", for names people read.
+std::string utcStamp() {
+  const std::time_t now = std::time(nullptr);
+  std::tm tm{};
+  gmtime_r(&now, &tm);
+  char buf[32];
+  std::strftime(buf, sizeof(buf), "%Y%m%dT%H%M%SZ", &tm);
+  return buf;
+}
+
+bool writeAll(const fs::path& p, const std::string& data, std::string& error) {
+  std::ofstream out(p, std::ios::binary | std::ios::trunc);
+  out.write(data.data(), static_cast<std::streamsize>(data.size()));
+  out.close();
+  if (!out) {
+    error = "cannot write " + p.string();
+    return false;
+  }
+  return true;
+}
+
+// The save's info file (SaveDataExtraData, 0x200 bytes), filled in like Ryujinx does
+// for a game save it creates: the same attribute as the index key, the game as owner.
+std::string makeExtraData(const RawEntry& row, uint64_t titleId) {
+  std::string out(0x200, '\0');
+  auto* p = reinterpret_cast<uint8_t*>(out.data());
+  std::copy(row.key.begin(), row.key.end(), p);  // attribute
+  put64(p + 0x40, titleId);                      // owner
+  put64(p + 0x58, kRecordedSaveSize);            // data size
+  put64(p + 0x60, kRecordedSaveSize);            // journal size
+  const std::string commit = randomHexId(8);
+  put64(p + 0x68, std::strtoull(commit.substr(0, 16).c_str(), nullptr, 16));
+  return out;
+}
+
+}  // namespace
+
 // Receives a save, then swaps it in for the emulator's copy (folder 1, then folder 0).
+//
+// With no save folder (the game never ran in the emulator), it creates the save the
+// way Ryujinx would: a new numbered folder, then a row in the save index.
 class RyujinxWriter : public StagedWriter {
  public:
   RyujinxWriter(const RyujinxStore& store, fs::path staging, fs::path saveDir,
@@ -225,6 +344,9 @@ class RyujinxWriter : public StagedWriter {
         store_(store),
         saveDir_(std::move(saveDir)),
         expected_(std::move(expectedHash)) {}
+  // Creating: key is the save's key, saveDir is decided at install time.
+  RyujinxWriter(const RyujinxStore& store, fs::path staging, std::string key)
+      : StagedWriter(std::move(staging)), store_(store), createKey_(std::move(key)) {}
 
  protected:
   bool install(const fs::path& staging, const std::string&, const std::vector<FileDigest>&,
@@ -235,6 +357,7 @@ class RyujinxWriter : public StagedWriter {
       error = "the emulator was opened during the sync; close it and sync again";
       return false;
     }
+    if (!createKey_.empty()) return store_.createSave(createKey_, staging, error);
     std::string current;
     if (!store_.hashSave(saveDir_, current, error)) return false;
     if (current != expected_) {
@@ -255,6 +378,7 @@ class RyujinxWriter : public StagedWriter {
   const RyujinxStore& store_;
   fs::path saveDir_;
   std::string expected_;
+  std::string createKey_;
 };
 
 RyujinxStore::RyujinxStore(fs::path root, std::map<std::string, std::string> users,
@@ -367,16 +491,9 @@ std::unique_ptr<UnitWriter> RyujinxStore::write(const UnitRef& ref, const std::s
     return nullptr;
   }
   const auto dir = saveDir(ref.key, error);
-  if (!dir) {
-    // Creating a brand-new save means adding to the emulator's index; not yet.
-    if (error.empty()) {
-      error = "the emulator has no save for this game yet: start the game once in the "
-              "emulator, close it, then sync again";
-    }
-    return nullptr;
-  }
+  if (!dir && !error.empty()) return nullptr;  // bad key, unlinked user, unreadable index
   std::string current;
-  if (!hashSave(*dir, current, error)) return nullptr;
+  if (dir && !hashSave(*dir, current, error)) return nullptr;
   if (current != expectedHash) {
     error = "the emulator's save changed since it was checked";
     return nullptr;
@@ -389,7 +506,119 @@ std::unique_ptr<UnitWriter> RyujinxStore::write(const UnitRef& ref, const std::s
     error = "cannot create " + staging.string() + ": " + ec.message();
     return nullptr;
   }
+  if (!dir) return std::make_unique<RyujinxWriter>(*this, staging, ref.key);  // new save
   return std::make_unique<RyujinxWriter>(*this, staging, *dir, expectedHash);
+}
+
+bool RyujinxStore::createSave(const std::string& key, const fs::path& staging,
+                              std::string& error) const {
+  uint64_t titleId = 0;
+  std::string switchUser;
+  if (!parseKey(key, titleId, switchUser) || !users_.count(switchUser)) {
+    error = "cannot create a save for " + key;
+    return false;
+  }
+  const std::string emuUser = users_.at(switchUser);
+
+  // The index as it is now. Someone may have created the save since write() looked.
+  const fs::path indexSave = root_ / kIndexSave;
+  const fs::path indexDir = contentDir(indexSave);
+  bool ok = false;
+  const std::string indexBytes = readAll(indexDir / "imkvdb.arc", ok);
+  std::vector<RawEntry> rows;
+  if (!ok || !parseRawIndex(indexBytes, rows)) {
+    error = "the emulator's save index is not in a format WarpPoint can safely change";
+    return false;
+  }
+  RawEntry row;
+  put64(row.key.data() + 0x00, titleId);
+  put64(row.key.data() + 0x08, std::strtoull(emuUser.substr(0, 16).c_str(), nullptr, 16));
+  put64(row.key.data() + 0x10, std::strtoull(emuUser.substr(16).c_str(), nullptr, 16));
+  row.key[0x20] = kAccountSave;
+  for (const auto& r : rows) {
+    if (std::equal(r.key.begin(), r.key.end(), row.key.begin())) {
+      error = "the emulator created this save during the sync; sync again";
+      return false;
+    }
+  }
+
+  // The new save's number: one past the emulator's counter (lastPublishedId), and
+  // past any number already used, the same way Ryujinx picks it.
+  const std::string lastBytes = readAll(indexDir / "lastPublishedId", ok);
+  uint64_t saveId = ok && lastBytes.size() == 8 ? le64(reinterpret_cast<const uint8_t*>(lastBytes.data())) : 0;
+  for (const auto& r : rows) {
+    const uint64_t id = le64(r.value.data());
+    if (r.value[0x18] == kUserSpace && id < 0x8000000000000000ull) saveId = std::max(saveId, id);
+  }
+  std::error_code ec;
+  fs::path saveDir;
+  do {
+    ++saveId;
+    saveDir = root_ / "bis/user/save" / hex64(saveId);
+  } while (fs::exists(saveDir, ec));
+  put64(row.value.data() + 0x00, saveId);
+  row.value[0x18] = kUserSpace;
+
+  // 1. The save folder, built in staging and moved in whole. Until the index points
+  //    at it, the emulator ignores it.
+  const fs::path built = staging / "newsave";
+  fs::create_directories(built, ec);
+  fs::copy(staging / "files", built / "0", fs::copy_options::recursive, ec);
+  if (!ec) fs::rename(staging / "files", built / "1", ec);
+  if (ec) {
+    error = "cannot prepare save: " + ec.message();
+    return false;
+  }
+  const std::string extra = makeExtraData(row, titleId);
+  if (!writeAll(built / "ExtraData0", extra, error) ||
+      !writeAll(built / "ExtraData1", extra, error) || !writeAll(built / ".lock", "", error)) {
+    return false;
+  }
+  fs::create_directories(saveDir.parent_path(), ec);
+  fs::rename(built, saveDir, ec);
+  if (ec) {
+    error = "cannot create " + saveDir.string() + ": " + ec.message();
+    return false;
+  }
+
+  // 2. A backup of the index, in case anything about it goes wrong.
+  const fs::path backup = root_ / ".warppoint" / "index-backups" /
+                          (utcStamp() + "-before-" + hex64(titleId) + "-" + randomHexId(2));
+  fs::create_directories(backup.parent_path(), ec);
+  fs::copy(indexSave, backup, fs::copy_options::recursive, ec);
+  if (ec) {
+    fs::remove_all(saveDir, ec);
+    error = "cannot back up the emulator's save index, nothing changed";
+    return false;
+  }
+
+  // 3. The index with the new row, written like a save: folder 1, then folder 0.
+  rows.push_back(row);
+  std::sort(rows.begin(), rows.end(), keyLess);
+  std::string counter(8, '\0');
+  put64(reinterpret_cast<uint8_t*>(counter.data()), saveId);
+  const fs::path idx1 = staging / "index1", idx0 = staging / "index0";
+  fs::copy(indexDir, idx1, fs::copy_options::recursive, ec);
+  bool okIndex = !ec && writeAll(idx1 / "imkvdb.arc", serializeIndex(rows), error) &&
+                 writeAll(idx1 / "lastPublishedId", counter, error);
+  if (okIndex) {
+    fs::copy(idx1, idx0, fs::copy_options::recursive, ec);
+    okIndex = !ec && replaceDir(indexSave / "1", idx1, staging / "oldindex1", error) &&
+              replaceDir(indexSave / "0", idx0, staging / "oldindex0", error);
+  }
+  if (!okIndex) {
+    // If folder 1 already holds the new index, the save is real: keep its folder.
+    std::vector<RawEntry> now;
+    if (!parseRawIndex(readAll(contentDir(indexSave) / "imkvdb.arc", ok), now) ||
+        std::none_of(now.begin(), now.end(), [&](const RawEntry& r) {
+          return std::equal(r.key.begin(), r.key.end(), row.key.begin());
+        })) {
+      fs::remove_all(saveDir, ec);
+    }
+    if (error.empty()) error = "cannot update the emulator's save index";
+    return false;
+  }
+  return true;
 }
 
 bool RyujinxStore::profiles(std::vector<EmulatorProfile>& out, std::string& error) const {

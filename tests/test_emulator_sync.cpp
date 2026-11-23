@@ -157,8 +157,8 @@ TEST_CASE("ryujinx: unlinked users and games without a save are reported, not gu
   CHECK(st[1].error.empty());
 
   std::string error;
-  CHECK_FALSE(store.write({"game/0100000000000099/" + kSwitchUser}, "", error));
-  CHECK(error.find("start the game once") != std::string::npos);
+  CHECK_FALSE(store.write({"game/0100430013120000/" + std::string(32, 'f')}, "", error));
+  CHECK(error.find("not linked") != std::string::npos);
 }
 
 // ---- Writing the emulator ----
@@ -209,6 +209,108 @@ TEST_CASE("ryujinx: never writes while the emulator is open or after the save ch
     CHECK(readFile(emu.saveDir() / "0/SHANLRG.sav") == "played meanwhile");
   }
   CHECK(readFile(emu.saveDir() / "1/SHANLRG.sav") == "scratch, not committed");  // untouched
+}
+
+
+// ---- Creating a save the emulator never had ----
+
+namespace {
+const std::string kNewGame = "game/0100000000000099/" + kSwitchUser;  // sorts before Shantae
+
+std::vector<SaveIndexRecord> indexIn(const std::filesystem::path& dir) {
+  const std::string bytes = readFile(dir / "imkvdb.arc");
+  std::vector<SaveIndexRecord> recs;
+  REQUIRE(parseSaveIndex({bytes.begin(), bytes.end()}, recs));
+  return recs;
+}
+}  // namespace
+
+TEST_CASE("ryujinx: writing a game the emulator never ran creates its save like Ryujinx") {
+  FakeEmulator emu;
+  auto store = emu.store();
+  CHECK_FALSE(store.status({{kNewGame}})[0].exists);
+  std::string error;
+  auto w = store.write({kNewGame}, "", error);
+  REQUIRE_MESSAGE(w, error);
+  const std::string hash = writeSave(*w, {{"slot0.sav", "from the switch"}});
+  REQUIRE_MESSAGE(w->commit(hash), w->error());
+
+  // Next free number after the highest game save (2): 3.
+  const auto dir = emu.root() / "bis/user/save/0000000000000003";
+  CHECK(readFile(dir / "0/slot0.sav") == "from the switch");
+  CHECK(readFile(dir / "1/slot0.sav") == "from the switch");
+  CHECK(std::filesystem::file_size(dir / "ExtraData0") == 0x200);
+  CHECK(std::filesystem::file_size(dir / "ExtraData1") == 0x200);
+  CHECK(std::filesystem::exists(dir / ".lock"));
+  const std::string extra = readFile(dir / "ExtraData0");
+  CHECK(extra.compare(0, 8, std::string("\x99\x00\x00\x00\x00\x00\x00\x01", 8)) == 0);
+
+  // The index has the new row, in Ryujinx's order, in both copies, plus the counter.
+  for (const char* copy : {"0", "1"}) {
+    const auto idx = emu.root() / "bis/system/save/8000000000000000" / copy;
+    const auto recs = indexIn(idx);
+    REQUIRE(recs.size() == 4);
+    CHECK(recs[0].titleId == 0);  // the system save row stays first
+    CHECK(recs[1].titleId == 0x0100000000000099);
+    CHECK(recs[1].saveId == 3);
+    CHECK(recs[1].uid[0] == 1);
+    CHECK(recs[1].saveType == 1);
+    CHECK(recs[1].spaceId == 1);
+    CHECK(recs[2].titleId == kShantaeId);
+    CHECK(recs[3].titleId == kOtherGame);
+    CHECK(readFile(idx / "lastPublishedId") == std::string("\x03\0\0\0\0\0\0\0", 8));
+  }
+  // It is now an ordinary save: listed, read back, written over.
+  std::vector<UnitRef> refs;
+  REQUIRE(store.list(refs, error));
+  CHECK(refs.size() == 2);
+  CHECK(store.status({{kNewGame}})[0].hash == hash);
+  // The index was backed up before the change.
+  CHECK_FALSE(std::filesystem::is_empty(emu.root() / ".warppoint/index-backups"));
+  CHECK(std::filesystem::is_empty(emu.root() / ".warppoint-staging"));
+}
+
+TEST_CASE("ryujinx: a new save's number follows the emulator's counter") {
+  FakeEmulator emu;
+  writeFile(emu.root() / "bis/system/save/8000000000000000/0/lastPublishedId",
+            std::string("\x07\0\0\0\0\0\0\0", 8));
+  std::filesystem::create_directories(emu.root() / "bis/user/save/0000000000000008");  // taken
+  auto store = emu.store();
+  std::string error;
+  auto w = store.write({kNewGame}, "", error);
+  REQUIRE(w);
+  REQUIRE(w->commit(writeSave(*w, {{"a", "b"}})));
+  CHECK(std::filesystem::exists(emu.root() / "bis/user/save/0000000000000009/0/a"));
+}
+
+TEST_CASE("ryujinx: never changes an index it does not fully understand") {
+  FakeEmulator emu;
+  const auto arc = emu.root() / "bis/system/save/8000000000000000/0/imkvdb.arc";
+  std::string bytes = readFile(arc);
+  bytes += "trailing junk";
+  writeFile(arc, bytes);
+  auto store = emu.store();
+  std::string error;
+  auto w = store.write({kNewGame}, "", error);
+  REQUIRE(w);
+  CHECK_FALSE(w->commit(writeSave(*w, {{"a", "b"}})));
+  CHECK(readFile(arc) == bytes);
+  CHECK_FALSE(std::filesystem::exists(emu.root() / "bis/user/save/0000000000000003"));
+}
+
+TEST_CASE("ryujinx: a save created by the emulator during the sync is not created twice") {
+  FakeEmulator emu;
+  auto store = emu.store();
+  std::string error;
+  auto w = store.write({kNewGame}, "", error);
+  REQUIRE(w);
+  const std::string hash = writeSave(*w, {{"a", "b"}});
+  writeFile(emu.root() / "bis/system/save/8000000000000000/0/imkvdb.arc",
+            makeIndex({{0, 0, 0, 0, 0x8000000000000030},
+                       {0x0100000000000099, 1, 0, 1, 5},
+                       {kShantaeId, 1, 0, 1, 2}}));
+  CHECK_FALSE(w->commit(hash));
+  CHECK_FALSE(std::filesystem::exists(emu.root() / "bis/user/save/0000000000000006"));
 }
 
 // ---- Sync passes ----
