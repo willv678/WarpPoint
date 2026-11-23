@@ -37,6 +37,7 @@ final class WarpModel: ObservableObject {
   @Published private(set) var beam: CGFloat = 0
   @Published private(set) var library = Library()
   @Published var libraryMessage: String?
+  @Published private(set) var setup = Setup()
   @Published var openAtLogin = SMAppService.mainApp.status == .enabled {
     didSet { setOpenAtLogin(openAtLogin) }
   }
@@ -64,12 +65,17 @@ final class WarpModel: ObservableObject {
     }
     // The library's "is Astris open" and saves lists: cheap to read (no hashing).
     libraryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-      MainActor.assumeIsolated { self?.refreshLibrary() }
+      MainActor.assumeIsolated {
+        self?.refreshLibrary()
+        self?.refreshSetup()
+      }
     }
     refreshLibrary()
+    refreshSetup()
   }
 
   var statusLine: String {
+    if setup.needsSetup { return "Finish setting up WarpPoint to start syncing." }
     if syncing { return "Syncing with \(console ?? "your Switch")…" }
     guard let console else { return "Open WarpPoint on your Switch to sync." }
     if waitingForEmulator { return "\(console) is here. Syncs when you stop the game in \(localName)." }
@@ -102,6 +108,36 @@ final class WarpModel: ObservableObject {
         self.refreshConflicts()
       }
     }
+  }
+
+  // MARK: - Setup and Settings
+
+  func refreshSetup() {
+    guard let raw = take(warp_core_setup(core)), let data = raw.data(using: .utf8),
+          let s = try? JSONDecoder().decode(Setup.self, from: data) else { return }
+    setup = s
+  }
+
+  /// nil on success, else why not. These are quick (they only wait for a sync in
+  /// progress, which is rare), so they run here and the answer shows at once.
+  func setLink(_ consoleUser: String, _ profile: String) -> String? {
+    defer { refreshSetup(); refreshLibrary() }
+    return call { warp_core_set_link(core, consoleUser, profile, &$0) }
+  }
+
+  func setKeepBackups(_ keep: Int) -> String? {
+    defer { refreshSetup(); refreshLibrary() }
+    return call { warp_core_set_keep_backups(core, Int32(keep), &$0) }
+  }
+
+  func setEmulatorPath(_ path: String) -> String? {
+    defer { refreshSetup(); refreshLibrary() }
+    return call { warp_core_set_emulator_path(core, path, &$0) }
+  }
+
+  private func call(_ body: (inout UnsafeMutablePointer<CChar>?) -> Bool) -> String? {
+    var error: UnsafeMutablePointer<CChar>?
+    return body(&error) ? nil : (take(error) ?? "something went wrong")
   }
 
   // MARK: - Library
@@ -183,6 +219,7 @@ final class WarpModel: ObservableObject {
       console = s("console")
       problem = nil
       refreshLibrary()
+      refreshSetup()
     case "consoleLost":
       console = nil
       refreshLibrary()
@@ -216,6 +253,7 @@ final class WarpModel: ObservableObject {
       problem = nil
       refreshConflicts()
       refreshLibrary()
+      refreshSetup()
       if libraryMessage?.hasPrefix("Bringing") == true { libraryMessage = nil }
     case "passFailed":
       setSyncing(false)

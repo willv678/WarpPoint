@@ -47,6 +47,14 @@ class AppCore {
   // next sync then carries it to the console.
   bool restore(const std::string& key, const std::string& backupId, std::string& error);
 
+  // Setup and Settings: what's found and how it's linked. See setupJson() in the .cpp.
+  std::string setupJson();
+  // Link a console user to an emulator profile ("" unlinks).
+  bool setLink(const std::string& consoleUser, const std::string& emulatorUser, std::string& error);
+  bool setKeepBackups(size_t keep, std::string& error);
+  // Point at the emulator's data folder; refused if it isn't one.
+  bool setEmulatorPath(const std::string& path, std::string& error);
+
   // "Stop Syncing" (ignored = true) or start again. Nothing is deleted either way.
   bool setIgnored(const std::string& key, bool ignored, std::string& error);
 

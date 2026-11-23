@@ -5,6 +5,7 @@ import SwiftUI
 struct MenuView: View {
   @ObservedObject var model: WarpModel
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.openSettings) private var openSettings
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -86,16 +87,22 @@ struct MenuView: View {
 
   private var actions: some View {
     VStack(alignment: .leading, spacing: 4) {
+      if model.setup.needsSetup {
+        MenuButton("Set Up WarpPoint…") {
+          openWindow(id: "setup")
+          NSApp.activate()
+        }
+      }
       MenuButton("Sync Now", disabled: model.console == nil || model.syncing) { model.syncNow() }
       MenuButton("Open Library…") {
         openWindow(id: "library")
         NSApp.activate()  // a menu bar app's window should come to the front
       }
       MenuButton("Show Backups and Data in Finder") { model.showDataFolder() }
-      Toggle("Open at Login", isOn: $model.openAtLogin)
-        .toggleStyle(.checkbox)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+      MenuButton("Settings…") {
+        openSettings()
+        NSApp.activate()
+      }
       Divider().padding(.vertical, 2)
       MenuButton("Quit WarpPoint") { NSApp.terminate(nil) }
     }

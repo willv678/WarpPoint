@@ -28,6 +28,9 @@ class RemoteStore : public UnitStore {
   bool titles(const std::vector<uint64_t>& ids,
               const std::function<void(const proto::TitleInfo&)>& each, std::string& error);
 
+  // The console's user accounts (needs the agent's "users" ability).
+  bool users(std::vector<proto::ConsoleUser>& out, std::string& error);
+
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }
 

@@ -144,7 +144,7 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 }
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
-                  TitleSource* titles) {
+                  TitleSource* titles, UserSource* users) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -210,6 +210,15 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
       case Msg::TitleReq:
         ok = handleTitles(s, titles, f, log);
         break;
+      case Msg::UsersReq: {
+        std::vector<proto::ConsoleUser> list;
+        if (!users || !users->users(list)) {
+          ok = sendError(s, ErrorCode::BadRequest, "this agent can't list users");
+          break;
+        }
+        ok = send(s, Msg::UsersResp, proto::encode(list));
+        break;
+      }
       case Msg::WriteReq:
         ok = handleWrite(s, store, f, log);
         break;

@@ -3,6 +3,7 @@
 #include <switch.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 
@@ -31,6 +32,28 @@ bool SwitchTitles::info(uint64_t titleId, proto::TitleInfo& out) {
 
   const size_t iconSize = std::min<size_t>(size - sizeof(data->nacp), sizeof(data->icon));
   out.icon.assign(data->icon, data->icon + iconSize);
+  return true;
+}
+
+bool SwitchUsers::users(std::vector<proto::ConsoleUser>& out) {
+  out.clear();
+  AccountUid uids[ACC_USER_LIST_SIZE];
+  s32 total = 0;
+  if (R_FAILED(accountListAllUsers(uids, ACC_USER_LIST_SIZE, &total))) return false;
+  for (s32 i = 0; i < total; ++i) {
+    char id[33];
+    std::snprintf(id, sizeof(id), "%016lx%016lx", uids[i].uid[0], uids[i].uid[1]);
+    proto::ConsoleUser u{id, ""};
+    AccountProfile profile;
+    if (R_SUCCEEDED(accountGetProfile(&profile, uids[i]))) {
+      AccountProfileBase base{};
+      if (R_SUCCEEDED(accountProfileGet(&profile, nullptr, &base))) {
+        u.name = fixedString(base.nickname, sizeof(base.nickname));
+      }
+      accountProfileClose(&profile);
+    }
+    out.push_back(std::move(u));
+  }
   return true;
 }
 

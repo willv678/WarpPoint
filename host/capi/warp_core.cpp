@@ -69,6 +69,32 @@ bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, ch
   return false;
 }
 
+char* warp_core_setup(WarpCore* core) { return dup(core->core.setupJson()); }
+
+bool warp_core_set_link(WarpCore* core, const char* consoleUser, const char* emulatorUser,
+                        char** error) {
+  std::string e;
+  if (core->core.setLink(consoleUser ? consoleUser : "", emulatorUser ? emulatorUser : "", e)) {
+    return true;
+  }
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error) {
+  std::string e;
+  if (keep >= 0 && core->core.setKeepBackups(static_cast<size_t>(keep), e)) return true;
+  setError(error, keep < 0 ? "can't keep a negative number of backups" : e);
+  return false;
+}
+
+bool warp_core_set_emulator_path(WarpCore* core, const char* path, char** error) {
+  std::string e;
+  if (core->core.setEmulatorPath(path ? path : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
 bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char** error) {
   std::string e;
   if (core->core.setIgnored(key ? key : "", ignored, e)) return true;

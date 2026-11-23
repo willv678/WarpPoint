@@ -575,3 +575,63 @@ TEST_CASE("library: Stop Syncing hides a game and keeps its saves; starting agai
   j = parse(h.core->gamesJson());
   CHECK(j["games"][0]["status"] != "ignored");
 }
+
+// ---- Setup and Settings ----
+
+TEST_CASE("setup: reports the emulator, the console's users and the links") {
+  LibraryHarness h;
+  const std::string second = std::string(31, '0') + "2";
+  saveConsoleList(h.data.path(), "switch-1", "Will's Switch",
+                  {{kShantae}, {"game/0100000000000099/" + kSwitchUser}},
+                  {{kSwitchUser, "Will"}, {second, "Guest"}});
+  const auto j = parse(h.core->setupJson());
+  CHECK(j["emulator"]["found"] == true);
+  CHECK(j["emulator"]["path"] == h.emu.root().string());
+  CHECK(j["console"] == "Will's Switch");
+  CHECK(j["needsSetup"] == false);
+  REQUIRE(j["consoleUsers"].size() == 2);
+  for (const auto& u : j["consoleUsers"]) {
+    if (u["id"] == kSwitchUser) {
+      CHECK(u["name"] == "Will");
+      CHECK(u["saves"] == 2);
+    } else {
+      CHECK(u["name"] == "Guest");
+      CHECK(u["saves"] == 0);
+    }
+  }
+  REQUIRE(j["emulatorProfiles"].size() == 1);
+  CHECK(j["emulatorProfiles"][0]["name"] == "Will");
+  CHECK(j["links"][kSwitchUser] == kEmuUser);
+}
+
+TEST_CASE("setup: linking keeps one console user per emulator profile") {
+  LibraryHarness h;
+  const std::string other = std::string(31, '0') + "2";
+  std::string error;
+  REQUIRE(h.core->setLink(other, kEmuUser, error));  // the profile moves to the other user
+  Config c;
+  REQUIRE(loadConfig(h.data / "config.json", c, error));
+  CHECK(c.users.size() == 1);
+  CHECK(c.users.at(other) == kEmuUser);
+  REQUIRE(h.core->setLink(other, "", error));  // unlink
+  REQUIRE(loadConfig(h.data / "config.json", c, error));
+  CHECK(c.users.empty());
+  CHECK(parse(h.core->setupJson())["needsSetup"] == true);
+  CHECK_FALSE(h.core->setLink("not-an-id", kEmuUser, error));
+}
+
+TEST_CASE("settings: backups to keep, and the emulator folder is checked before it's saved") {
+  LibraryHarness h;
+  std::string error;
+  REQUIRE(h.core->setKeepBackups(8, error));
+  Config c;
+  REQUIRE(loadConfig(h.data / "config.json", c, error));
+  CHECK(c.keepBackups == 8);
+
+  CHECK_FALSE(h.core->setEmulatorPath((h.data / "nowhere").string(), error));
+  CHECK(error.find("isn't an emulator") != std::string::npos);
+  // The folder above the Ryujinx one is accepted and narrowed down.
+  REQUIRE(h.core->setEmulatorPath(h.emu.tmp.path().string(), error));
+  REQUIRE(loadConfig(h.data / "config.json", c, error));
+  CHECK(c.emulatorPath == h.emu.root());
+}

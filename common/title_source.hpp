@@ -5,6 +5,7 @@
 #include "messages.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace WarpPoint {
 
@@ -13,6 +14,13 @@ class TitleSource {
   virtual ~TitleSource() = default;
   // Fill out for titleId. false = this console doesn't have the game installed.
   virtual bool info(uint64_t titleId, proto::TitleInfo& out) = 0;
+};
+
+// The console's user accounts, so the Mac can say "Will" instead of a 32-digit id.
+class UserSource {
+ public:
+  virtual ~UserSource() = default;
+  virtual bool users(std::vector<proto::ConsoleUser>& out) = 0;
 };
 
 }  // namespace WarpPoint

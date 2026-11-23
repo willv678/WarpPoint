@@ -75,6 +75,30 @@ bool decode(const std::vector<uint8_t>& p, std::vector<UnitRef>& refs) {
   return r.done();
 }
 
+std::vector<uint8_t> encode(const std::vector<ConsoleUser>& users) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(users.size()));
+  for (const auto& u : users) {
+    w.str(u.id);
+    w.str(u.name);
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxUsers) return false;
+  users.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    ConsoleUser u;
+    u.id = r.str();
+    u.name = r.str();
+    users.push_back(std::move(u));
+  }
+  return r.done();
+}
+
 std::vector<uint8_t> encodeTitleReq(const std::vector<uint64_t>& titleIds) {
   ByteWriter w;
   w.u32(static_cast<uint32_t>(titleIds.size()));

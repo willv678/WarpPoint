@@ -5,6 +5,7 @@
 #include "emulator.hpp"
 #include "file_lock.hpp"
 #include "net.hpp"
+#include "ryujinx_store.hpp"
 #include "session.hpp"
 #include "state_store.hpp"
 #include "title_cache.hpp"
@@ -84,8 +85,19 @@ bool AppCore::start(std::string& error) {
     loadConfig(dataDir / "config.json", c, e);  // fresh: picks up new links
     return std::static_pointer_cast<UnitStore>(openEmulator(c));
   };
-  const auto probe = openEmulator(config);  // only asked "is a game running?"
-  cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
+  // Fresh from the settings each time (the emulator's folder can change in Settings).
+  cfg.emulatorBusy = [dataDir] {
+    Config c;
+    std::string e;
+    loadConfig(dataDir / "config.json", c, e);
+    return openEmulator(c)->gameRunning();
+  };
+  cfg.keepBackupsNow = [dataDir] {
+    Config c;
+    std::string e;
+    loadConfig(dataDir / "config.json", c, e);
+    return c.keepBackups;
+  };
   cfg.ignored = [dataDir] {
     Config c;
     std::string e;
@@ -309,6 +321,135 @@ bool AppCore::restore(const std::string& key, const std::string& backupId, std::
   lock.unlock();
   sync_.syncNow();  // carry it to the console when it's around
   return true;
+}
+
+namespace {
+
+// The newest consoles/<id>.json, if any.
+json latestConsole(const std::filesystem::path& dataDir) {
+  json best = json::object();
+  std::error_code ec;
+  for (const auto& f : std::filesystem::directory_iterator(dataDir / "consoles", ec)) {
+    const json j = readJsonFile(f.path());
+    if (j.value("updated", "") >= best.value("updated", "")) best = j;
+  }
+  return best;
+}
+
+bool looksLikeRyujinx(const std::filesystem::path& root) {
+  std::error_code ec;
+  const auto index = root / "bis/system/save/8000000000000000";
+  return std::filesystem::exists(index / "0/imkvdb.arc", ec) ||
+         std::filesystem::exists(index / "1/imkvdb.arc", ec);
+}
+
+}  // namespace
+
+// {"emulator": {"name","path","found"}, "console","consolePresent",
+//  "consoleUsers": [{"id","name","saves"}], "emulatorProfiles": [{"id","name"}],
+//  "links": {consoleUser: emulatorUser}, "keepBackups", "needsSetup"}
+std::string AppCore::setupJson() {
+  Config config;
+  std::string error;
+  loadConfig(dataDir_ / "config.json", config, error);
+  const auto emu = openEmulator(config);
+  const bool found = looksLikeRyujinx(emu->root());
+
+  json profiles = json::array();
+  std::vector<EmulatorProfile> list;
+  if (found && emu->profiles(list, error)) {
+    for (const auto& p : list) profiles.push_back({{"id", p.userId}, {"name", p.name}});
+  }
+
+  // The console's users: from its own list (names), else from its saves (ids only).
+  const json console = latestConsole(dataDir_);
+  std::map<std::string, int> saves;
+  if (console.contains("saves") && console["saves"].is_array()) {
+    for (const auto& k : console["saves"]) {
+      if (k.is_string()) saves[userOf(k.get<std::string>())]++;
+    }
+  }
+  std::map<std::string, std::string> names;
+  if (console.contains("users") && console["users"].is_array()) {
+    for (const auto& u : console["users"]) names[u.value("id", "")] = u.value("name", "");
+  }
+  for (const auto& [id, n] : saves) names.emplace(id, "");
+  json users = json::array();
+  for (const auto& [id, name] : names) {
+    if (id.empty()) continue;
+    users.push_back({{"id", id}, {"name", name}, {"saves", saves.count(id) ? saves[id] : 0}});
+  }
+  json links = json::object();
+  for (const auto& [sw, e] : config.users) links[sw] = e;
+
+  return json{{"emulator", {{"name", emu->displayName()}, {"path", emu->root().string()},
+                            {"found", found}}},
+              {"console", console.value("name", "")},
+              {"consolePresent", consolePresent_.load()},
+              {"consoleUsers", users},
+              {"emulatorProfiles", profiles},
+              {"links", links},
+              {"keepBackups", config.keepBackups},
+              {"needsSetup", config.users.empty()}}
+      .dump();
+}
+
+bool AppCore::setLink(const std::string& consoleUser, const std::string& emulatorUser,
+                      std::string& error) {
+  auto hex32 = [](const std::string& s) {
+    return s.size() == 32 && s.find_first_not_of("0123456789abcdef") == std::string::npos;
+  };
+  if (!hex32(consoleUser) || (!emulatorUser.empty() && !hex32(emulatorUser))) {
+    error = "not a user id";
+    return false;
+  }
+  FileLock lock(dataDir_ / "sync.lock");
+  if (!takeLock(lock, error)) return false;
+  Config config;
+  if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  if (emulatorUser.empty()) {
+    config.users.erase(consoleUser);
+  } else {
+    // One emulator profile per console user, and the other way round: two Switch users
+    // writing into the same Astris profile would overwrite each other's saves.
+    for (auto it = config.users.begin(); it != config.users.end();) {
+      it = it->second == emulatorUser ? config.users.erase(it) : std::next(it);
+    }
+    config.users[consoleUser] = emulatorUser;
+  }
+  if (!saveConfig(dataDir_ / "config.json", config, error)) return false;
+  lock.unlock();
+  sync_.syncNow();
+  return true;
+}
+
+bool AppCore::setKeepBackups(size_t keep, std::string& error) {
+  FileLock lock(dataDir_ / "sync.lock");
+  if (!takeLock(lock, error)) return false;
+  Config config;
+  if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  config.keepBackups = keep;
+  return saveConfig(dataDir_ / "config.json", config, error);
+}
+
+bool AppCore::setEmulatorPath(const std::string& path, std::string& error) {
+  std::filesystem::path root = path;
+  // Accept the Astris app's container or the Ryujinx folder inside it, too.
+  for (const auto& candidate :
+       {root, root / "Data/Library/Application Support/Ryujinx", root / "Ryujinx"}) {
+    if (looksLikeRyujinx(candidate)) {
+      root = candidate;
+      FileLock lock(dataDir_ / "sync.lock");
+      if (!takeLock(lock, error)) return false;
+      Config config;
+      if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+      config.emulatorPath = root;
+      return saveConfig(dataDir_ / "config.json", config, error);
+    }
+  }
+  error = "that folder isn't an emulator's data folder (it has no save index); "
+          "pick the folder that contains \"bis\" and \"system\"";
+  return false;
 }
 
 bool AppCore::setIgnored(const std::string& key, bool ignored, std::string& error) {

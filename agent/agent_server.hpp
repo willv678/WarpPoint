@@ -22,6 +22,6 @@ using LogFn = std::function<void(const std::string&)>;
 // Serve one session until the host disconnects or breaks the protocol.
 // Returns true for a clean disconnect. titles may be null (no "titles" cap).
 bool serveSession(Stream& stream, UnitStore& store, const AgentIdentity& identity,
-                  const LogFn& log, TitleSource* titles = nullptr);
+                  const LogFn& log, TitleSource* titles = nullptr, UserSource* users = nullptr);
 
 }  // namespace WarpPoint

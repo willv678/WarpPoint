@@ -12,7 +12,7 @@
 // through onEvent, which is called on AutoSync's thread.
 //
 // After every pass it also writes, for the library window:
-//   <data>/consoles/<device id>.json   the console's name and every save it has
+//   <data>/consoles/<device id>.json   the console's name, users and every save it has
 //   <data>/last-sync.json              each save's latest result and when
 #pragma once
 #include "discovery.hpp"
@@ -57,6 +57,7 @@ struct AutoSyncConfig {
   std::function<std::set<std::string>()> ignored;
   std::filesystem::path dataDir;  // state.json, backups/, titles/, sync.lock
   size_t keepBackups = 4;
+  std::function<size_t()> keepBackupsNow;  // if set, read every pass (settings change)
   std::string hostName = "Mac";
   uint16_t listenPort = proto::kHostDiscoveryPort;  // 0 = any (tests; see port())
   std::chrono::milliseconds consoleTimeout{7000};  // ~3 missed beacons
@@ -68,7 +69,8 @@ struct AutoSyncConfig {
 
 // The library's records (see above). Exposed for tests and the CLI.
 void saveConsoleList(const std::filesystem::path& dataDir, const std::string& deviceId,
-                     const std::string& name, const std::vector<UnitRef>& saves);
+                     const std::string& name, const std::vector<UnitRef>& saves,
+                     const std::vector<proto::ConsoleUser>& users = {});
 void saveLastResults(const std::filesystem::path& dataDir, const std::vector<UnitReport>& reports,
                      const std::string& local, const std::string& console);
 

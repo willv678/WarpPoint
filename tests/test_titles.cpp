@@ -86,3 +86,13 @@ TEST_CASE("titles: each side names itself, so messages never hard-code Mac or Sw
         "Astris");
   CHECK(RyujinxStore(tmp / "Ryujinx", {}, nullptr).displayName() == "Ryujinx");
 }
+
+TEST_CASE("users: the console's accounts round-trip, within limits") {
+  std::vector<proto::ConsoleUser> in = {{"1000aaaabbbbccccdddd0000eeeeffff", "Will"},
+                                        {"1000ffffeeee0000ddddccccbbbbaaaa", "ウィル"}};
+  std::vector<proto::ConsoleUser> out;
+  REQUIRE(proto::decode(proto::encode(in), out));
+  REQUIRE(out.size() == 2);
+  CHECK(out[1].name == "ウィル");
+  CHECK_FALSE(proto::decode(proto::encode(std::vector<proto::ConsoleUser>(proto::kMaxUsers + 1)), out));
+}

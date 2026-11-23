@@ -134,6 +134,24 @@ bool RemoteStore::list(std::vector<UnitRef>& out, std::string& error) {
   return true;
 }
 
+bool RemoteStore::users(std::vector<proto::ConsoleUser>& out, std::string& error) {
+  Frame f;
+  if (writeOpen_ || !send(Msg::UsersReq) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::UsersResp)) {
+    error = errorText(f);
+    return false;
+  }
+  if (!proto::decode(f.payload, out)) {
+    broken_ = true;
+    error = "bad user list from the console";
+    return false;
+  }
+  return true;
+}
+
 bool RemoteStore::titles(const std::vector<uint64_t>& ids,
                          const std::function<void(const proto::TitleInfo&)>& each,
                          std::string& error) {

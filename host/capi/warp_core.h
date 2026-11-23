@@ -48,6 +48,18 @@ char* warp_core_backups(WarpCore* core, const char* key);
 /* Put a backup back into the emulator (current copy backed up first), then sync. */
 bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, char** error);
 
+/* Setup and Settings: {"emulator":{"name","path","found"},"console","consolePresent",
+ * "consoleUsers":[{"id","name","saves"}],"emulatorProfiles":[{"id","name"}],
+ * "links":{consoleUser:emulatorUser},"keepBackups","needsSetup"} */
+char* warp_core_setup(WarpCore* core);
+/* Link a console user to an emulator profile; "" or NULL emulatorUser unlinks. */
+bool warp_core_set_link(WarpCore* core, const char* consoleUser, const char* emulatorUser,
+                        char** error);
+/* Backups to keep per save (0 = all). */
+bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error);
+/* The emulator's data folder (the one with bis/ and system/ in it). */
+bool warp_core_set_emulator_path(WarpCore* core, const char* path, char** error);
+
 /* Stop syncing a save (ignored = true) or start again. Nothing is deleted. */
 bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char** error);
 

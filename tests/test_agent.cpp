@@ -35,9 +35,17 @@ struct FakeTitles : TitleSource {
   }
 };
 
+struct FakeUsers : UserSource {
+  bool users(std::vector<proto::ConsoleUser>& out) override {
+    out = {{"0000000000000000000000000000000a", "Will"}};
+    return true;
+  }
+};
+
 struct Harness {
   MemoryStore store;
   FakeTitles titles;
+  FakeUsers users;
   std::vector<std::string> log;
   std::mutex logMutex;
   // Last, so it's destroyed first: its threads log until stop() joins them.
@@ -48,7 +56,10 @@ struct Harness {
     store.saves[kShantae] = {{"save_data.bin", std::string(1'500'000, 'S')}, {"meta/info", "1h"}};
     AgentConfig cfg;
     cfg.store = &store;
-    if (withTitles) cfg.titles = &titles;
+    if (withTitles) {
+      cfg.titles = &titles;
+      cfg.users = &users;
+    }
     cfg.identity = {"switch-1", "Test Switch", {"list", "read"}};
     cfg.tcpPort = 0;  // any free port
     cfg.discoveryPort = 0;
@@ -161,6 +172,11 @@ TEST_CASE("agent: game names and icons come back one per game, in order") {
   // The session carries on normally afterwards.
   std::vector<UnitRef> refs;
   CHECK(remote.list(refs, error));
+
+  std::vector<proto::ConsoleUser> users;
+  REQUIRE(remote.users(users, error));
+  REQUIRE(users.size() == 1);
+  CHECK(users[0].name == "Will");
 }
 
 TEST_CASE("agent: without a title source, a title request is refused, not hung") {

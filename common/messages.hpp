@@ -29,6 +29,8 @@ enum class Msg : uint8_t {
   TitleReq = 17,    // host -> agent: names and icons for these games (needs cap "titles")
   Title = 18,       // agent -> host: one game's info, once per requested game, in order
   TitleEnd = 19,    // agent -> host: all requested games answered
+  UsersReq = 26,    // host -> agent: the console's user accounts (needs cap "users")
+  UsersResp = 27,   // agent -> host: their ids and nicknames
   FileBegin = 20,   // a unit stream: (FileBegin Chunk* FileEnd)* UnitEnd
   Chunk = 21,
   FileEnd = 22,
@@ -94,6 +96,14 @@ struct TitleInfo {
   std::vector<uint8_t> icon;  // JPEG, may be empty
 };
 
+constexpr size_t kMaxUsers = 64;
+
+// A user account on the console: the id used in save keys, and its nickname.
+struct ConsoleUser {
+  std::string id;    // 32 hex, as in "game/<titleId>/<id>"
+  std::string name;  // the nickname picked on the console
+};
+
 struct FileBegin {
   std::string path;
   uint64_t size = 0;
@@ -130,6 +140,9 @@ bool decodeTitleReq(const std::vector<uint8_t>& p, std::vector<uint64_t>& titleI
 
 std::vector<uint8_t> encode(const TitleInfo& m);
 bool decode(const std::vector<uint8_t>& p, TitleInfo& m);
+
+std::vector<uint8_t> encode(const std::vector<ConsoleUser>& users);
+bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users);
 
 // FileEnd, UnitEnd and Committed carry a single hex hash string.
 std::vector<uint8_t> encodeHash(const std::string& hash);

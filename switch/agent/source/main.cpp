@@ -15,7 +15,7 @@
 namespace {
 
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
-constexpr const char* kVersion = "0.5.0";
+constexpr const char* kVersion = "0.6.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
@@ -129,6 +129,8 @@ int main(int, char**) {
   // Game names and icons (ns), in the console's language (set).
   const bool haveTitles = R_SUCCEEDED(nsInitialize());
   setInitialize();
+  // User nicknames, so the Mac can say "Will" instead of a 32-digit id.
+  const bool haveUsers = R_SUCCEEDED(accountInitialize(AccountServiceType_Application));
 
   mkdir("sdmc:/config", 0777);
   mkdir(kDataDir, 0777);
@@ -153,6 +155,11 @@ int main(int, char**) {
   if (haveTitles) {
     cfg.titles = &titles;
     cfg.identity.caps.push_back("titles");
+  }
+  WarpPoint::SwitchUsers users;
+  if (haveUsers) {
+    cfg.users = &users;
+    cfg.identity.caps.push_back("users");
   }
   cfg.log = logLine;
 
@@ -184,6 +191,7 @@ int main(int, char**) {
   runtime.stop();
   appletSetMediaPlaybackState(false);
   if (g_nxlink) std::fflush(stderr);
+  if (haveUsers) accountExit();
   setExit();
   if (haveTitles) nsExit();
   socketExit();
