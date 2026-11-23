@@ -2,6 +2,7 @@
 // console's game saves. All sync decisions happen on the Mac.
 #include "agent_runtime.hpp"
 #include "save_store.hpp"
+#include "switch_titles.hpp"
 
 #include <switch.h>
 #include <sys/stat.h>
@@ -14,7 +15,7 @@
 namespace {
 
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
-constexpr const char* kVersion = "0.4.0";
+constexpr const char* kVersion = "0.5.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
@@ -125,6 +126,9 @@ int main(int, char**) {
     return 0;
   }
   socketInitializeDefault();
+  // Game names and icons (ns), in the console's language (set).
+  const bool haveTitles = R_SUCCEEDED(nsInitialize());
+  setInitialize();
 
   mkdir("sdmc:/config", 0777);
   mkdir(kDataDir, 0777);
@@ -143,8 +147,13 @@ int main(int, char**) {
   }
 
   WarpPoint::AgentConfig cfg;
+  WarpPoint::SwitchTitles titles;
   cfg.store = &store;
   cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write"}};
+  if (haveTitles) {
+    cfg.titles = &titles;
+    cfg.identity.caps.push_back("titles");
+  }
   cfg.log = logLine;
 
   // Keep the console awake while the app is open so syncs aren't cut off by auto-sleep.
@@ -175,6 +184,8 @@ int main(int, char**) {
   runtime.stop();
   appletSetMediaPlaybackState(false);
   if (g_nxlink) std::fflush(stderr);
+  setExit();
+  if (haveTitles) nsExit();
   socketExit();
   nifmExit();
   consoleExit(nullptr);

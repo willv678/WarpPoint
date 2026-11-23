@@ -57,6 +57,9 @@ class RyujinxStore : public UnitStore {
 
   const std::filesystem::path& root() const { return root_; }
 
+  // "Astris" for Astris's folder, else "Ryujinx".
+  std::string displayName() const override;
+
  private:
   friend class RyujinxWriter;
 

@@ -2,13 +2,19 @@
 // Switch agent by hand:
 //
 //   warp find                 look for a Switch on the network (UDP probe)
-//   warp list   [--ip ADDR]   the saves the Switch has
-//   warp status KEY [--ip ADDR]
-//   warp pull   KEY [--ip ADDR]   copy one save from the Switch into the Mac's backups
+//   warp list   [--ip ADDR]   the games the Switch has saves for, by name
+//   warp names                fetch every game's name and icon again
+//   warp status GAME [--ip ADDR]
+//   warp pull   GAME [--ip ADDR]  copy one save from the Switch into the Mac's backups
 //   warp users                    Switch users, emulator profiles, and how they're linked
 //   warp link SWITCH_USER EMULATOR_USER
-//   warp sync [KEY...]            sync every save the emulator has (or just these)
-//   warp resolve KEY mac|switch   settle a conflict, then sync that save
+//   warp sync [GAME...]           sync every save the emulator has (or just these games;
+//                                 a game the emulator doesn't have yet is created)
+//   warp resolve GAME mac|switch  settle a conflict, then sync that save
+//
+// GAME is part of a game's name ("downwell") or a full save key
+// ("game/<titleId>/<userId>"). Names come from the Switch and are kept in
+// <data>/titles, so they still show when the Switch is off.
 //
 // Which Switch: --ip, else $WARP_SWITCH_IP, else "switchAddress" in config.json,
 // else ~/.config/warppoint/switch-ip, else whatever answers a discovery probe.
@@ -21,8 +27,11 @@
 #include "ryujinx_store.hpp"
 #include "state_store.hpp"
 #include "sync_engine.hpp"
+#include "title_cache.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <set>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -41,12 +50,14 @@ int usage() {
   std::fprintf(stderr,
                "usage: warp find\n"
                "       warp list   [--ip ADDR]\n"
-               "       warp status KEY [--ip ADDR]\n"
-               "       warp pull   KEY [--ip ADDR]\n"
+               "       warp names\n"
+               "       warp status GAME [--ip ADDR]\n"
+               "       warp pull   GAME [--ip ADDR]\n"
                "       warp users\n"
                "       warp link SWITCH_USER EMULATOR_USER\n"
-               "       warp sync [KEY...]\n"
-               "       warp resolve KEY mac|switch\n");
+               "       warp sync [GAME...]\n"
+               "       warp resolve GAME mac|switch\n"
+               "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
 
@@ -92,6 +103,38 @@ struct Session {
 
 bool hasCap(const proto::Hello& h, const std::string& cap) {
   return std::find(h.caps.begin(), h.caps.end(), cap) != h.caps.end();
+}
+
+TitleCache titleCache() { return TitleCache(dataDir() / "titles"); }
+
+uint64_t titleIdOf(const std::string& key) {
+  return key.size() >= 21 ? std::strtoull(key.substr(5, 16).c_str(), nullptr, 16) : 0;
+}
+
+// Ask the Switch for names it hasn't told us yet (or all of them, with refresh).
+void fetchNames(Session& s, const std::vector<uint64_t>& ids, bool refresh) {
+  if (!hasCap(s.agent, "titles")) return;  // older Switch app: ids it is
+  auto cache = titleCache();
+  const auto ask = refresh ? ids : cache.unknown(ids);
+  if (ask.empty()) return;
+  std::printf("Getting names for %zu games from %s...\n", ask.size(), s.agent.name.c_str());
+  std::string error, putError;
+  const bool ok = s.store->titles(ask, [&](const proto::TitleInfo& info) {
+    if (!cache.put(info, putError)) std::fprintf(stderr, "  %s\n", putError.c_str());
+  }, error);
+  if (!ok) std::fprintf(stderr, "Could not get game names: %s\n", error.c_str());
+}
+
+std::string lower(std::string s) {
+  for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return s;
+}
+
+// Pad to a width counted in characters, not bytes (names can be Japanese etc.).
+std::string padded(const std::string& s, size_t width) {
+  size_t chars = 0;
+  for (const unsigned char c : s) chars += (c & 0xC0) != 0x80;
+  return chars >= width ? s + " " : s + std::string(width - chars, ' ');
 }
 
 std::optional<Session> connect(const std::string& ipFlag, StateStore& state) {
@@ -151,8 +194,23 @@ int cmdList(Session& s) {
     std::fprintf(stderr, "List failed: %s\n", error.c_str());
     return 1;
   }
-  std::printf("%zu saves:\n", refs.size());
-  for (const auto& r : refs) std::printf("  %s\n", r.key.c_str());
+  std::map<uint64_t, int> games;  // title id -> number of users with a save
+  for (const auto& r : refs) games[titleIdOf(r.key)]++;
+  std::vector<uint64_t> ids;
+  for (const auto& [id, n] : games) ids.push_back(id);
+  fetchNames(s, ids, false);
+  const auto cache = titleCache();
+  std::vector<std::pair<std::string, uint64_t>> rows;
+  for (const uint64_t id : ids) rows.push_back({cache.nameOf(id), id});
+  std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) {
+    return lower(a.first) < lower(b.first);
+  });
+  std::printf("%zu games with saves on %s:\n", rows.size(), s.agent.name.c_str());
+  for (const auto& [name, id] : rows) {
+    const int n = games[id];
+    std::printf("  %s%016llx  %d save%s\n", padded(name, 44).c_str(),
+                static_cast<unsigned long long>(id), n, n == 1 ? "" : "s");
+  }
   return 0;
 }
 
@@ -212,6 +270,83 @@ int cmdPull(Session& s, const std::string& key) {
   return st->hash == newest.hash ? 0 : 1;
 }
 
+int cmdNames(Session& s) {
+  std::vector<UnitRef> refs;
+  std::string error;
+  if (!s.store->list(refs, error)) {
+    std::fprintf(stderr, "List failed: %s\n", error.c_str());
+    return 1;
+  }
+  std::set<uint64_t> ids;
+  for (const auto& r : refs) ids.insert(titleIdOf(r.key));
+  fetchNames(s, {ids.begin(), ids.end()}, true);
+  std::printf("Names saved in %s\n", (dataDir() / "titles").c_str());
+  return 0;
+}
+
+RyujinxStore emulatorStore();
+
+// Turn what was typed (a save key, or part of a game's name) into save keys: every
+// save of that game, on either side, for users linked to the emulator. Several games
+// matching is an error that lists them, never a guess.
+std::optional<std::vector<std::string>> resolveGames(Session& s,
+                                                     const std::vector<std::string>& args,
+                                                     bool linkedOnly) {
+  std::vector<std::string> keys;
+  std::vector<UnitRef> all;
+  bool listed = false;
+  for (const auto& a : args) {
+    if (a.rfind("game/", 0) == 0) {
+      keys.push_back(a);
+      continue;
+    }
+    if (!listed) {
+      std::string error;
+      if (!s.store->list(all, error)) {
+        std::fprintf(stderr, "List failed: %s\n", error.c_str());
+        return std::nullopt;
+      }
+      std::vector<UnitRef> mine;
+      if (emulatorStore().list(mine, error)) all.insert(all.end(), mine.begin(), mine.end());
+      std::set<uint64_t> ids;
+      for (const auto& r : all) ids.insert(titleIdOf(r.key));
+      fetchNames(s, {ids.begin(), ids.end()}, false);
+      listed = true;
+    }
+    const auto cache = titleCache();
+    std::map<uint64_t, std::string> matches;  // title id -> name
+    for (const auto& r : all) {
+      const uint64_t id = titleIdOf(r.key);
+      const std::string name = cache.nameOf(id);
+      if (lower(name).find(lower(a)) != std::string::npos) matches[id] = name;
+    }
+    if (matches.empty()) {
+      std::fprintf(stderr, "No game matches \"%s\". See `warp list`.\n", a.c_str());
+      return std::nullopt;
+    }
+    if (matches.size() > 1) {
+      std::fprintf(stderr, "\"%s\" matches several games; be more specific:\n", a.c_str());
+      for (const auto& [id, name] : matches) std::fprintf(stderr, "  %s\n", name.c_str());
+      return std::nullopt;
+    }
+    const uint64_t id = matches.begin()->first;
+    std::set<std::string> found;
+    for (const auto& r : all) {
+      const std::string user = r.key.substr(r.key.rfind('/') + 1);
+      if (titleIdOf(r.key) == id && (!linkedOnly || g_config.users.count(user))) {
+        found.insert(r.key);
+      }
+    }
+    if (found.empty()) {
+      std::fprintf(stderr, "%s has no save for a linked user. See `warp users`.\n",
+                   matches.begin()->second.c_str());
+      return std::nullopt;
+    }
+    keys.insert(keys.end(), found.begin(), found.end());
+  }
+  return keys;
+}
+
 RyujinxStore emulatorStore() {
   const fs::path root = g_config.emulatorPath.empty() ? defaultRyujinxRoot() : g_config.emulatorPath;
   return RyujinxStore(root, g_config.users,
@@ -265,11 +400,12 @@ int cmdLink(const std::string& sw, const std::string& emuUser) {
   return 0;
 }
 
-const char* describe(SyncAction a) {
+// local is this computer's side (the emulator), remote the console's.
+std::string describe(SyncAction a, const std::string& local, const std::string& remote) {
   switch (a) {
     case SyncAction::None: return "in sync";
-    case SyncAction::Push: return "copied Mac -> Switch";
-    case SyncAction::Pull: return "copied Switch -> Mac";
+    case SyncAction::Push: return "copied " + local + " -> " + remote;
+    case SyncAction::Pull: return "copied " + remote + " -> " + local;
     case SyncAction::Conflict: return "CONFLICT";
   }
   return "?";
@@ -293,25 +429,40 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
   BackupStore backups(dataDir() / "backups", g_config.keepBackups);
   SyncEngine engine(emu, *s.store, state, backups, s.agent.deviceId, hasCap(s.agent, "write"));
   const auto reports = engine.runPass(keys);
+  std::vector<uint64_t> ids;
+  for (const auto& r : reports) ids.push_back(titleIdOf(r.key));
+  fetchNames(s, ids, false);
+  const auto cache = titleCache();
   int failed = 0;
   for (const auto& r : reports) {
-    const char* what = r.skipped ? "skipped" : !r.ok ? "FAILED" : describe(r.action);
-    std::printf("  %s  %s%s%s\n", r.key.c_str(), what, r.message.empty() ? "" : ": ",
-                r.message.c_str());
+    const std::string what = r.skipped ? "skipped"
+                             : !r.ok   ? "FAILED"
+                                       : describe(r.action, emu.displayName(), s.store->displayName());
+    // Name the user only when it isn't the obvious one.
+    const std::string who = g_config.users.size() > 1 ? " (" + r.key.substr(r.key.rfind('/') + 1, 8) + ")" : "";
+    std::printf("  %s%s%s%s\n", padded(cache.nameOf(titleIdOf(r.key)) + who + ":", 30).c_str(),
+                what.c_str(), r.message.empty() ? "" : ": ", r.message.c_str());
     if (!r.ok && !r.skipped) ++failed;
   }
   std::printf("%zu saves checked.\n", reports.size());
   return failed ? 1 : 0;
 }
 
-int cmdResolve(Session& s, StateStore& state, const std::string& key, const std::string& side) {
+int cmdResolve(Session& s, StateStore& state, const std::vector<std::string>& keys,
+               const std::string& side) {
   if (side != "mac" && side != "switch") return usage();
-  if (!state.resolve(s.agent.deviceId, key, side == "mac")) {
-    std::fprintf(stderr, "No recorded conflict for %s (run `warp sync` first).\n", key.c_str());
+  const bool mac = side == "mac";
+  std::vector<std::string> resolved;
+  for (const auto& key : keys) {
+    if (state.resolve(s.agent.deviceId, key, mac)) resolved.push_back(key);
+  }
+  if (resolved.empty()) {
+    std::fprintf(stderr, "No recorded conflict for that game (run `warp sync` first).\n");
     return 1;
   }
-  std::printf("Keeping the %s's copy.\n", side == "mac" ? "Mac" : "Switch");
-  return cmdSync(s, state, {key});
+  std::printf("Keeping %s's copy.\n",
+              mac ? emulatorStore().displayName().c_str() : s.agent.name.c_str());
+  return cmdSync(s, state, resolved);
 }
 
 }  // namespace
@@ -340,7 +491,7 @@ int main(int argc, char** argv) {
   }
   if (cmd == "find") return cmdFind();
   if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
-  const bool known = cmd == "list" || cmd == "users" || cmd == "sync" ||
+  const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3);
   if (!known) return usage();
@@ -354,12 +505,25 @@ int main(int argc, char** argv) {
   auto session = connect(ip, state);
   if (!session) return 1;
   int rc = 0;
+  // status and pull act on one save, so any user's; sync and resolve only on linked users.
+  std::optional<std::vector<std::string>> keys;
+  if (cmd == "status" || cmd == "pull" || cmd == "resolve" || (cmd == "sync" && args.size() > 1)) {
+    const std::vector<std::string> what =
+        cmd == "resolve" ? std::vector<std::string>{args[1]}
+                         : std::vector<std::string>(args.begin() + 1, args.end());
+    keys = resolveGames(*session, what, cmd == "sync" || cmd == "resolve");
+    if (!keys) return 1;
+  }
+  auto one = [&](auto fn) {
+    for (const auto& k : *keys) rc |= fn(*session, k);
+  };
   if (cmd == "list") rc = cmdList(*session);
-  if (cmd == "status") rc = cmdStatus(*session, args[1]);
-  if (cmd == "pull") rc = cmdPull(*session, args[1]);
+  if (cmd == "names") rc = cmdNames(*session);
+  if (cmd == "status") one(cmdStatus);
+  if (cmd == "pull") one(cmdPull);
   if (cmd == "users") rc = cmdUsers(*session);
-  if (cmd == "sync") rc = cmdSync(*session, state, {args.begin() + 1, args.end()});
-  if (cmd == "resolve") rc = cmdResolve(*session, state, args[1], args[2]);
+  if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
+  if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (!state.save(error)) std::fprintf(stderr, "warning: %s\n", error.c_str());
   return rc;
 }

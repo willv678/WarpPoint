@@ -49,6 +49,9 @@ class UnitStore {
  public:
   virtual ~UnitStore() = default;
 
+  // What to call this side when talking to people: "Astris", "Will's Switch".
+  virtual std::string displayName() const { return "this device"; }
+
   // Every save this store has, by key.
   virtual bool list(std::vector<UnitRef>& out, std::string& error) = 0;
 

@@ -7,6 +7,7 @@ add_library(warp_host_core STATIC
   ryujinx_store.cpp
   state_store.cpp
   sync_engine.cpp
+  title_cache.cpp
   config.cpp
 )
 target_include_directories(warp_host_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

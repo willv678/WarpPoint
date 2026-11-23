@@ -75,6 +75,48 @@ bool decode(const std::vector<uint8_t>& p, std::vector<UnitRef>& refs) {
   return r.done();
 }
 
+std::vector<uint8_t> encodeTitleReq(const std::vector<uint64_t>& titleIds) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(titleIds.size()));
+  for (const uint64_t id : titleIds) w.u64(id);
+  return std::move(w.data());
+}
+
+bool decodeTitleReq(const std::vector<uint8_t>& p, std::vector<uint64_t>& titleIds) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxTitlesPerRequest) return false;
+  titleIds.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) titleIds.push_back(r.u64());
+  return r.done();
+}
+
+std::vector<uint8_t> encode(const TitleInfo& m) {
+  ByteWriter w;
+  w.u64(m.titleId);
+  w.u8(m.found ? 1 : 0);
+  w.str(m.name);
+  w.str(m.publisher);
+  w.str(m.version);
+  const size_t iconSize = m.icon.size() > kMaxIconSize ? 0 : m.icon.size();  // drop, don't cut
+  w.u32(static_cast<uint32_t>(iconSize));
+  w.raw(m.icon.data(), iconSize);
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, TitleInfo& m) {
+  ByteReader r(p);
+  m.titleId = r.u64();
+  const uint8_t found = r.u8();
+  m.name = r.str();
+  m.publisher = r.str();
+  m.version = r.str();
+  const uint32_t iconSize = r.u32();
+  if (!r.ok() || found > 1 || iconSize > kMaxIconSize || !r.bytes(iconSize, m.icon)) return false;
+  m.found = found == 1;
+  return r.done();
+}
+
 std::vector<uint8_t> encode(const std::vector<UnitStatus>& statuses) {
   ByteWriter w;
   w.u32(static_cast<uint32_t>(statuses.size()));

@@ -4,6 +4,7 @@
 #include "stream.hpp"
 #include "unit_store.hpp"
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -23,6 +24,13 @@ class RemoteStore : public UnitStore {
   std::unique_ptr<UnitWriter> write(const UnitRef& ref, const std::string& expectedHash,
                                     std::string& error) override;
 
+  // Names and icons for these games; each is called once per game, in order.
+  bool titles(const std::vector<uint64_t>& ids,
+              const std::function<void(const proto::TitleInfo&)>& each, std::string& error);
+
+  // The agent's name from the handshake ("Will's Switch").
+  std::string displayName() const override { return name_; }
+
   bool ping();
 
   // True once the stream failed or desynchronized; the session must be reopened.
@@ -36,6 +44,7 @@ class RemoteStore : public UnitStore {
   std::string errorText(const Frame& f);
 
   Stream& s_;
+  std::string name_ = "the console";
   bool broken_ = false;
   bool writeOpen_ = false;  // a RemoteWriter owns the stream
 };

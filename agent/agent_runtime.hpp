@@ -16,6 +16,7 @@ namespace WarpPoint {
 
 struct AgentConfig {
   UnitStore* store = nullptr;
+  TitleSource* titles = nullptr;  // optional: game names and icons
   AgentIdentity identity;
   uint16_t tcpPort = proto::kAgentTcpPort;
   uint16_t discoveryPort = proto::kAgentDiscoveryPort;    // where probes arrive

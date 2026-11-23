@@ -26,6 +26,9 @@ enum class Msg : uint8_t {
   WriteReady = 14,  // agent -> host: go ahead and stream
   ListReq = 15,     // host -> agent: which saves do you have?
   ListResp = 16,    // agent -> host: their keys (encoded like a StatusReq's ref list)
+  TitleReq = 17,    // host -> agent: names and icons for these games (needs cap "titles")
+  Title = 18,       // agent -> host: one game's info, once per requested game, in order
+  TitleEnd = 19,    // agent -> host: all requested games answered
   FileBegin = 20,   // a unit stream: (FileBegin Chunk* FileEnd)* UnitEnd
   Chunk = 21,
   FileEnd = 22,
@@ -77,6 +80,20 @@ struct Error {
   std::string message;
 };
 
+constexpr size_t kMaxTitlesPerRequest = 4096;
+constexpr size_t kMaxIconSize = 256 * 1024;  // Switch icons are JPEGs of at most 128 KB
+
+// A game as the console's home screen shows it. found = false: the console doesn't
+// have the game installed (a save can outlive its game), so there's nothing to show.
+struct TitleInfo {
+  uint64_t titleId = 0;
+  bool found = false;
+  std::string name;
+  std::string publisher;
+  std::string version;        // display version, e.g. "1.0.2"
+  std::vector<uint8_t> icon;  // JPEG, may be empty
+};
+
 struct FileBegin {
   std::string path;
   uint64_t size = 0;
@@ -107,6 +124,12 @@ bool decode(const std::vector<uint8_t>& p, WriteReq& m);
 
 std::vector<uint8_t> encode(const FileBegin& m);
 bool decode(const std::vector<uint8_t>& p, FileBegin& m);
+
+std::vector<uint8_t> encodeTitleReq(const std::vector<uint64_t>& titleIds);
+bool decodeTitleReq(const std::vector<uint8_t>& p, std::vector<uint64_t>& titleIds);
+
+std::vector<uint8_t> encode(const TitleInfo& m);
+bool decode(const std::vector<uint8_t>& p, TitleInfo& m);
 
 // FileEnd, UnitEnd and Committed carry a single hex hash string.
 std::vector<uint8_t> encodeHash(const std::string& hash);

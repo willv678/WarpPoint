@@ -2,6 +2,7 @@
 // Portable (no exceptions, no filesystem): shared by agent-desktop and the Switch agent.
 #pragma once
 #include "stream.hpp"
+#include "title_source.hpp"
 #include "unit_store.hpp"
 
 #include <functional>
@@ -19,8 +20,8 @@ struct AgentIdentity {
 using LogFn = std::function<void(const std::string&)>;
 
 // Serve one session until the host disconnects or breaks the protocol.
-// Returns true for a clean disconnect.
+// Returns true for a clean disconnect. titles may be null (no "titles" cap).
 bool serveSession(Stream& stream, UnitStore& store, const AgentIdentity& identity,
-                  const LogFn& log);
+                  const LogFn& log, TitleSource* titles = nullptr);
 
 }  // namespace WarpPoint

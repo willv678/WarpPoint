@@ -37,6 +37,8 @@ class ByteReader {
   uint32_t u32();
   uint64_t u64();
   std::string str();
+  // n raw bytes into out; false (and the reader fails) if fewer remain.
+  bool bytes(size_t n, std::vector<uint8_t>& out);
 
   // Remaining unread bytes (used for chunk payloads).
   const uint8_t* rest() const { return data_ + pos_; }

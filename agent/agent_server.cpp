@@ -122,7 +122,29 @@ bool handleWrite(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) 
 
 }  // namespace
 
-bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log) {
+// One Title message per requested game, in order, then TitleEnd. Streamed so a big
+// library never becomes one huge message.
+bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& log) {
+  std::vector<uint64_t> ids;
+  if (!proto::decodeTitleReq(f.payload, ids)) {
+    return sendError(s, ErrorCode::BadRequest, "bad title request");
+  }
+  if (!titles) return sendError(s, ErrorCode::BadRequest, "this agent has no game info");
+  size_t found = 0;
+  for (const uint64_t id : ids) {
+    proto::TitleInfo info;
+    info.found = titles->info(id, info);
+    info.titleId = id;
+    if (info.found) ++found;
+    if (!send(s, Msg::Title, proto::encode(info))) return false;
+  }
+  log("Sent names for " + std::to_string(found) + " of " + std::to_string(ids.size()) +
+      " games");
+  return send(s, Msg::TitleEnd);
+}
+
+bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
+                  TitleSource* titles) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -184,6 +206,9 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
       }
       case Msg::ReadReq:
         ok = handleRead(s, store, f, log);
+        break;
+      case Msg::TitleReq:
+        ok = handleTitles(s, titles, f, log);
         break;
       case Msg::WriteReq:
         ok = handleWrite(s, store, f, log);

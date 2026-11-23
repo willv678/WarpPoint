@@ -66,6 +66,13 @@ uint64_t ByteReader::u64() {
   return v;
 }
 
+bool ByteReader::bytes(size_t n, std::vector<uint8_t>& out) {
+  if (!take(n)) return false;
+  out.assign(data_ + pos_, data_ + pos_ + n);
+  pos_ += n;
+  return true;
+}
+
 std::string ByteReader::str() {
   const uint16_t n = u16();
   if (!take(n)) return {};

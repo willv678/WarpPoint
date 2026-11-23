@@ -621,6 +621,10 @@ bool RyujinxStore::createSave(const std::string& key, const fs::path& staging,
   return true;
 }
 
+std::string RyujinxStore::displayName() const {
+  return root_.string().find("V380-Ori.Astris") != std::string::npos ? "Astris" : "Ryujinx";
+}
+
 bool RyujinxStore::profiles(std::vector<EmulatorProfile>& out, std::string& error) const {
   out.clear();
   const fs::path file = root_ / "system/Profiles.json";

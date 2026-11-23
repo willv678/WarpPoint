@@ -112,6 +112,7 @@ bool RemoteStore::handshake(const proto::Hello& host, proto::Hello& agent, std::
     broken_ = true;
     return false;
   }
+  if (!agent.name.empty()) name_ = agent.name;
   return true;
 }
 
@@ -131,6 +132,40 @@ bool RemoteStore::list(std::vector<UnitRef>& out, std::string& error) {
     return false;
   }
   return true;
+}
+
+bool RemoteStore::titles(const std::vector<uint64_t>& ids,
+                         const std::function<void(const proto::TitleInfo&)>& each,
+                         std::string& error) {
+  if (writeOpen_ || !send(Msg::TitleReq, proto::encodeTitleReq(ids))) {
+    error = "connection lost";
+    return false;
+  }
+  for (size_t got = 0;;) {
+    Frame f;
+    if (!receive(f)) {
+      error = "connection lost";
+      return false;
+    }
+    if (is(f, Msg::TitleEnd)) {
+      if (got == ids.size()) return true;
+      broken_ = true;
+      error = "the console skipped some games";
+      return false;
+    }
+    proto::TitleInfo info;
+    if (!is(f, Msg::Title)) {
+      error = errorText(f);
+      return false;
+    }
+    if (!proto::decode(f.payload, info) || got >= ids.size() || info.titleId != ids[got]) {
+      broken_ = true;
+      error = "bad game info from the console";
+      return false;
+    }
+    ++got;
+    each(info);
+  }
 }
 
 std::vector<UnitStatus> RemoteStore::status(const std::vector<UnitRef>& refs) {

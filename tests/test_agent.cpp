@@ -17,18 +17,38 @@ namespace {
 
 const std::string kShantae = "game/0100000000000001/0000000000000000000000000000000a";
 
+// Two installed games; anything else is "not installed".
+struct FakeTitles : TitleSource {
+  bool info(uint64_t id, proto::TitleInfo& out) override {
+    if (id == 0x0100000000000001) {
+      out.name = "Shantae";
+      out.publisher = "WayForward";
+      out.version = "1.0.0";
+      out.icon = std::vector<uint8_t>(100'000, 0xAB);  // about a real icon's size
+      return true;
+    }
+    if (id == 0x0100000000000002) {
+      out.name = "ダウンウェル";  // names can be any language
+      return true;
+    }
+    return false;
+  }
+};
+
 struct Harness {
   MemoryStore store;
+  FakeTitles titles;
   std::vector<std::string> log;
   std::mutex logMutex;
   // Last, so it's destroyed first: its threads log until stop() joins them.
   AgentRuntime runtime;
 
-  Harness() {
+  explicit Harness(bool withTitles = true) {
     // 1.5 MB file: bigger than one frame, so it must arrive as several chunks.
     store.saves[kShantae] = {{"save_data.bin", std::string(1'500'000, 'S')}, {"meta/info", "1h"}};
     AgentConfig cfg;
     cfg.store = &store;
+    if (withTitles) cfg.titles = &titles;
     cfg.identity = {"switch-1", "Test Switch", {"list", "read"}};
     cfg.tcpPort = 0;  // any free port
     cfg.discoveryPort = 0;
@@ -115,6 +135,45 @@ TEST_CASE("agent: refusals come back as errors and the session keeps working") {
   }
   CHECK_FALSE(remote.broken());
   CHECK(remote.ping());
+}
+
+TEST_CASE("agent: game names and icons come back one per game, in order") {
+  Harness h;
+  auto stream = h.connect();
+  RemoteStore remote(*stream);
+  proto::Hello agent;
+  std::string error;
+  REQUIRE(remote.handshake(mac(), agent, error));
+  CHECK(remote.displayName() == "Test Switch");
+
+  std::vector<proto::TitleInfo> got;
+  const std::vector<uint64_t> ids = {0x0100000000000002, 0x0100000000000099, 0x0100000000000001};
+  REQUIRE_MESSAGE(remote.titles(ids, [&](const proto::TitleInfo& t) { got.push_back(t); }, error),
+                  error);
+  REQUIRE(got.size() == 3);
+  CHECK(got[0].name == "ダウンウェル");
+  CHECK_FALSE(got[1].found);  // not installed: still answered, so nothing is skipped
+  CHECK(got[1].titleId == 0x0100000000000099);
+  CHECK(got[2].name == "Shantae");
+  CHECK(got[2].publisher == "WayForward");
+  CHECK(got[2].icon.size() == 100'000);
+
+  // The session carries on normally afterwards.
+  std::vector<UnitRef> refs;
+  CHECK(remote.list(refs, error));
+}
+
+TEST_CASE("agent: without a title source, a title request is refused, not hung") {
+  Harness h(/*withTitles=*/false);
+  auto stream = h.connect();
+  RemoteStore remote(*stream);
+  proto::Hello agent;
+  std::string error;
+  REQUIRE(remote.handshake(mac(), agent, error));
+  CHECK_FALSE(remote.titles({1}, [](const proto::TitleInfo&) {}, error));
+  CHECK(error.find("no game info") != std::string::npos);
+  std::vector<UnitRef> refs;
+  CHECK(remote.list(refs, error));
 }
 
 TEST_CASE("agent: a Mac speaking another protocol version is turned away") {
