@@ -5,7 +5,6 @@ add_library(warp_host_core STATIC
   planner.cpp
   remote_store.cpp
   ryujinx_store.cpp
-  staged_writer.cpp
   state_store.cpp
   sync_engine.cpp
   config.cpp

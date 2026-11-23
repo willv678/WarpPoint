@@ -2,6 +2,7 @@
 
 #include "paths.hpp"
 #include "sha256.hpp"
+#include "staged_writer.hpp"
 
 #include <switch.h>
 
@@ -58,10 +59,15 @@ bool parseKey(const std::string& key, u64& titleId, AccountUid& uid) {
          parseHex(key.substr(38, 16), uid.uid[1]) && accountUidIsValid(&uid);
 }
 
-// One save, opened read-only and mounted as "wpsave:/" for as long as this object lives.
+// One save, mounted as "wpsave:/" for as long as this object lives.
+//
+// Opened writable, the save works like Astris's folders 0 and 1: every change goes
+// into a scratch area (the save's journal), and only commit() makes it the real save.
+// Unmounting without commit() throws the changes away, so a write that fails or is
+// cut off halfway leaves the old save exactly as it was.
 class MountedSave {
  public:
-  bool open(const std::string& key, std::string& error) {
+  bool open(const std::string& key, std::string& error, bool writable = false) {
     u64 titleId = 0;
     AccountUid uid{};
     if (!parseKey(key, titleId, uid)) {
@@ -69,7 +75,8 @@ class MountedSave {
       return false;
     }
     FsFileSystem fs;
-    const Result rc = fsOpen_SaveDataReadOnly(&fs, titleId, uid);
+    const Result rc = writable ? fsOpen_SaveData(&fs, titleId, uid)
+                               : fsOpen_SaveDataReadOnly(&fs, titleId, uid);
     if (R_FAILED(rc)) {
       error = "cannot open save (" + resultText(rc) + ")";
       return false;
@@ -79,6 +86,14 @@ class MountedSave {
       return false;
     }
     mounted_ = true;
+    return true;
+  }
+  bool commit(std::string& error) {
+    const Result rc = fsdevCommitDevice(kDevice);
+    if (R_FAILED(rc)) {
+      error = "the Switch would not save the changes (" + resultText(rc) + ")";
+      return false;
+    }
     return true;
   }
   ~MountedSave() {
@@ -175,10 +190,15 @@ bool readFile(const Entry& f, UnitSink* sink, std::string& sha, std::string& err
   return true;
 }
 
-// Hash (and optionally stream) the save that is currently mounted.
+// Hash (and optionally stream) the save that is currently mounted. A save with no
+// files hashes to "" (no save), the same rule the Mac side uses.
 bool walkSave(UnitSink* sink, std::string& unitHash, std::string& error) {
   std::vector<Entry> files;
   if (!listFiles("", files, error)) return false;
+  if (files.empty()) {
+    unitHash.clear();
+    return true;
+  }
   std::vector<FileDigest> digests;
   for (const auto& f : files) {
     std::string sha;
@@ -189,7 +209,141 @@ bool walkSave(UnitSink* sink, std::string& unitHash, std::string& error) {
   return true;
 }
 
+// Delete everything inside a folder of the mounted save (the folder itself stays).
+bool clearDir(const std::string& rel, std::string& error) {
+  const std::string dir = std::string(kDevice) + ":/" + rel;
+  DIR* d = opendir(dir.c_str());
+  if (!d) {
+    error = "cannot list " + (rel.empty() ? std::string("save") : rel);
+    return false;
+  }
+  std::vector<std::pair<std::string, bool>> children;  // (relative path, is folder)
+  while (const dirent* e = readdir(d)) {
+    const std::string name = e->d_name;
+    if (name == "." || name == "..") continue;
+    const std::string child = rel.empty() ? name : rel + "/" + name;
+    struct stat st{};
+    if (stat((std::string(kDevice) + ":/" + child).c_str(), &st) != 0) {
+      closedir(d);
+      error = "cannot read " + child;
+      return false;
+    }
+    children.push_back({child, S_ISDIR(st.st_mode)});
+  }
+  closedir(d);
+  for (const auto& [child, isDir] : children) {
+    const std::string full = std::string(kDevice) + ":/" + child;
+    if (isDir) {
+      if (!clearDir(child, error)) return false;
+      if (rmdir(full.c_str()) != 0) {
+        error = "cannot remove " + child;
+        return false;
+      }
+    } else if (unlink(full.c_str()) != 0) {
+      error = "cannot remove " + child;
+      return false;
+    }
+  }
+  return true;
+}
+
+// Create the folders above a file inside the mounted save ("a/b/c.sav" -> a, a/b).
+bool makeParents(const std::string& rel, std::string& error) {
+  for (size_t pos = rel.find('/'); pos != std::string::npos; pos = rel.find('/', pos + 1)) {
+    const std::string dir = std::string(kDevice) + ":/" + rel.substr(0, pos);
+    struct stat st{};
+    if (stat(dir.c_str(), &st) == 0) continue;
+    if (mkdir(dir.c_str(), 0777) != 0) {
+      error = "cannot create folder " + rel.substr(0, pos);
+      return false;
+    }
+  }
+  return true;
+}
+
+bool copyIn(const std::string& from, const std::string& rel, std::string& error) {
+  FILE* in = std::fopen(from.c_str(), "rb");
+  if (!in) {
+    error = "cannot open staged " + rel;
+    return false;
+  }
+  FILE* out = std::fopen((std::string(kDevice) + ":/" + rel).c_str(), "wb");
+  if (!out) {
+    std::fclose(in);
+    error = "cannot create " + rel + " in the save";
+    return false;
+  }
+  std::vector<uint8_t> buf(kBufferSize);
+  bool ok = true;
+  while (true) {
+    const size_t n = std::fread(buf.data(), 1, buf.size(), in);
+    if (n == 0) break;
+    if (std::fwrite(buf.data(), 1, n, out) != n) {
+      ok = false;
+      break;
+    }
+  }
+  ok = ok && !std::ferror(in);
+  std::fclose(in);
+  ok = (std::fclose(out) == 0) && ok;
+  if (!ok) error = "write failed for " + rel + " (the save may be too small for it)";
+  return ok;
+}
+
+// Receives a save on the SD card (StagedWriter checks every file), then swaps it
+// into the real save in one commit.
+class SwitchSaveWriter : public StagedWriter {
+ public:
+  SwitchSaveWriter(std::filesystem::path staging, std::string key, std::string expected)
+      : StagedWriter(std::move(staging)), key_(std::move(key)), expected_(std::move(expected)) {}
+
+ protected:
+  bool install(const std::filesystem::path& staging, const std::string& unitHash,
+               const std::vector<FileDigest>& files, std::string& error) override {
+    MountedSave save;
+    if (!save.open(key_, error, /*writable=*/true)) return false;
+    // Compare-and-swap: the save must still be what the Mac saw when it decided.
+    std::string current;
+    if (!walkSave(nullptr, current, error)) return false;
+    if (current != expected_) {
+      error = "the save changed on the Switch since the Mac looked; sync again";
+      return false;
+    }
+    if (!clearDir("", error)) return false;
+    for (const auto& f : files) {
+      if (!makeParents(f.path, error) ||
+          !copyIn((staging / "files" / f.path).string(), f.path, error)) {
+        return false;  // not committed: the old save is untouched
+      }
+    }
+    // Check what we wrote before making it real.
+    std::string written;
+    if (!walkSave(nullptr, written, error)) return false;
+    if (written != unitHash) {
+      error = "the save did not read back correctly; nothing was changed";
+      return false;
+    }
+    return save.commit(error);
+  }
+
+ private:
+  std::string key_;
+  std::string expected_;
+};
+
+std::string stagingName() {
+  u64 r = 0;
+  randomGet(&r, sizeof(r));
+  return hex64(r);
+}
+
 }  // namespace
+
+SaveStore::SaveStore(std::string stagingRoot) : stagingRoot_(std::move(stagingRoot)) {
+  // Leftovers from a write that was cut off (power, crash). Never part of a save.
+  std::error_code ec;
+  std::filesystem::remove_all(stagingRoot_, ec);
+}
 
 bool SaveStore::list(std::vector<UnitRef>& out, std::string& error) {
   out.clear();
@@ -230,8 +384,8 @@ std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
       out.push_back(st);
       continue;
     }
-    st.exists = walkSave(nullptr, st.hash, st.error);
-    if (!st.exists) st.hash.clear();
+    if (!walkSave(nullptr, st.hash, st.error)) st.hash.clear();
+    st.exists = !st.hash.empty();  // a save with no files counts as no save
     out.push_back(st);
   }
   return out;
@@ -244,10 +398,26 @@ bool SaveStore::read(const UnitRef& ref, UnitSink& sink, std::string& unitHash,
   return walkSave(&sink, unitHash, error);
 }
 
-std::unique_ptr<UnitWriter> SaveStore::write(const UnitRef&, const std::string&,
+std::unique_ptr<UnitWriter> SaveStore::write(const UnitRef& ref, const std::string& expectedHash,
                                              std::string& error) {
-  error = "this WarpPoint build only reads saves";
-  return nullptr;
+  // Check early so a refusal comes before the Mac sends anything. install() checks
+  // again right before the swap.
+  std::string current;
+  {
+    MountedSave save;
+    if (!save.open(ref.key, error)) {
+      error = "no save for this game on the Switch yet (start the game once on the "
+              "Switch, then sync again), or it is in use: " + error;
+      return nullptr;
+    }
+    if (!walkSave(nullptr, current, error)) return nullptr;
+  }
+  if (current != expectedHash) {
+    error = "the save changed on the Switch since the Mac looked; sync again";
+    return nullptr;
+  }
+  return std::make_unique<SwitchSaveWriter>(std::filesystem::path(stagingRoot_) / stagingName(),
+                                            ref.key, expectedHash);
 }
 
 }  // namespace WarpPoint

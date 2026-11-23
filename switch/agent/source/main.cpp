@@ -14,7 +14,7 @@
 namespace {
 
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
-constexpr const char* kVersion = "0.3.0";
+constexpr const char* kVersion = "0.4.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
@@ -131,7 +131,7 @@ int main(int, char**) {
 
   g_nxlink = nxlinkConnectToHost(false, true) >= 0;
 
-  WarpPoint::SaveStore store;
+  WarpPoint::SaveStore store(std::string(kDataDir) + "/staging");
   {
     std::vector<WarpPoint::UnitRef> saves;
     std::string error;
@@ -144,7 +144,7 @@ int main(int, char**) {
 
   WarpPoint::AgentConfig cfg;
   cfg.store = &store;
-  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read"}};
+  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write"}};
   cfg.log = logLine;
 
   // Keep the console awake while the app is open so syncs aren't cut off by auto-sleep.
@@ -157,7 +157,8 @@ int main(int, char**) {
   } else {
     std::printf("Name: %s\nIP:   %s\n\n", cfg.identity.name.c_str(), currentIp().c_str());
     std::printf("Waiting for your Mac. Run `warp list` on it.\n");
-    std::printf("Read-only: this build never changes a save.\n\n");
+    std::printf("Your Mac backs up a save before it replaces it.\n");
+    std::printf("Close a game before syncing its save.\n\n");
     std::printf("Press + to exit.\n\n");
   }
 

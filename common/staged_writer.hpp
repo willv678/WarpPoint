@@ -1,6 +1,7 @@
 // Receives a save into a temporary folder, checking every file's size and SHA-256
 // and the whole save's hash, and only then hands the folder to install(). Backups
-// and emulator writes both use it, so the checks live in one place.
+// and the save writers (Astris on the Mac, the Switch app) all use it, so the checks
+// live in one place.
 #pragma once
 #include "sha256.hpp"
 #include "unit_store.hpp"

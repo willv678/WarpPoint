@@ -5,6 +5,7 @@ add_library(warp_common STATIC
   messages.cpp
   paths.cpp
   sha256.cpp
+  staged_writer.cpp
   stream.cpp
   unit_store.cpp
   wire.cpp
