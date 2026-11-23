@@ -86,3 +86,6 @@ switch/**/*.nro
 switch/**/*.elf
 switch/**/*.nacp
 switch/**/*.map
+switch/**/*.nsp
+switch/**/*.nso
+switch/**/*.npdm
