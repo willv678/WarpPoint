@@ -27,7 +27,7 @@ struct MenuView: View {
 
   private var header: some View {
     HStack(alignment: .center, spacing: 10) {
-      Image(nsImage: UFOIcon.image(beam: model.beam, size: 30))
+      Image(nsImage: UFOIcon.image(lift: model.lift, beam: model.beam, size: 30))
         .renderingMode(.template)
         .foregroundStyle(.primary)
       VStack(alignment: .leading, spacing: 2) {

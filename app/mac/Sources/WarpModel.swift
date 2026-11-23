@@ -34,7 +34,8 @@ final class WarpModel: ObservableObject {
   @Published private(set) var problem: String?
   @Published private(set) var recent: [RecentSync] = []
   @Published private(set) var conflicts: [Conflict] = []
-  @Published private(set) var beam: CGFloat = 0
+  @Published private(set) var lift: CGFloat = 0  // the UFO's bob while syncing
+  @Published private(set) var beam: CGFloat = 1  // the beam's flicker while syncing
   @Published private(set) var library = Library()
   @Published var libraryMessage: String?
   @Published private(set) var setup = Setup()
@@ -278,20 +279,26 @@ final class WarpModel: ObservableObject {
     }
   }
 
-  // MARK: - The beam pulses while syncing
+  // MARK: - The UFO moves while syncing (like the icon on the portfolio site)
 
   private func setSyncing(_ on: Bool) {
     syncing = on
     pulse?.invalidate()
     pulse = nil
-    beam = 0
+    lift = 0
+    beam = 1
     guard on else { return }
     pulseStart = Date()
-    pulse = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
+    pulse = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }
         let t = Date().timeIntervalSince(self.pulseStart)
-        self.beam = CGFloat((1 - cos(t * 2 * .pi / 1.2)) / 2)  // one slow breath per 1.2 s
+        // Bob 0.7 units every 1.3 s; the beam switches on over 0.35 s, then flickers
+        // between full and 55% every 1.6 s.
+        self.lift = CGFloat(0.35 * (1 - cos(t * 2 * .pi / 1.3)))
+        let on = min(1, t / 0.35)
+        let flicker = t < 0.35 ? 1 : 0.775 + 0.225 * cos((t - 0.35) * 2 * .pi / 1.6)
+        self.beam = CGFloat(on * flicker)
       }
     }
   }

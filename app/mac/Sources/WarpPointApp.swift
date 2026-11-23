@@ -37,7 +37,7 @@ struct MenuBarLabel: View {
   @Environment(\.openWindow) private var openWindow
 
   var body: some View {
-    Image(nsImage: UFOIcon.image(beam: model.beam))
+    Image(nsImage: UFOIcon.image(lift: model.lift, beam: model.beam))
       .task {
         if model.setup.needsSetup {
           openWindow(id: "setup")
