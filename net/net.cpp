@@ -1,3 +1,6 @@
+#if defined(__APPLE__)
+#include <SystemConfiguration/SystemConfiguration.h>
+#endif
 #include "net.hpp"
 
 #ifdef _WIN32
@@ -360,6 +363,15 @@ std::vector<std::string> broadcastAddresses() {
 }
 
 std::string hostName() {
+#if defined(__APPLE__)
+  // The name people gave their Mac ("Will's MacBook Pro"), not its network name.
+  if (CFStringRef name = SCDynamicStoreCopyComputerName(nullptr, nullptr)) {
+    char utf8[256] = {};
+    const bool ok = CFStringGetCString(name, utf8, sizeof(utf8), kCFStringEncodingUTF8);
+    CFRelease(name);
+    if (ok && utf8[0] != '\0') return utf8;
+  }
+#endif
   char buf[256] = {};
   if (::gethostname(buf, sizeof(buf) - 1) != 0) return "WarpPoint host";
   std::string name = buf;

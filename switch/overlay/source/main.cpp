@@ -74,6 +74,7 @@ struct Status {
   std::string host;
   std::string activity;
   long long activityAt = 0;
+  long long lastSyncAt = 0;
   long long updatedAt = 0;
 };
 
@@ -108,6 +109,7 @@ Status readStatus() {
   s.host = field(json, "host");
   s.activity = field(json, "lastActivity");
   s.activityAt = std::atoll(field(json, "lastActivityAt").c_str());
+  s.lastSyncAt = std::atoll(field(json, "lastSyncAt").c_str());
   s.updatedAt = std::atoll(field(json, "updatedAt").c_str());
   return s;
 }
@@ -192,8 +194,10 @@ class MainGui : public tsl::Gui {
       line1_ = s.connected ? "Syncing with " + s.host : "Ready";
       line2_ = s.host.empty() ? "Open WarpPoint on your Mac." : "Mac: " + s.host;
     }
-    line3_ = s.activity.empty() ? ""
-             : s.activity + " (" + ago(s.updatedAt - s.activityAt) + ")";
+    // Just when: what moved is the Mac's job to show.
+    line3_ = !on || s.paused ? ""
+             : s.lastSyncAt > 0 ? "Last synced " + ago(s.updatedAt - s.lastSyncAt)
+                                : "Not synced yet";
   }
 
   std::string line1_, line2_, line3_;
@@ -206,9 +210,16 @@ class MainGui : public tsl::Gui {
 
 class WarpPointOverlay : public tsl::Overlay {
  public:
-  // libtesla already opens fs, hid, pl, pmdmnt, hid:sys and set:sys.
-  void initServices() override { pmshellInitialize(); }
-  void exitServices() override { pmshellExit(); }
+  // libtesla already opens fs, hid, pl, pmdmnt, hid:sys and set:sys, but doesn't keep
+  // the SD card mounted: mount it for "sdmc:/" paths while the overlay is open.
+  void initServices() override {
+    fsdevMountSdmc();
+    pmshellInitialize();
+  }
+  void exitServices() override {
+    pmshellExit();
+    fsdevUnmountDevice("sdmc");
+  }
   std::unique_ptr<tsl::Gui> loadInitialGui() override { return initially<MainGui>(); }
 };
 

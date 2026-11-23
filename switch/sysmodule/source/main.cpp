@@ -102,6 +102,7 @@ std::string g_lastActivity;  // for the overlay: the last thing that happened
 time_t g_lastActivityAt = 0;
 std::string g_host;          // the last Mac that connected
 bool g_connected = false;    // whether it's connected right now
+time_t g_lastSyncAt = 0;     // when a Mac last finished a sync session
 TitleSource* g_titles = nullptr;
 
 // "Downwell" for a save key, or the key itself if the name can't be read.
@@ -140,7 +141,10 @@ void logLine(const std::string& line) {
     g_host = line.substr(16);
     g_connected = true;
   }
-  if (starts("Host disconnected")) g_connected = false;
+  if (starts("Host disconnected")) {
+    g_connected = false;
+    g_lastSyncAt = std::time(nullptr);
+  }
   if (!activity.empty()) {
     g_lastActivity = activity;
     g_lastActivityAt = std::time(nullptr);
@@ -180,10 +184,12 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
   std::string host, activity;
   time_t at = 0;
   bool connected = false;
+  time_t lastSync = 0;
   {
     std::lock_guard<std::mutex> lock(g_logMutex);
     host = g_host;
     connected = g_connected;
+    lastSync = g_lastSyncAt;
     activity = g_lastActivity;
     at = g_lastActivityAt;
   }
@@ -193,11 +199,12 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
   std::fprintf(f,
                "{\"version\":\"%s\",\"online\":%s,\"paused\":%s,\"host\":\"%s\","
                "\"connected\":%s,"
-               "\"lastActivity\":\"%s\",\"lastActivityAt\":%lld,\"generation\":%u,"
+               "\"lastActivity\":\"%s\",\"lastActivityAt\":%lld,\"lastSyncAt\":%lld,"
+               "\"generation\":%u,"
                "\"updatedAt\":%lld}\n",
                kVersion, online ? "true" : "false", paused ? "true" : "false",
                jsonEscape(host).c_str(), connected ? "true" : "false", jsonEscape(activity).c_str(),
-               static_cast<long long>(at), generation,
+               static_cast<long long>(at), static_cast<long long>(lastSync), generation,
                static_cast<long long>(std::time(nullptr)));
   std::fclose(f);
   std::remove(path("status.json").c_str());
