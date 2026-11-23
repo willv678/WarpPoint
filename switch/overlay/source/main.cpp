@@ -142,7 +142,11 @@ class MainGui : public tsl::Gui {
     syncNow_->setClickListener([this](u64 keys) {
       if (!(keys & HidNpadButton_A)) return false;
       request("sync");
-      syncNow_->setValue("asked", true);
+      // Done once the module's "last synced" moves past what it was when pressed.
+      syncAsked_ = true;
+      syncBefore_ = lastSyncAt_;
+      syncAskedFrame_ = frames_;
+      syncNow_->setValue("Syncing\u2026");
       return true;
     });
     list->addItem(syncNow_);
@@ -163,9 +167,9 @@ class MainGui : public tsl::Gui {
     return frame;
   }
 
-  // About once a second (60 frames): re-read the status and follow outside changes.
+  // Twice a second (every 30 frames): re-read the status and follow outside changes.
   void update() override {
-    if (++frames_ % 60 == 0) refresh();
+    if (++frames_ % 30 == 0) refresh();
   }
 
  private:
@@ -179,6 +183,21 @@ class MainGui : public tsl::Gui {
     const bool on = running();
     if (running_ && running_->getState() != on) running_->setState(on);
     const Status s = readStatus();
+    lastSyncAt_ = s.lastSyncAt;
+    // Sync now: Syncing… → Done (cleared after ~3 s) or No Mac answered (after 20 s).
+    if (syncAsked_ && s.lastSyncAt > syncBefore_ && !s.connected) {
+      syncAsked_ = false;
+      syncNow_->setValue("Done", true);
+      clearAtFrame_ = frames_ + 180;
+    } else if (syncAsked_ && frames_ - syncAskedFrame_ > 20 * 60) {
+      syncAsked_ = false;
+      syncNow_->setValue("No Mac answered", true);
+      clearAtFrame_ = frames_ + 300;
+    }
+    if (clearAtFrame_ && frames_ >= clearAtFrame_) {
+      syncNow_->setValue("");
+      clearAtFrame_ = 0;
+    }
     if (syncing_ && s.read && syncing_->getState() == s.paused) syncing_->setState(!s.paused);
 
     if (!on) {
@@ -206,6 +225,11 @@ class MainGui : public tsl::Gui {
   tsl::elm::ToggleListItem* running_ = nullptr;
   tsl::elm::ToggleListItem* boot_ = nullptr;
   u32 frames_ = 0;
+  long long lastSyncAt_ = 0;  // from the last status read
+  bool syncAsked_ = false;
+  long long syncBefore_ = 0;
+  u32 syncAskedFrame_ = 0;
+  u32 clearAtFrame_ = 0;
 };
 
 class WarpPointOverlay : public tsl::Overlay {
