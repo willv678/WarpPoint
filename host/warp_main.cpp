@@ -26,6 +26,7 @@
 #include "backup_store.hpp"
 #include "config.hpp"
 #include "discovery.hpp"
+#include "emulator.hpp"
 #include "net.hpp"
 #include "file_lock.hpp"
 #include "remote_store.hpp"
@@ -339,11 +340,7 @@ std::optional<std::vector<std::string>> resolveGames(Session& s,
   return keys;
 }
 
-RyujinxStore emulatorStore() {
-  const fs::path root = g_config.emulatorPath.empty() ? defaultRyujinxRoot() : g_config.emulatorPath;
-  return RyujinxStore(root, g_config.users,
-                      [] { return processRunning({"Astris", "Ryujinx", "Ryubing"}); });
-}
+RyujinxStore emulatorStore() { return *openEmulator(g_config); }
 
 int cmdUsers(Session& s) {
   std::vector<UnitRef> refs;
@@ -394,13 +391,7 @@ int cmdLink(const std::string& sw, const std::string& emuUser) {
 
 // local is this computer's side (the emulator), remote the console's.
 std::string describe(SyncAction a, const std::string& local, const std::string& remote) {
-  switch (a) {
-    case SyncAction::None: return "in sync";
-    case SyncAction::Push: return "copied " + local + " -> " + remote;
-    case SyncAction::Pull: return "copied " + remote + " -> " + local;
-    case SyncAction::Conflict: return "CONFLICT";
-  }
-  return "?";
+  return describeAction(a, local, remote);
 }
 
 int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
@@ -465,9 +456,9 @@ int cmdWatch() {
     std::string error;
     Config c;
     if (loadConfig(dataDir() / "config.json", c, error)) g_config = c;  // pick up new links
-    return std::make_shared<RyujinxStore>(emulatorStore());
+    return std::static_pointer_cast<UnitStore>(openEmulator(g_config));
   };
-  cfg.emulatorRunning = [] { return processRunning({"Astris", "Ryujinx", "Ryubing"}); };
+  cfg.emulatorRunning = [] { return emulatorRunning(); };
   cfg.dataDir = dataDir();
   cfg.keepBackups = g_config.keepBackups;
   cfg.hostName = net::hostName();
@@ -488,6 +479,7 @@ int cmdWatch() {
       }
       case K::PassFinished: std::printf("Done: %s.\n", e.message.c_str()); break;
       case K::PassFailed: std::printf("Couldn't sync (will retry): %s\n", e.message.c_str()); break;
+      case K::Waiting: std::printf("Waiting for the emulator to close before syncing.\n"); break;
     }
     std::fflush(stdout);
   };

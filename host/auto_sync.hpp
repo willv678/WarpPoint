@@ -34,6 +34,7 @@ struct AutoSyncEvent {
     Synced,        // one save handled: see report
     PassFinished,  // message: a one-line summary
     PassFailed,    // message: why (will retry)
+    Waiting,       // a sync is owed but the emulator is open: it runs when it closes
   };
   Kind kind;
   std::string console;  // "Will's Switch"

@@ -1,0 +1,26 @@
+#!/bin/bash
+# Build WarpPoint.app: the C++ engine (CMake, Release) and the Swift menu bar app around
+# it. Output: build-release/WarpPoint.app
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+BUILD="$ROOT/build-release"
+MAC="$ROOT/app/mac"
+
+cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 >/dev/null
+cmake --build "$BUILD" --target warp_host_core warp
+
+APP="$BUILD/WarpPoint.app"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$MAC/Support/Info.plist" "$APP/Contents/Info.plist"
+
+swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14.0 \
+  -import-objc-header "$MAC/Support/bridging.h" -I "$ROOT/host/capi" \
+  "$MAC"/Sources/*.swift \
+  -L "$BUILD/host" -L "$BUILD/common" -L "$BUILD/net" \
+  -lwarp_host_core -lwarp_common -lwarp_net -lc++ \
+  -o "$APP/Contents/MacOS/WarpPoint"
+
+# Ad-hoc signature: enough to run on this Mac. Real signing comes with packaging.
+codesign --force --sign - "$APP" >/dev/null
+echo "Built $APP"

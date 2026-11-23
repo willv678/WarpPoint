@@ -41,6 +41,7 @@ void AutoSync::loop() {
   Clock::time_point notBefore{};
   bool emulatorWasRunning = cfg_.emulatorRunning();
   Clock::time_point nextEmulatorPoll = Clock::now() + cfg_.emulatorPoll;
+  bool toldWaiting = false;  // "waiting for the emulator" is said once per wait
 
   while (!stop_) {
     // Wait for a beacon a little at a time so stop() is quick.
@@ -72,6 +73,11 @@ void AutoSync::loop() {
     }
     // The emulator holds its saves while open: wait for it to close rather than
     // hash everything only to skip it.
+    if (pending && console && emulatorWasRunning && !toldWaiting) {
+      emit({AutoSyncEvent::Kind::Waiting, console->name, "", {}, ""});
+      toldWaiting = true;
+    }
+    if (!pending || !emulatorWasRunning) toldWaiting = false;
     if (pending && console && now >= notBefore && !emulatorWasRunning) {
       if (runPass(*console)) {
         pending = false;

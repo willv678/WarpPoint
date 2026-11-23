@@ -2,6 +2,7 @@
 // A real agent core on loopback plays the Switch; in-memory stores play the saves.
 #include "agent_runtime.hpp"
 #include "auto_sync.hpp"
+#include "warp_core.h"
 #include "file_lock.hpp"
 #include "state_store.hpp"
 #include "test_support.hpp"
@@ -145,8 +146,10 @@ TEST_CASE("autosync: while the emulator is open, it waits instead of syncing") {
   h.startSync();
   h.startSwitch();
   REQUIRE(h.waitFor(K::ConsoleFound));
+  REQUIRE(h.waitFor(K::Waiting));  // the app can say "waiting for Astris to close"
   std::this_thread::sleep_for(500ms);
   CHECK(h.count(K::PassStarted) == 0);
+  CHECK(h.count(K::Waiting) == 1);  // said once, not every tick
   h.emulatorOpen = false;
   REQUIRE(h.waitFor(K::PassFinished));
   CHECK(h.mac.saves[kGame] == h.sw.saves[kGame]);
@@ -189,4 +192,39 @@ TEST_CASE("autosync: notices when the console goes away") {
   REQUIRE(h.waitFor(K::ConsoleFound));
   h.agent.stop();  // the app on the Switch was closed
   REQUIRE(h.waitFor(K::ConsoleLost));
+}
+
+TEST_CASE("c interface: the app sees conflicts and can settle them") {
+  TempDir data;
+  {
+    StateStore state(data / "state.json");
+    std::string error;
+    REQUIRE(state.load(error));
+    state.setConflict("switch-1", kGame, {"machash", "switchhash"});
+    REQUIRE(state.save(error));
+  }
+  WarpCore* core = warp_core_create(data.path().c_str());
+  CHECK(warp_core_next_event(core) == nullptr);  // nothing has happened yet
+
+  char* status = warp_core_status(core);
+  const std::string s = status;
+  warp_free(status);
+  CHECK(s.find(kGame) != std::string::npos);
+  CHECK(s.find("\"name\":\"0100000000000001\"") != std::string::npos);  // no name known: the id
+
+  char* error = nullptr;
+  REQUIRE(warp_core_resolve(core, "switch-1", kGame.c_str(), /*keepLocal=*/true, &error));
+  CHECK_FALSE(warp_core_resolve(core, "switch-1", kGame.c_str(), true, &error));
+  REQUIRE(error != nullptr);
+  CHECK(std::string(error).find("already settled") != std::string::npos);
+  warp_free(error);
+
+  StateStore state(data / "state.json");
+  std::string e;
+  REQUIRE(state.load(e));
+  CHECK_FALSE(state.conflict("switch-1", kGame));
+  // Keeping the Mac's copy: the base becomes the Switch's (losing) version, so the next
+  // pass sees only the Mac as changed and copies it over, backup first.
+  CHECK(state.base("switch-1", kGame) == std::optional<std::string>("switchhash"));
+  warp_core_destroy(core);
 }
