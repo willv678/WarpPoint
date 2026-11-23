@@ -89,3 +89,4 @@ switch/**/*.map
 switch/**/*.nsp
 switch/**/*.nso
 switch/**/*.npdm
+switch/**/*.ovl

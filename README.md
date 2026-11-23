@@ -133,4 +133,6 @@ WarpPoint is not affiliated with Nintendo. Use it with games you own.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The exception is the Tesla overlay in `switch/overlay/`, which is
+GPL-2.0 (see [its LICENSE](switch/overlay/LICENSE)) because it's built on
+[libtesla](https://github.com/WerWolv/libtesla), which is GPL-2.0.

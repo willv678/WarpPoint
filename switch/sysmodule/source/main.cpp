@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <mutex>
 #include <string>
@@ -99,9 +100,29 @@ std::string path(const char* name) { return std::string(kDataDir) + "/" + name; 
 std::mutex g_logMutex;
 std::string g_lastActivity;  // for the overlay: the last thing that happened
 time_t g_lastActivityAt = 0;
-std::string g_host;          // the Mac connected right now, "" if none
+std::string g_host;          // the last Mac that connected
+bool g_connected = false;    // whether it's connected right now
+TitleSource* g_titles = nullptr;
+
+// "Downwell" for a save key, or the key itself if the name can't be read.
+std::string gameName(const std::string& key) {
+  if (!g_titles || key.size() < 21 || key.compare(0, 5, "game/") != 0) return key;
+  proto::TitleInfo info;
+  const uint64_t id = std::strtoull(key.substr(5, 16).c_str(), nullptr, 16);
+  return g_titles->info(id, info) && !info.name.empty() ? info.name : key;
+}
 
 void logLine(const std::string& line) {
+  // What the overlay shows, read from the agent's own log lines. Names are looked up
+  // before taking the lock (it's a call to the system).
+  const auto starts = [&](const char* p) { return line.rfind(p, 0) == 0; };
+  std::string activity;
+  if (starts("Received ")) activity = gameName(line.substr(9)) + ": new save from the Mac";
+  if (starts("Sent ")) activity = gameName(line.substr(5)) + ": save sent to the Mac";
+  if (starts("Write failed for ") || starts("Write refused for ")) {
+    const size_t from = line.find("for ") + 4;
+    activity = gameName(line.substr(from, line.find(':', from) - from)) + ": couldn't sync";
+  }
   std::lock_guard<std::mutex> lock(g_logMutex);
   const std::string file = path("background.log");
   struct stat st{};
@@ -115,12 +136,13 @@ void logLine(const std::string& line) {
     std::fprintf(f, "%s %s\n", stamp, line.c_str());
     std::fclose(f);
   }
-  // What the overlay shows, read from the agent's own log lines.
-  const auto starts = [&](const char* p) { return line.rfind(p, 0) == 0; };
-  if (starts("Host connected: ")) g_host = line.substr(16);
-  if (starts("Host disconnected")) g_host.clear();
-  if (starts("Received ") || starts("Sent ") || starts("Write ")) {
-    g_lastActivity = line;
+  if (starts("Host connected: ")) {
+    g_host = line.substr(16);
+    g_connected = true;
+  }
+  if (starts("Host disconnected")) g_connected = false;
+  if (!activity.empty()) {
+    g_lastActivity = activity;
     g_lastActivityAt = std::time(nullptr);
   }
 }
@@ -157,9 +179,11 @@ std::string jsonEscape(const std::string& s) {
 void writeStatus(bool online, bool paused, uint32_t generation) {
   std::string host, activity;
   time_t at = 0;
+  bool connected = false;
   {
     std::lock_guard<std::mutex> lock(g_logMutex);
     host = g_host;
+    connected = g_connected;
     activity = g_lastActivity;
     at = g_lastActivityAt;
   }
@@ -168,10 +192,11 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
   if (!f) return;
   std::fprintf(f,
                "{\"version\":\"%s\",\"online\":%s,\"paused\":%s,\"host\":\"%s\","
+               "\"connected\":%s,"
                "\"lastActivity\":\"%s\",\"lastActivityAt\":%lld,\"generation\":%u,"
                "\"updatedAt\":%lld}\n",
                kVersion, online ? "true" : "false", paused ? "true" : "false",
-               jsonEscape(host).c_str(), jsonEscape(activity).c_str(),
+               jsonEscape(host).c_str(), connected ? "true" : "false", jsonEscape(activity).c_str(),
                static_cast<long long>(at), generation,
                static_cast<long long>(std::time(nullptr)));
   std::fclose(f);
@@ -234,6 +259,7 @@ int main(int, char**) {
   SaveStore store(path("staging"), [havePm] { return havePm ? runningApplication() : 0; });
   SwitchTitles titles;
   SwitchUsers users;
+  if (haveTitles) g_titles = &titles;
   AgentConfig cfg;
   cfg.store = &store;
   logLine("reading the console's id and name");
