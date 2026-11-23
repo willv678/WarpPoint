@@ -1,10 +1,13 @@
 # The Mac side's logic, as a library so the CLI, the future app and the tests share it.
 add_library(warp_host_core STATIC
+  auto_sync.cpp
   backup_store.cpp
   discovery.cpp
+  file_lock.cpp
   planner.cpp
   remote_store.cpp
   ryujinx_store.cpp
+  session.cpp
   state_store.cpp
   sync_engine.cpp
   title_cache.cpp

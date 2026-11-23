@@ -15,7 +15,10 @@ std::optional<Peer> Discovery::find(int timeoutMs, uint16_t probePort) {
   for (const auto& addr : targets) {
     sock_.sendTo(addr, probePort, probe.data(), probe.size());
   }
+  return listen(timeoutMs);
+}
 
+std::optional<Peer> Discovery::listen(int timeoutMs) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
   uint8_t buf[1024];
   while (true) {

@@ -23,6 +23,11 @@ class Discovery {
   // Probe (broadcast and loopback) and wait for the first compatible Announce.
   std::optional<Peer> find(int timeoutMs, uint16_t probePort = proto::kAgentDiscoveryPort);
 
+  // Just listen: the next compatible Announce within timeoutMs (agents beacon every 2 s).
+  std::optional<Peer> listen(int timeoutMs);
+
+  uint16_t port() const { return sock_.port(); }
+
  private:
   net::UdpSocket sock_;
 };

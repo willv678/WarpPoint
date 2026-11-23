@@ -11,6 +11,9 @@
 //   warp sync [GAME...]           sync every save the emulator has (or just these games;
 //                                 a game the emulator doesn't have yet is created)
 //   warp resolve GAME mac|switch  settle a conflict, then sync that save
+//   warp watch                    sync automatically (what the menu bar app does):
+//                                 whenever the Switch app appears and whenever the
+//                                 emulator closes. Ctrl-C to stop.
 //
 // GAME is part of a game's name ("downwell") or a full save key
 // ("game/<titleId>/<userId>"). Names come from the Switch and are kept in
@@ -19,18 +22,24 @@
 // Which Switch: --ip, else $WARP_SWITCH_IP, else "switchAddress" in config.json,
 // else ~/.config/warppoint/switch-ip, else whatever answers a discovery probe.
 // Where data lives: $WARP_DATA_DIR, else ~/Library/Application Support/WarpPoint.
+#include "auto_sync.hpp"
 #include "backup_store.hpp"
 #include "config.hpp"
 #include "discovery.hpp"
 #include "net.hpp"
+#include "file_lock.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
+#include "session.hpp"
 #include "state_store.hpp"
 #include "sync_engine.hpp"
 #include "title_cache.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
+#include <csignal>
+#include <thread>
 #include <set>
 #include <cstdio>
 #include <cstdlib>
@@ -57,6 +66,7 @@ int usage() {
                "       warp link SWITCH_USER EMULATOR_USER\n"
                "       warp sync [GAME...]\n"
                "       warp resolve GAME mac|switch\n"
+               "       warp watch\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -94,35 +104,24 @@ std::optional<std::string> configuredAddress(const std::string& flag) {
   return std::nullopt;
 }
 
-// An open session with the agent.
-struct Session {
-  std::unique_ptr<net::TcpStream> stream;
-  std::unique_ptr<RemoteStore> store;
-  proto::Hello agent;
-};
-
 bool hasCap(const proto::Hello& h, const std::string& cap) {
   return std::find(h.caps.begin(), h.caps.end(), cap) != h.caps.end();
 }
 
 TitleCache titleCache() { return TitleCache(dataDir() / "titles"); }
 
-uint64_t titleIdOf(const std::string& key) {
-  return key.size() >= 21 ? std::strtoull(key.substr(5, 16).c_str(), nullptr, 16) : 0;
-}
+uint64_t titleIdOf(const std::string& key) { return titleIdOfKey(key); }
 
 // Ask the Switch for names it hasn't told us yet (or all of them, with refresh).
 void fetchNames(Session& s, const std::vector<uint64_t>& ids, bool refresh) {
-  if (!hasCap(s.agent, "titles")) return;  // older Switch app: ids it is
   auto cache = titleCache();
-  const auto ask = refresh ? ids : cache.unknown(ids);
-  if (ask.empty()) return;
-  std::printf("Getting names for %zu games from %s...\n", ask.size(), s.agent.name.c_str());
-  std::string error, putError;
-  const bool ok = s.store->titles(ask, [&](const proto::TitleInfo& info) {
-    if (!cache.put(info, putError)) std::fprintf(stderr, "  %s\n", putError.c_str());
-  }, error);
-  if (!ok) std::fprintf(stderr, "Could not get game names: %s\n", error.c_str());
+  const size_t n = refresh ? ids.size() : cache.unknown(ids).size();
+  if (n && s.can("titles")) {
+    std::printf("Getting names for %zu games from %s...\n", n, s.agent.name.c_str());
+  }
+  std::string error;
+  fetchTitles(s, cache, ids, refresh, error);
+  if (!error.empty()) std::fprintf(stderr, "Could not get game names: %s\n", error.c_str());
 }
 
 std::string lower(std::string s) {
@@ -151,25 +150,18 @@ std::optional<Session> connect(const std::string& ipFlag, StateStore& state) {
   }
 
   std::string error;
-  Session s;
-  s.stream = net::TcpStream::connect(address, port, 5000, error);
-  if (!s.stream) {
-    std::fprintf(stderr, "Cannot connect to %s:%u: %s\n", address.c_str(), port, error.c_str());
+  auto opened = openSession(address, port, state.hostId(), net::hostName(), error);
+  if (!opened) {
+    std::fprintf(stderr, "%s\n", error.c_str());
     return std::nullopt;
   }
-  s.stream->setTimeout(60000);  // hashing a big save on the Switch takes a while
-  s.store = std::make_unique<RemoteStore>(*s.stream);
-  const proto::Hello me{proto::kProtocolVersion, state.hostId(), net::hostName(), {"list", "read"}};
-  if (!s.store->handshake(me, s.agent, error)) {
-    std::fprintf(stderr, "Handshake with %s failed: %s\n", address.c_str(), error.c_str());
-    return std::nullopt;
-  }
+  Session& s = *opened;
   std::string caps;
   for (const auto& c : s.agent.caps) caps += (caps.empty() ? "" : ", ") + c;
   std::printf("Connected to %s (%s), can: %s\n", s.agent.name.c_str(), address.c_str(),
               caps.c_str());
   state.setDevice(s.agent.deviceId, {s.agent.name, address});
-  return s;
+  return opened;
 }
 
 int cmdFind() {
@@ -465,6 +457,56 @@ int cmdResolve(Session& s, StateStore& state, const std::vector<std::string>& ke
   return cmdSync(s, state, resolved);
 }
 
+std::atomic<bool> g_interrupted{false};
+
+int cmdWatch() {
+  AutoSyncConfig cfg;
+  cfg.makeLocal = [] {
+    std::string error;
+    Config c;
+    if (loadConfig(dataDir() / "config.json", c, error)) g_config = c;  // pick up new links
+    return std::make_shared<RyujinxStore>(emulatorStore());
+  };
+  cfg.emulatorRunning = [] { return processRunning({"Astris", "Ryujinx", "Ryubing"}); };
+  cfg.dataDir = dataDir();
+  cfg.keepBackups = g_config.keepBackups;
+  cfg.hostName = net::hostName();
+  cfg.onEvent = [](const AutoSyncEvent& e) {
+    using K = AutoSyncEvent::Kind;
+    switch (e.kind) {
+      case K::ConsoleFound: std::printf("%s is here.\n", e.console.c_str()); break;
+      case K::ConsoleLost: std::printf("%s went away.\n", e.console.c_str()); break;
+      case K::PassStarted: std::printf("Syncing %s with %s...\n", e.local.c_str(), e.console.c_str()); break;
+      case K::Synced: {
+        const auto& r = e.report;
+        const std::string what = r.skipped ? "skipped"
+                                 : !r.ok   ? "FAILED"
+                                           : describe(r.action, e.local, e.console);
+        std::printf("  %s%s%s%s\n", padded(titleCache().nameOf(titleIdOf(r.key)) + ":", 30).c_str(),
+                    what.c_str(), r.message.empty() ? "" : ": ", r.message.c_str());
+        break;
+      }
+      case K::PassFinished: std::printf("Done: %s.\n", e.message.c_str()); break;
+      case K::PassFailed: std::printf("Couldn't sync (will retry): %s\n", e.message.c_str()); break;
+    }
+    std::fflush(stdout);
+  };
+  AutoSync sync;
+  std::string error;
+  if (!sync.start(cfg, error)) {
+    std::fprintf(stderr, "%s\n", error.c_str());
+    return 1;
+  }
+  std::signal(SIGINT, [](int) { g_interrupted = true; });
+  std::signal(SIGTERM, [](int) { g_interrupted = true; });
+  std::printf("Watching for the Switch app (and for the emulator closing). Ctrl-C to stop.\n");
+  std::fflush(stdout);
+  while (!g_interrupted) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  std::printf("\nStopping (finishing any sync in progress)...\n");
+  sync.stop();
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -490,12 +532,23 @@ int main(int argc, char** argv) {
     }
   }
   if (cmd == "find") return cmdFind();
+  if (cmd == "watch") return cmdWatch();
   if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
   const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3);
   if (!known) return usage();
 
+  // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
+  FileLock lock(dataDir() / "sync.lock");
+  for (int waited = 0; !lock.tryLock(); ++waited) {
+    if (waited == 0) std::printf("WarpPoint is syncing right now; waiting for it to finish...\n");
+    if (waited >= 600) {
+      std::fprintf(stderr, "Still busy after 2 minutes; try again later.\n");
+      return 1;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
   StateStore state(dataDir() / "state.json");
   std::string error;
   if (!state.load(error)) {
