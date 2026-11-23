@@ -420,9 +420,10 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
   const auto cache = titleCache();
   int failed = 0;
   for (const auto& r : reports) {
-    const std::string what = r.skipped ? "skipped"
-                             : !r.ok   ? "FAILED"
-                                       : describe(r.action, emu.displayName(), s.store->displayName());
+    const std::string what = r.quiet     ? "only in " + emu.displayName()
+                             : r.skipped ? "skipped"
+                             : !r.ok     ? "FAILED"
+                                         : describe(r.action, emu.displayName(), s.store->displayName());
     // Name the user only when it isn't the obvious one.
     const std::string who = g_config.users.size() > 1 ? " (" + r.key.substr(r.key.rfind('/') + 1, 8) + ")" : "";
     std::printf("  %s%s%s%s\n", padded(cache.nameOf(titleIdOf(r.key)) + who + ":", 30).c_str(),

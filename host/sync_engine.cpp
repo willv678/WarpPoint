@@ -58,6 +58,14 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
     r.message = "both sides changed; pick one with `warp resolve`";
     return r;
   }
+  if (r.action == SyncAction::Push && s.empty()) {
+    // The console has no save for this game and WarpPoint can't create one there (yet).
+    // Once the game is started there, both sides have a save and the user picks.
+    r.skipped = true;
+    r.quiet = true;
+    r.message = "not on the Switch yet: start the game there once";
+    return r;
+  }
   if (mac.busy || sw.busy) {
     r.skipped = true;
     r.message = mac.busy ? "the emulator is open; close it to sync" : "in use on the Switch";

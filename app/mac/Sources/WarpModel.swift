@@ -235,6 +235,7 @@ final class WarpModel: ObservableObject {
       let action = s("action")
       let ok = e["ok"] as? Bool ?? false
       let skipped = e["skipped"] as? Bool ?? false
+      if e["quiet"] as? Bool ?? false { break }  // e.g. only in Astris: nothing to report
       // Only what changed or went wrong is worth showing; "in sync" is the quiet norm.
       if (!ok || skipped), libraryMessage?.hasPrefix("Bringing") == true {
         libraryMessage = "\(s("name")): \(s("message"))"

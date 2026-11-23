@@ -23,6 +23,9 @@ struct UnitReport {
   bool ok = true;
   bool skipped = false;  // busy, unreachable or not allowed; tried again next pass
   std::string message;
+  // Nothing wrong and nothing to do yet: e.g. a game only on the Mac, whose save the
+  // console can't create. UIs leave these out of "recent activity".
+  bool quiet = false;
 };
 
 class SyncEngine {

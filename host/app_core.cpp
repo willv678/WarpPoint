@@ -124,6 +124,7 @@ void AppCore::push(const AutoSyncEvent& e) {
     j["action"] = actionName(r.action);
     j["ok"] = r.ok;
     j["skipped"] = r.skipped;
+    j["quiet"] = r.quiet;
     j["text"] = r.skipped ? std::string("skipped")
                 : !r.ok   ? std::string("failed")
                           : describeAction(r.action, e.local, e.console);

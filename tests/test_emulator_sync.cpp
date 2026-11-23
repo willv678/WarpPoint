@@ -452,6 +452,18 @@ TEST_CASE("sync: Mac -> Switch waits until the Switch app can write") {
   CHECK(h.backups.list(kShantae)[0].side == "switch");
 }
 
+TEST_CASE("sync: a game only on the Mac waits quietly until the Switch has a save") {
+  SyncHarness h;
+  h.mac.writable = true;
+  h.mac.saves[kShantae] = {{"SHANLRG.sav", "a new game"}};
+  const auto r = h.sync(/*switchWritable=*/true);
+  REQUIRE(r.size() == 1);
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK(r[0].skipped);
+  CHECK(r[0].quiet);  // not an error: nothing the Mac can do yet
+  CHECK(h.sw.saves.empty());
+}
+
 TEST_CASE("sync: if the backup fails, nothing is overwritten") {
   SyncHarness h;
   h.mac.writable = true;
