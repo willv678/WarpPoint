@@ -10,9 +10,10 @@ struct Game: Codable, Identifiable, Hashable {
   let icon: String
   let onConsole: Bool
   let inEmulator: Bool
-  let status: String  // conflict, synced, consoleOnly, emulatorOnly, problem, new
+  let status: String  // conflict, synced, consoleOnly, emulatorOnly, problem, new, ignored
   let lastText: String
   let lastAt: String
+  let ignored: Bool  // "Stop Syncing": WarpPoint leaves it alone
   var savePath: String = ""
   var backupsPath: String = ""
   var id: String { key }

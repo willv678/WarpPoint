@@ -39,7 +39,7 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
 /* The library: {"console","consoleSeen","emulator","emulatorOpen","consolePresent",
  * "games": [{"key","titleId","name","publisher","icon","onConsole","inEmulator",
  * "status","lastText","lastAt"}]}. status is one of conflict, synced, consoleOnly,
- * emulatorOnly, problem, new. */
+ * emulatorOnly, problem, new, ignored. */
 char* warp_core_games(WarpCore* core);
 
 /* A save's backups, newest first: [{"id","side","reason","created","files","bytes"}]. */
@@ -47,6 +47,9 @@ char* warp_core_backups(WarpCore* core, const char* key);
 
 /* Put a backup back into the emulator (current copy backed up first), then sync. */
 bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, char** error);
+
+/* Stop syncing a save (ignored = true) or start again. Nothing is deleted. */
+bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char** error);
 
 /* Copy a console-only save into the emulator ("Bring to Astris"). */
 bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error);

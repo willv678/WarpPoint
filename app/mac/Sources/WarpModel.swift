@@ -134,6 +134,20 @@ final class WarpModel: ObservableObject {
     }
   }
 
+  func setIgnored(_ game: Game, _ ignored: Bool) {
+    let core = self.core
+    Task.detached {
+      var error: UnsafeMutablePointer<CChar>?
+      let ok = warp_core_set_ignored(core, game.key, ignored, &error)
+      let message = ok ? (ignored ? "Stopped syncing \(game.name)." : "Syncing \(game.name) again.")
+                       : "Couldn't: \(WarpModel.takeString(error) ?? "unknown error")"
+      await MainActor.run {
+        self.libraryMessage = message
+        self.refreshLibrary()
+      }
+    }
+  }
+
   func bringToEmulator(_ game: Game) {
     var error: UnsafeMutablePointer<CChar>?
     if warp_core_bring_to_emulator(core, game.key, &error) {

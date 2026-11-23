@@ -8,11 +8,12 @@ struct LibraryView: View {
   @State private var search = ""
   @State private var selection: String?
   @State private var adding = false
+  @State private var stopping: Game?
 
   /// The games being synced: everything in the emulator, plus anything in conflict.
   private var myGames: [Game] {
     model.library.games
-      .filter { $0.inEmulator || $0.status == "conflict" }
+      .filter { ($0.inEmulator || $0.status == "conflict") && !$0.ignored }
       .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
       .sorted { a, b in
         // Conflicts and problems first, then synced games, then emulator-only; by name.
@@ -28,7 +29,10 @@ struct LibraryView: View {
       }
   }
 
-  private var addable: [Game] { model.library.games.filter { $0.status == "consoleOnly" } }
+  /// What + can add: games only on the Switch, and games you stopped syncing.
+  private var addable: [Game] {
+    model.library.games.filter { $0.status == "consoleOnly" || $0.ignored }
+  }
   private var conflicts: [Game] { model.library.games.filter { $0.status == "conflict" } }
   private var selected: Game? { model.library.games.first { $0.key == selection } }
 
@@ -73,8 +77,24 @@ struct LibraryView: View {
     .sheet(isPresented: $adding) {
       AddGameSheet(model: model, games: addable) { game in
         adding = false
-        model.bringToEmulator(game)
+        if game.ignored {
+          model.setIgnored(game, false)
+        } else {
+          model.bringToEmulator(game)
+        }
       }
+    }
+    .confirmationDialog(stopping.map { "Stop syncing \($0.name)?" } ?? "",
+                        isPresented: Binding(get: { stopping != nil },
+                                             set: { if !$0 { stopping = nil } }),
+                        presenting: stopping) { game in
+      Button("Stop Syncing") {
+        if selection == game.key { selection = nil }
+        model.setIgnored(game, true)
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: { _ in
+      Text("Nothing is deleted: its saves stay in \(model.library.emulator) and on your Switch. WarpPoint just stops copying between them. You can add it back with +.")
     }
     .onAppear { model.refreshLibrary() }
   }
@@ -85,7 +105,8 @@ struct LibraryView: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 140), spacing: 20)],
                   spacing: 22) {
           ForEach(myGames) { game in
-            GameTile(game: game, selected: game.key == selection, model: model)
+            GameTile(game: game, selected: game.key == selection, model: model,
+                     stop: { stopping = $0 })
               .onTapGesture { selection = game.key }
           }
         }
@@ -162,16 +183,20 @@ struct AddGameSheet: View {
   @State private var search = ""
   @State private var picked: String?
 
-  private var shown: [Game] {
-    games
+  private func matching(_ list: [Game]) -> [Game] {
+    list
       .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
   }
+  private var onSwitch: [Game] { matching(games.filter { !$0.ignored }) }
+  private var notSyncing: [Game] { matching(games.filter { $0.ignored }) }
+  private var pickedGame: Game? { games.first { $0.key == picked } }
   private var console: String { model.library.console.isEmpty ? "your Switch" : model.library.console }
   private var emulator: String { model.library.emulator }
 
-  /// Why "Bring" can't run right now, if it can't.
+  /// Why "Bring" can't run right now, if it can't. (Syncing a game again never waits.)
   private var blocker: String? {
+    if pickedGame?.ignored == true { return nil }
     if !model.library.consolePresent { return "Open WarpPoint on your Switch first." }
     if model.library.emulatorOpen {
       return "Quit \(emulator) first: it keeps its list of saves in memory while it's open."
@@ -196,23 +221,14 @@ struct AddGameSheet: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ScrollView {
-          LazyVGrid(columns: [GridItem(.adaptive(minimum: 96, maximum: 112), spacing: 16)],
-                    spacing: 16) {
-            ForEach(shown) { game in
-              VStack(spacing: 6) {
-                GameArt(path: game.icon, size: 88)
-                  .overlay(RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(game.key == picked ? Color.accentColor : .clear, lineWidth: 3))
-                Text(game.name).font(.caption).multilineTextAlignment(.center).lineLimit(2)
-                  .frame(height: 30, alignment: .top)
-              }
-              .contentShape(Rectangle())
-              .onTapGesture { picked = game.key }
-              .onTapGesture(count: 2) {
-                picked = game.key
-                if blocker == nil { bring(game) }
-              }
+          VStack(alignment: .leading, spacing: 14) {
+            if !notSyncing.isEmpty {
+              Text("NOT SYNCING").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+              tiles(notSyncing)
+              Text("ON \(console.uppercased())").font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
             }
+            tiles(onSwitch)
           }
           .padding(4)
         }
@@ -224,8 +240,8 @@ struct AddGameSheet: View {
         Spacer()
         Button("Cancel") { dismiss() }
           .keyboardShortcut(.cancelAction)
-        Button("Bring to \(emulator)") {
-          if let g = games.first(where: { $0.key == picked }) { bring(g) }
+        Button(pickedGame?.ignored == true ? "Start Syncing" : "Bring to \(emulator)") {
+          if let g = pickedGame { bring(g) }
         }
         .keyboardShortcut(.defaultAction)
         .disabled(picked == nil || blocker != nil)
@@ -234,6 +250,29 @@ struct AddGameSheet: View {
     .padding(20)
     .frame(width: 660, height: 560)
   }
+
+  private func tiles(_ list: [Game]) -> some View {
+    LazyVGrid(columns: [GridItem(.adaptive(minimum: 96, maximum: 112), spacing: 16)],
+              spacing: 16) {
+      ForEach(list) { game in
+        VStack(spacing: 6) {
+          GameArt(path: game.icon, size: 88)
+            .overlay(RoundedRectangle(cornerRadius: 12)
+              .strokeBorder(game.key == picked ? Color.accentColor : .clear, lineWidth: 3))
+          Text(game.name).font(.caption).multilineTextAlignment(.center).lineLimit(2)
+            .frame(height: 30, alignment: .top)
+        }
+        .contentShape(Rectangle())
+        // Select at once on the first click. A plain double-tap handler would make
+        // every single click wait to see if a second one follows.
+        .onTapGesture { picked = game.key }
+        .simultaneousGesture(TapGesture(count: 2).onEnded {
+          picked = game.key
+          if blocker == nil { bring(game) }
+        })
+      }
+    }
+  }
 }
 
 /// A game's icon with its name and a small status badge.
@@ -241,6 +280,7 @@ private struct GameTile: View {
   let game: Game
   let selected: Bool
   @ObservedObject var model: WarpModel
+  let stop: (Game) -> Void
 
   var body: some View {
     VStack(spacing: 7) {
@@ -268,6 +308,8 @@ private struct GameTile: View {
         .disabled(game.savePath.isEmpty)
       Button("Show Backups in Finder") { reveal(game.backupsPath) }
         .disabled(!FileManager.default.fileExists(atPath: game.backupsPath))
+      Divider()
+      Button("Stop Syncing…") { stop(game) }
     }
   }
 

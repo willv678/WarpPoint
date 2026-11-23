@@ -25,6 +25,7 @@ struct Harness {
   TempDir data;
   MemoryStore mac, sw;
   std::atomic<bool> emulatorOpen{false};
+  std::set<std::string> ignoredKeys;  // set before startSync
 
   std::mutex m;
   std::condition_variable cv;
@@ -42,6 +43,7 @@ struct Harness {
     AutoSyncConfig cfg;
     cfg.makeLocal = [this] { return std::shared_ptr<UnitStore>(&mac, [](UnitStore*) {}); };
     cfg.emulatorBusy = [this] { return emulatorOpen.load(); };
+    cfg.ignored = [this] { return ignoredKeys; };
     cfg.dataDir = data.path();
     cfg.listenPort = 0;
     cfg.consoleTimeout = consoleTimeout;
@@ -183,6 +185,19 @@ TEST_CASE("autosync: conflicts are reported and nothing is touched") {
   CHECK(r[0].action == SyncAction::Conflict);
   CHECK(h.mac.saves[kGame].at("save.dat") == "mac");
   CHECK(h.sw.saves[kGame].at("save.dat") == "switch");
+}
+
+TEST_CASE("autosync: a save you stopped syncing is left alone") {
+  Harness h;
+  h.mac.saves[kGame] = {{"save.dat", "a"}};
+  h.sw.saves[kGame] = {{"save.dat", "b"}};
+  h.setBase(h.mac.hashOf(kGame));
+  h.ignoredKeys = {kGame};
+  h.startSync();
+  h.startSwitch();
+  REQUIRE(h.waitFor(K::PassFinished));
+  CHECK(h.reports().empty());
+  CHECK(h.mac.saves[kGame].at("save.dat") == "a");
 }
 
 TEST_CASE("autosync: notices when the console goes away") {

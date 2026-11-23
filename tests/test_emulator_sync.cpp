@@ -558,3 +558,20 @@ TEST_CASE("library: bringing a game to the emulator needs the console here and t
   CHECK_FALSE(h.core->bringToEmulator(newGame, error));
   CHECK(error.find("open WarpPoint on your Switch") != std::string::npos);
 }
+
+TEST_CASE("library: Stop Syncing hides a game and keeps its saves; starting again undoes it") {
+  LibraryHarness h;
+  std::string error;
+  REQUIRE(h.core->setIgnored(kShantae, true, error));
+  auto j = parse(h.core->gamesJson());
+  REQUIRE(j["games"].size() == 1);
+  CHECK(j["games"][0]["status"] == "ignored");
+  CHECK(readFile(h.emu.saveDir() / "0/SHANLRG.sav") == "committed");  // nothing deleted
+  Config c;
+  REQUIRE(loadConfig(h.data / "config.json", c, error));
+  CHECK(c.ignored.count(kShantae) == 1);
+
+  REQUIRE(h.core->setIgnored(kShantae, false, error));
+  j = parse(h.core->gamesJson());
+  CHECK(j["games"][0]["status"] != "ignored");
+}

@@ -25,6 +25,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,6 +53,8 @@ struct AutoSyncConfig {
   // The emulator side, built fresh for every pass so changed settings apply.
   std::function<std::shared_ptr<UnitStore>()> makeLocal;
   std::function<bool()> emulatorBusy;  // a game is running in the emulator
+  // Saves never to sync ("Stop Syncing"), read fresh for every pass.
+  std::function<std::set<std::string>()> ignored;
   std::filesystem::path dataDir;  // state.json, backups/, titles/, sync.lock
   size_t keepBackups = 4;
   std::string hostName = "Mac";

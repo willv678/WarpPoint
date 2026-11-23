@@ -407,7 +407,9 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
       std::fprintf(stderr, "%s\n", error.c_str());
       return 1;
     }
-    for (const auto& r : refs) keys.push_back(r.key);
+    for (const auto& r : refs) {
+      if (!g_config.ignored.count(r.key)) keys.push_back(r.key);  // "Stop Syncing"
+    }
   }
   BackupStore backups(dataDir() / "backups", g_config.keepBackups);
   SyncEngine engine(emu, *s.store, state, backups, s.agent.deviceId, hasCap(s.agent, "write"));
@@ -460,6 +462,12 @@ int cmdWatch() {
   };
   const auto probe = openEmulator(g_config);
   cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
+  cfg.ignored = [] {
+    Config c;
+    std::string e;
+    loadConfig(dataDir() / "config.json", c, e);
+    return c.ignored;
+  };
   cfg.dataDir = dataDir();
   cfg.keepBackups = g_config.keepBackups;
   cfg.hostName = net::hostName();

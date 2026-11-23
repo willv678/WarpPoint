@@ -69,6 +69,13 @@ bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, ch
   return false;
 }
 
+bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char** error) {
+  std::string e;
+  if (core->core.setIgnored(key ? key : "", ignored, e)) return true;
+  setError(error, e);
+  return false;
+}
+
 bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error) {
   std::string e;
   if (core->core.bringToEmulator(key ? key : "", e)) return true;

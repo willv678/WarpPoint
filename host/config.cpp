@@ -34,6 +34,9 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     for (const auto& [sw, emuUser] : users.items()) out.users[sw] = emuUser.get<std::string>();
     out.keepBackups = j.value("keepBackups", size_t{4});
     out.switchAddress = j.value("switchAddress", "");
+    for (const auto& k : j.value("ignored", json::array())) {
+      if (k.is_string()) out.ignored.insert(k.get<std::string>());
+    }
   } catch (const json::exception& e) {
     error = file.string() + " is malformed: " + e.what();
     return false;
@@ -53,6 +56,7 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
   if (!c.emulatorPath.empty()) j["emulator"]["path"] = c.emulatorPath.string();
   for (const auto& [sw, emu] : c.users) j["users"][sw] = emu;
   if (!c.switchAddress.empty()) j["switchAddress"] = c.switchAddress;
+  if (!c.ignored.empty()) j["ignored"] = c.ignored;
 
   std::error_code ec;
   fs::create_directories(file.parent_path(), ec);

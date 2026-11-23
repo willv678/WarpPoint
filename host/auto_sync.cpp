@@ -186,8 +186,11 @@ bool AutoSync::runPass(const Peer& console) {
 
   std::vector<UnitRef> refs;
   if (!local->list(refs, error)) return fail(error);
+  const auto ignored = cfg_.ignored ? cfg_.ignored() : std::set<std::string>{};
   std::vector<std::string> keys;
-  for (const auto& r : refs) keys.push_back(r.key);
+  for (const auto& r : refs) {
+    if (!ignored.count(r.key)) keys.push_back(r.key);
+  }
   std::vector<std::string> extra;
   {
     std::lock_guard<std::mutex> lock(extraMutex_);

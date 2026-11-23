@@ -47,6 +47,9 @@ class AppCore {
   // next sync then carries it to the console.
   bool restore(const std::string& key, const std::string& backupId, std::string& error);
 
+  // "Stop Syncing" (ignored = true) or start again. Nothing is deleted either way.
+  bool setIgnored(const std::string& key, bool ignored, std::string& error);
+
   // Copy a console-only save into the emulator, creating it there. Needs the console
   // around and the emulator app closed (it keeps its save list in memory).
   bool bringToEmulator(const std::string& key, std::string& error);

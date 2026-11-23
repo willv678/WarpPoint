@@ -86,6 +86,12 @@ bool AppCore::start(std::string& error) {
   };
   const auto probe = openEmulator(config);  // only asked "is a game running?"
   cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
+  cfg.ignored = [dataDir] {
+    Config c;
+    std::string e;
+    loadConfig(dataDir / "config.json", c, e);
+    return c.ignored;
+  };
   cfg.dataDir = dataDir_;
   cfg.keepBackups = config.keepBackups;
   cfg.hostName = net::hostName();
@@ -224,7 +230,9 @@ std::string AppCore::gamesJson() {
     g["lastText"] = l.value("text", "");
     g["lastAt"] = l.value("at", "");
     std::string status;
-    if (conflicted.count(key)) status = "conflict";
+    g["ignored"] = config.ignored.count(key) > 0;
+    if (config.ignored.count(key)) status = "ignored";
+    else if (conflicted.count(key)) status = "conflict";
     else if (!g["inEmulator"].get<bool>()) status = "consoleOnly";
     else if (!g["onConsole"].get<bool>()) status = "emulatorOnly";
     else if (l.empty()) status = "new";
@@ -300,6 +308,19 @@ bool AppCore::restore(const std::string& key, const std::string& backupId, std::
   }
   lock.unlock();
   sync_.syncNow();  // carry it to the console when it's around
+  return true;
+}
+
+bool AppCore::setIgnored(const std::string& key, bool ignored, std::string& error) {
+  FileLock lock(dataDir_ / "sync.lock");
+  if (!takeLock(lock, error)) return false;
+  Config config;
+  if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  if (ignored) config.ignored.insert(key);
+  else config.ignored.erase(key);
+  if (!saveConfig(dataDir_ / "config.json", config, error)) return false;
+  lock.unlock();
+  if (!ignored) sync_.syncNow();  // catch up now
   return true;
 }
 
