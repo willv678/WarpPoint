@@ -16,7 +16,7 @@ using Clock = std::chrono::steady_clock;
 bool AutoSync::start(AutoSyncConfig config, std::string& error) {
   if (thread_.joinable()) return true;
   cfg_ = std::move(config);
-  if (!cfg_.emulatorRunning) cfg_.emulatorRunning = [] { return false; };
+  if (!cfg_.emulatorBusy) cfg_.emulatorBusy = [] { return false; };
   if (!discovery_.start(cfg_.listenPort, error)) {
     error = "cannot listen for the Switch (is another WarpPoint running?): " + error;
     return false;
@@ -40,7 +40,7 @@ void AutoSync::loop() {
   Clock::time_point lastBeacon{};
   bool pending = false;  // a pass is owed
   Clock::time_point notBefore{};
-  bool emulatorWasRunning = cfg_.emulatorRunning();
+  bool gameWasRunning = cfg_.emulatorBusy();
   Clock::time_point nextEmulatorPoll = Clock::now() + cfg_.emulatorPoll;
   bool toldWaiting = false;  // "waiting for the emulator" is said once per wait
   int failures = 0;          // in a row: the first retry comes quickly
@@ -64,23 +64,23 @@ void AutoSync::loop() {
       pending = false;
     }
     if (now >= nextEmulatorPoll) {
-      const bool running = cfg_.emulatorRunning();
-      if (emulatorWasRunning && !running) pending = true;  // closed: its saves may be new
-      emulatorWasRunning = running;
+      const bool running = cfg_.emulatorBusy();
+      if (gameWasRunning && !running) pending = true;  // a game stopped: its save may be new
+      gameWasRunning = running;
       nextEmulatorPoll = now + cfg_.emulatorPoll;
     }
     if (requested_.exchange(false)) {
       pending = true;
       notBefore = {};
     }
-    // The emulator holds its saves while open: wait for it to close rather than
-    // hash everything only to skip it.
-    if (pending && console && emulatorWasRunning && !toldWaiting) {
+    // A running game holds its save: wait for it to stop rather than hash everything
+    // only to skip that save.
+    if (pending && console && gameWasRunning && !toldWaiting) {
       emit({AutoSyncEvent::Kind::Waiting, console->name, "", {}, ""});
       toldWaiting = true;
     }
-    if (!pending || !emulatorWasRunning) toldWaiting = false;
-    if (pending && console && now >= notBefore && !emulatorWasRunning) {
+    if (!pending || !gameWasRunning) toldWaiting = false;
+    if (pending && console && now >= notBefore && !gameWasRunning) {
       if (runPass(*console)) {
         pending = false;
         failures = 0;

@@ -12,6 +12,7 @@ namespace WarpPoint {
 
 // Ryujinx-family emulators are the only kind for now (1.0: Astris).
 std::shared_ptr<RyujinxStore> openEmulator(const Config& config);
+// The emulator app is open (it may just be sitting on its game list).
 bool emulatorRunning();
 
 // "copied Astris -> Will's Switch", "in sync", "CONFLICT".

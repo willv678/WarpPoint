@@ -353,11 +353,17 @@ class RyujinxWriter : public StagedWriter {
                std::string& error) override {
     // Check again right before touching anything: the emulator may have been opened,
     // or the save changed, while the new one was arriving.
-    if (store_.isRunning_()) {
-      error = "the emulator was opened during the sync; close it and sync again";
+    if (!createKey_.empty()) {
+      if (store_.isRunning_()) {
+        error = "the emulator was opened during the sync; quit it so WarpPoint can add the save";
+        return false;
+      }
+      return store_.createSave(createKey_, staging, error);
+    }
+    if (store_.saveInUse(saveDir_)) {
+      error = "the game was started during the sync; stop it and sync again";
       return false;
     }
-    if (!createKey_.empty()) return store_.createSave(createKey_, staging, error);
     std::string current;
     if (!store_.hashSave(saveDir_, current, error)) return false;
     if (current != expected_) {
@@ -382,9 +388,40 @@ class RyujinxWriter : public StagedWriter {
 };
 
 RyujinxStore::RyujinxStore(fs::path root, std::map<std::string, std::string> users,
-                           std::function<bool()> isRunning)
-    : root_(std::move(root)), users_(std::move(users)), isRunning_(std::move(isRunning)) {
+                           std::function<bool()> isRunning,
+                           std::function<std::vector<fs::path>()> openFiles)
+    : root_(std::move(root)),
+      users_(std::move(users)),
+      isRunning_(std::move(isRunning)),
+      openFiles_(std::move(openFiles)) {
   if (!isRunning_) isRunning_ = [] { return false; };
+}
+
+namespace {
+fs::path normalPath(const fs::path& p) {
+  std::error_code ec;
+  const auto c = fs::weakly_canonical(p, ec);
+  return ec ? p.lexically_normal() : c;
+}
+}  // namespace
+
+bool RyujinxStore::saveInUse(const fs::path& dir) const {
+  if (!openFiles_) return isRunning_();  // can't tell which save: assume all of them
+  const fs::path lock = normalPath(dir / ".lock");
+  for (const auto& f : openFiles_()) {
+    if (normalPath(f) == lock) return true;
+  }
+  return false;
+}
+
+bool RyujinxStore::gameRunning() const {
+  if (!openFiles_) return isRunning_();
+  const fs::path saves = normalPath(root_ / "bis/user/save");
+  for (const auto& f : openFiles_()) {
+    const fs::path p = normalPath(f);
+    if (p.filename() == ".lock" && p.parent_path().parent_path() == saves) return true;
+  }
+  return false;
 }
 
 bool RyujinxStore::readIndex(std::vector<IndexEntry>& out, std::string& error) const {
@@ -452,15 +489,14 @@ bool RyujinxStore::list(std::vector<UnitRef>& out, std::string& error) {
 
 std::vector<UnitStatus> RyujinxStore::status(const std::vector<UnitRef>& refs) {
   std::vector<UnitStatus> out;
-  const bool running = isRunning_();
   for (const auto& ref : refs) {
     UnitStatus st;
-    st.busy = running;
     std::string error;
     const auto dir = saveDir(ref.key, error);
     if (!error.empty()) {
       st.error = error;
     } else if (dir) {
+      st.busy = saveInUse(*dir);  // its game is running
       if (!hashSave(*dir, st.hash, st.error)) st.hash.clear();
       st.exists = st.error.empty() && !st.hash.empty();  // no files = no save yet
     }
@@ -486,12 +522,16 @@ bool RyujinxStore::read(const UnitRef& ref, UnitSink& sink, std::string& unitHas
 
 std::unique_ptr<UnitWriter> RyujinxStore::write(const UnitRef& ref, const std::string& expectedHash,
                                                  std::string& error) {
-  if (isRunning_()) {
-    error = "the emulator is open; close it so WarpPoint can write the save";
-    return nullptr;
-  }
   const auto dir = saveDir(ref.key, error);
   if (!dir && !error.empty()) return nullptr;  // bad key, unlinked user, unreadable index
+  if (dir && saveInUse(*dir)) {
+    error = "the game is running in the emulator; stop it so WarpPoint can write its save";
+    return nullptr;
+  }
+  if (!dir && isRunning_()) {
+    error = "the emulator is open; quit it so WarpPoint can add a new save to it";
+    return nullptr;
+  }
   std::string current;
   if (dir && !hashSave(*dir, current, error)) return nullptr;
   if (current != expectedHash) {
@@ -663,6 +703,41 @@ bool processRunning(const std::vector<std::string>& names) {
   (void)names;
   return false;
 #endif
+}
+
+std::vector<fs::path> openFilesOf(const std::vector<std::string>& names) {
+  std::vector<fs::path> out;
+#ifdef __APPLE__
+  std::vector<pid_t> pids(4096);
+  const int bytes = proc_listallpids(pids.data(), static_cast<int>(pids.size() * sizeof(pid_t)));
+  if (bytes <= 0) return out;
+  pids.resize(static_cast<size_t>(bytes) / sizeof(pid_t));
+  char name[2 * MAXCOMLEN + 1];
+  for (const pid_t pid : pids) {
+    if (pid <= 0 || proc_name(pid, name, sizeof(name)) <= 0) continue;
+    if (std::find(names.begin(), names.end(), name) == names.end()) continue;
+    // The same calls lsof uses: list the process's file descriptors, then ask each
+    // file one for its path.
+    const int size = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nullptr, 0);
+    if (size <= 0) continue;
+    std::vector<proc_fdinfo> fds(static_cast<size_t>(size) / sizeof(proc_fdinfo) + 16);
+    const int got = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, fds.data(),
+                                 static_cast<int>(fds.size() * sizeof(proc_fdinfo)));
+    if (got <= 0) continue;
+    fds.resize(static_cast<size_t>(got) / sizeof(proc_fdinfo));
+    for (const auto& fd : fds) {
+      if (fd.proc_fdtype != PROX_FDTYPE_VNODE) continue;
+      vnode_fdinfowithpath info{};
+      if (proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDVNODEPATHINFO, &info, sizeof(info)) ==
+          static_cast<int>(sizeof(info))) {
+        out.emplace_back(info.pvip.vip_path);
+      }
+    }
+  }
+#else
+  (void)names;
+#endif
+  return out;
 }
 
 fs::path defaultRyujinxRoot() {

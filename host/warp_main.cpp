@@ -12,8 +12,8 @@
 //                                 a game the emulator doesn't have yet is created)
 //   warp resolve GAME mac|switch  settle a conflict, then sync that save
 //   warp watch                    sync automatically (what the menu bar app does):
-//                                 whenever the Switch app appears and whenever the
-//                                 emulator closes. Ctrl-C to stop.
+//                                 whenever the Switch app appears and whenever a game
+//                                 stops in the emulator. Ctrl-C to stop.
 //
 // GAME is part of a game's name ("downwell") or a full save key
 // ("game/<titleId>/<userId>"). Names come from the Switch and are kept in
@@ -458,7 +458,8 @@ int cmdWatch() {
     if (loadConfig(dataDir() / "config.json", c, error)) g_config = c;  // pick up new links
     return std::static_pointer_cast<UnitStore>(openEmulator(g_config));
   };
-  cfg.emulatorRunning = [] { return emulatorRunning(); };
+  const auto probe = openEmulator(g_config);
+  cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
   cfg.dataDir = dataDir();
   cfg.keepBackups = g_config.keepBackups;
   cfg.hostName = net::hostName();
@@ -479,7 +480,7 @@ int cmdWatch() {
       }
       case K::PassFinished: std::printf("Done: %s.\n", e.message.c_str()); break;
       case K::PassFailed: std::printf("Couldn't sync (will retry): %s\n", e.message.c_str()); break;
-      case K::Waiting: std::printf("Waiting for the emulator to close before syncing.\n"); break;
+      case K::Waiting: std::printf("Waiting for the game to stop before syncing.\n"); break;
     }
     std::fflush(stdout);
   };
@@ -491,7 +492,7 @@ int cmdWatch() {
   }
   std::signal(SIGINT, [](int) { g_interrupted = true; });
   std::signal(SIGTERM, [](int) { g_interrupted = true; });
-  std::printf("Watching for the Switch app (and for the emulator closing). Ctrl-C to stop.\n");
+  std::printf("Watching for the Switch app (and for games stopping). Ctrl-C to stop.\n");
   std::fflush(stdout);
   while (!g_interrupted) std::this_thread::sleep_for(std::chrono::milliseconds(200));
   std::printf("\nStopping (finishing any sync in progress)...\n");

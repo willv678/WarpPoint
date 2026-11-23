@@ -41,7 +41,7 @@ struct Harness {
   void startSync(std::chrono::milliseconds consoleTimeout = 1500ms) {
     AutoSyncConfig cfg;
     cfg.makeLocal = [this] { return std::shared_ptr<UnitStore>(&mac, [](UnitStore*) {}); };
-    cfg.emulatorRunning = [this] { return emulatorOpen.load(); };
+    cfg.emulatorBusy = [this] { return emulatorOpen.load(); };
     cfg.dataDir = data.path();
     cfg.listenPort = 0;
     cfg.consoleTimeout = consoleTimeout;

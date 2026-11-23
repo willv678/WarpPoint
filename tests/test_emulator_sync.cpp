@@ -53,6 +53,7 @@ std::string makeIndex(const std::vector<IndexRow>& rows) {
 struct FakeEmulator {
   TempDir tmp;
   bool running = false;
+  std::vector<std::filesystem::path> openFiles;  // what "the emulator" holds open
 
   FakeEmulator() {
     writeFile(root() / "bis/system/save/8000000000000000/0/imkvdb.arc",
@@ -69,6 +70,11 @@ struct FakeEmulator {
   std::filesystem::path saveDir() const { return root() / "bis/user/save/0000000000000002"; }
   RyujinxStore store() {
     return RyujinxStore(root(), {{kSwitchUser, kEmuUser}}, [this] { return running; });
+  }
+  // Like the real app: knows which saves a running game holds.
+  RyujinxStore lockAwareStore() {
+    return RyujinxStore(root(), {{kSwitchUser, kEmuUser}}, [this] { return running; },
+                        [this] { return openFiles; });
   }
 };
 
@@ -211,6 +217,64 @@ TEST_CASE("ryujinx: never writes while the emulator is open or after the save ch
   CHECK(readFile(emu.saveDir() / "1/SHANLRG.sav") == "scratch, not committed");  // untouched
 }
 
+
+// ---- Which saves are in use: a running game holds its save's .lock open ----
+
+TEST_CASE("ryujinx: with the app open on its game list, saves still sync") {
+  FakeEmulator emu;
+  emu.running = true;  // app open, no game started: no save locks held
+  auto store = emu.lockAwareStore();
+  CHECK_FALSE(store.gameRunning());
+  const auto st = store.status({{kShantae}});
+  CHECK_FALSE(st[0].busy);
+  std::string error;
+  auto w = store.write({kShantae}, st[0].hash, error);
+  REQUIRE_MESSAGE(w, error);
+  REQUIRE(w->commit(writeSave(*w, {{"SHANLRG.sav", "synced with the menu open"}})));
+  CHECK(readFile(emu.saveDir() / "0/SHANLRG.sav") == "synced with the menu open");
+}
+
+TEST_CASE("ryujinx: a running game's save is in use and is never written") {
+  FakeEmulator emu;
+  emu.running = true;
+  auto store = emu.lockAwareStore();
+  const std::string before = store.status({{kShantae}})[0].hash;
+  std::string error;
+
+  SUBCASE("game already running") {
+    emu.openFiles = {emu.root() / "bis/system/save/8000000000000030/.lock",  // not a game save
+                     emu.saveDir() / ".lock"};
+    CHECK(store.gameRunning());
+    CHECK(store.status({{kShantae}})[0].busy);
+    CHECK_FALSE(store.write({kShantae}, before, error));
+    CHECK(error.find("stop it") != std::string::npos);
+  }
+  SUBCASE("game started while the new save was arriving") {
+    auto w = store.write({kShantae}, before, error);
+    REQUIRE(w);
+    const std::string hash = writeSave(*w, {{"SHANLRG.sav", "new"}});
+    emu.openFiles = {emu.saveDir() / ".lock"};
+    CHECK_FALSE(w->commit(hash));
+  }
+  CHECK(readFile(emu.saveDir() / "0/SHANLRG.sav") == "committed");  // untouched
+}
+
+TEST_CASE("ryujinx: only a game save's lock means a game is running") {
+  FakeEmulator emu;
+  emu.running = true;
+  emu.openFiles = {emu.root() / "bis/system/save/8000000000000030/.lock",
+                   emu.root() / "bis/system/Contents/registered/x.nca/00"};
+  CHECK_FALSE(emu.lockAwareStore().gameRunning());
+}
+
+TEST_CASE("ryujinx: adding a new save still waits for the app to quit (it holds the index)") {
+  FakeEmulator emu;
+  emu.running = true;  // even with no game running
+  auto store = emu.lockAwareStore();
+  std::string error;
+  CHECK_FALSE(store.write({"game/0100000000000099/" + kSwitchUser}, "", error));
+  CHECK(error.find("quit it") != std::string::npos);
+}
 
 // ---- Creating a save the emulator never had ----
 

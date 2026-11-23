@@ -2,12 +2,12 @@
 // is open, and syncs without being asked:
 //
 //   - when a console appears (its app beacons "I'm here" every 2 s), and
-//   - when the emulator closes while a console is around (so a save made on the Mac
-//     reaches the Switch right away).
+//   - when a game stops in the emulator while a console is around (so a save made on
+//     the Mac reaches the Switch right away; the emulator app itself can stay open).
 //
 // A pass syncs every save the emulator has, exactly like `warp sync`. Conflicts are
-// recorded and reported, never decided. Passes are skipped while the emulator is open
-// (it holds its saves) and wait for the sync lock, so a `warp` command in a terminal
+// recorded and reported, never decided. Passes wait while a game is running (it holds
+// its save) and wait for the sync lock, so a `warp` command in a terminal
 // and AutoSync never run at the same time. Everything that happens is reported
 // through onEvent, which is called on AutoSync's thread.
 #pragma once
@@ -34,7 +34,7 @@ struct AutoSyncEvent {
     Synced,        // one save handled: see report
     PassFinished,  // message: a one-line summary
     PassFailed,    // message: why (will retry)
-    Waiting,       // a sync is owed but the emulator is open: it runs when it closes
+    Waiting,       // a sync is owed but a game is running: it runs when the game stops
   };
   Kind kind;
   std::string console;  // "Will's Switch"
@@ -46,7 +46,7 @@ struct AutoSyncEvent {
 struct AutoSyncConfig {
   // The emulator side, built fresh for every pass so changed settings apply.
   std::function<std::shared_ptr<UnitStore>()> makeLocal;
-  std::function<bool()> emulatorRunning;
+  std::function<bool()> emulatorBusy;  // a game is running in the emulator
   std::filesystem::path dataDir;  // state.json, backups/, titles/, sync.lock
   size_t keepBackups = 4;
   std::string hostName = "Mac";
@@ -54,7 +54,7 @@ struct AutoSyncConfig {
   std::chrono::milliseconds consoleTimeout{7000};  // ~3 missed beacons
   std::chrono::milliseconds firstRetryAfter{2000};  // the first retry: often just a blip
   std::chrono::milliseconds retryAfter{10000};     // after that
-  std::chrono::milliseconds emulatorPoll{2000};
+  std::chrono::milliseconds emulatorPoll{2000};  // how often emulatorBusy is asked
   std::function<void(const AutoSyncEvent&)> onEvent;
 };
 

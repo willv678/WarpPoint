@@ -40,10 +40,16 @@ struct EmulatorProfile {
 
 class RyujinxStore : public UnitStore {
  public:
-  // users: Switch user id -> emulator user id. isRunning: true while the emulator is
-  // open (it holds saves and the index in memory, so we never write under it).
+  // users: Switch user id -> emulator user id.
+  // isRunning: true while the emulator app is open. It keeps the save index in memory
+  //   then, so creating a save (a new index row) waits until it's closed.
+  // openFiles: the files the emulator has open. A game's save is in use exactly while
+  //   the emulator holds that save's ".lock" file open (checked on Astris: opening the
+  //   app holds none; starting a game holds its own; stopping it lets go). Without it,
+  //   every save counts as in use while the app is open.
   RyujinxStore(std::filesystem::path root, std::map<std::string, std::string> users,
-               std::function<bool()> isRunning);
+               std::function<bool()> isRunning,
+               std::function<std::vector<std::filesystem::path>()> openFiles = {});
 
   bool list(std::vector<UnitRef>& out, std::string& error) override;
   std::vector<UnitStatus> status(const std::vector<UnitRef>& refs) override;
@@ -59,6 +65,9 @@ class RyujinxStore : public UnitStore {
 
   // "Astris" for Astris's folder, else "Ryujinx".
   std::string displayName() const override;
+
+  // Whether a game is running in the emulator (any game save is in use).
+  bool gameRunning() const;
 
  private:
   friend class RyujinxWriter;
@@ -80,11 +89,18 @@ class RyujinxStore : public UnitStore {
 
   std::filesystem::path root_;
   std::map<std::string, std::string> users_;
+  // Whether the save in dir is in use by a running game.
+  bool saveInUse(const std::filesystem::path& dir) const;
+
   std::function<bool()> isRunning_;
+  std::function<std::vector<std::filesystem::path>()> openFiles_;
 };
 
 // Whether a process with one of these names is running (macOS; false elsewhere for now).
 bool processRunning(const std::vector<std::string>& names);
+
+// Every file the processes with these names have open (macOS; empty elsewhere for now).
+std::vector<std::filesystem::path> openFilesOf(const std::vector<std::string>& names);
 
 // Where Ryujinx-family emulators keep their data on this machine, Astris first.
 std::filesystem::path defaultRyujinxRoot();

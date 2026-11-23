@@ -63,7 +63,8 @@ bool AppCore::start(std::string& error) {
     loadConfig(dataDir / "config.json", c, e);  // fresh: picks up new links
     return std::static_pointer_cast<UnitStore>(openEmulator(c));
   };
-  cfg.emulatorRunning = [] { return emulatorRunning(); };
+  const auto probe = openEmulator(config);  // only asked "is a game running?"
+  cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
   cfg.dataDir = dataDir_;
   cfg.keepBackups = config.keepBackups;
   cfg.hostName = net::hostName();

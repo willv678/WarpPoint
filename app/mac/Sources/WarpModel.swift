@@ -64,7 +64,7 @@ final class WarpModel: ObservableObject {
   var statusLine: String {
     if syncing { return "Syncing with \(console ?? "your Switch")…" }
     guard let console else { return "Open WarpPoint on your Switch to sync." }
-    if waitingForEmulator { return "\(console) is here. Syncs when you quit \(localName)." }
+    if waitingForEmulator { return "\(console) is here. Syncs when you stop the game in \(localName)." }
     if let lastSync { return "\(console) is here. Last sync \(WarpModel.ago(lastSync))." }
     return "\(console) is here."
   }
