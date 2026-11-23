@@ -52,7 +52,8 @@ struct AutoSyncConfig {
   std::string hostName = "Mac";
   uint16_t listenPort = proto::kHostDiscoveryPort;  // 0 = any (tests; see port())
   std::chrono::milliseconds consoleTimeout{7000};  // ~3 missed beacons
-  std::chrono::milliseconds retryAfter{10000};     // after a failed or postponed pass
+  std::chrono::milliseconds firstRetryAfter{2000};  // the first retry: often just a blip
+  std::chrono::milliseconds retryAfter{10000};     // after that
   std::chrono::milliseconds emulatorPoll{2000};
   std::function<void(const AutoSyncEvent&)> onEvent;
 };

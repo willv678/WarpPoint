@@ -30,10 +30,13 @@ struct MenuView: View {
         .foregroundStyle(.primary)
       VStack(alignment: .leading, spacing: 2) {
         Text("WarpPoint").font(.headline)
-        Text(model.statusLine)
-          .font(.callout)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+        // Re-read every 15 s so "5 minutes ago" keeps counting while the panel is open.
+        TimelineView(.periodic(from: .now, by: 15)) { _ in
+          Text(model.statusLine)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
       }
     }
   }

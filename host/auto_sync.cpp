@@ -6,6 +6,7 @@
 #include "state_store.hpp"
 #include "title_cache.hpp"
 
+#include <algorithm>
 #include <optional>
 
 namespace WarpPoint {
@@ -42,6 +43,7 @@ void AutoSync::loop() {
   bool emulatorWasRunning = cfg_.emulatorRunning();
   Clock::time_point nextEmulatorPoll = Clock::now() + cfg_.emulatorPoll;
   bool toldWaiting = false;  // "waiting for the emulator" is said once per wait
+  int failures = 0;          // in a row: the first retry comes quickly
 
   while (!stop_) {
     // Wait for a beacon a little at a time so stop() is quick.
@@ -81,8 +83,11 @@ void AutoSync::loop() {
     if (pending && console && now >= notBefore && !emulatorWasRunning) {
       if (runPass(*console)) {
         pending = false;
+        failures = 0;
       } else {
-        notBefore = Clock::now() + cfg_.retryAfter;
+        ++failures;
+        notBefore = Clock::now() + (failures == 1 ? std::min(cfg_.retryAfter, cfg_.firstRetryAfter)
+                                                  : cfg_.retryAfter);
       }
     }
   }

@@ -43,6 +43,7 @@ final class WarpModel: ObservableObject {
   private var pump: Timer?
   private var pulse: Timer?
   private var pulseStart = Date()
+  private var failuresInARow = 0
 
   init() {
     let dir = ProcessInfo.processInfo.environment["WARP_DATA_DIR"]
@@ -64,14 +65,20 @@ final class WarpModel: ObservableObject {
     if syncing { return "Syncing with \(console ?? "your Switch")…" }
     guard let console else { return "Open WarpPoint on your Switch to sync." }
     if waitingForEmulator { return "\(console) is here. Syncs when you quit \(localName)." }
-    if let lastSync {
-      let ago = RelativeDateTimeFormatter().localizedString(for: lastSync, relativeTo: Date())
-      return "\(console) is here. Last sync \(ago)."
-    }
+    if let lastSync { return "\(console) is here. Last sync \(WarpModel.ago(lastSync))." }
     return "\(console) is here."
   }
 
   func syncNow() { warp_core_sync_now(core) }
+
+  /// "just now", "5 minutes ago", "1 hour ago", "yesterday".
+  static func ago(_ date: Date, now: Date = Date()) -> String {
+    if now.timeIntervalSince(date) < 60 { return "just now" }
+    let f = RelativeDateTimeFormatter()
+    f.unitsStyle = .full
+    f.dateTimeStyle = .named
+    return f.localizedString(for: date, relativeTo: now)
+  }
 
   /// keepLocal: the emulator's copy wins. Waits for any sync in progress, so it runs
   /// off the main thread.
@@ -137,13 +144,17 @@ final class WarpModel: ObservableObject {
       }
     case "passFinished":
       setSyncing(false)
+      failuresInARow = 0
       lastSync = Date()
       lastSummary = s("message")
       problem = nil
       refreshConflicts()
     case "passFailed":
       setSyncing(false)
-      problem = s("message")
+      failuresInARow += 1
+      // The first attempt can fail for passing reasons (the Switch app still starting,
+      // macOS asking about local network access); AutoSync retries in 2 s.
+      if failuresInARow >= 2 { problem = s("message") }
     default:
       break
     }
