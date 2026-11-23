@@ -40,7 +40,9 @@ struct LibraryView: View {
     VStack(spacing: 0) {
       banner
       ForEach(conflicts) { conflictBanner($0) }
-      HStack(spacing: 0) {
+      // The details float over the grid as a card, so the grid never reflows (a
+      // narrower grid would re-pick its columns and every tile would jump).
+      ZStack(alignment: .trailing) {
         Group {
           if myGames.isEmpty && search.isEmpty {
             emptyState
@@ -49,17 +51,18 @@ struct LibraryView: View {
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The details slide in below the toolbar (not up beside the search field).
         if let game = selected {
-          Divider()
           GameDetail(game: game, model: model)
             .frame(width: 330)
             .frame(maxHeight: .infinity)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator.opacity(0.6)))
+            .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 4)
+            .padding(10)
             .transition(.move(edge: .trailing).combined(with: .opacity))
         }
       }
-      .animation(.snappy(duration: 0.22), value: selection)
+      .animation(.spring(response: 0.32, dampingFraction: 0.86), value: selection)
     }
     .onExitCommand { selection = nil }  // Esc closes the details
     .frame(minWidth: 620, minHeight: 420)
