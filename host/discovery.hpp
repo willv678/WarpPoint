@@ -13,6 +13,7 @@ struct Peer {
   uint16_t port = proto::kAgentTcpPort;
   std::string deviceId;
   std::string name;
+  uint32_t generation = 0;  // see proto::Announce
 };
 
 class Discovery {

@@ -157,6 +157,10 @@ struct Announce {
   uint16_t tcpPort = kAgentTcpPort;
   std::string deviceId;
   std::string name;
+  // Goes up whenever the console's saves may have changed (a game was closed, or
+  // "Sync now" was pressed on the console), so the Mac knows to sync. Sent after the
+  // name; an announce without it reads as 0.
+  uint32_t generation = 0;
 };
 
 std::vector<uint8_t> encodeProbe();

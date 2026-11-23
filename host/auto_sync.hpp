@@ -1,7 +1,9 @@
 // AutoSync: WarpPoint's automatic part. Runs on its own thread for as long as the app
 // is open, and syncs without being asked:
 //
-//   - when a console appears (its app beacons "I'm here" every 2 s), and
+//   - when a console appears (its app beacons "I'm here" every 2 s),
+//   - when the console says its saves may have changed (a game was closed there, or
+//     "Sync now" was pressed in its overlay: the beacon's generation goes up), and
 //   - when a game stops in the emulator while a console is around (so a save made on
 //     the Mac reaches the Switch right away; the emulator app itself can stay open).
 //

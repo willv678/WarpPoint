@@ -124,6 +124,10 @@ void AutoSync::loop() {
     // Wait for a beacon a little at a time so stop() is quick.
     if (auto peer = discovery_.listen(250)) {
       const bool isNew = !console || console->deviceId != peer->deviceId;
+      if (!isNew && peer->generation != console->generation) {
+        pending = true;  // a game closed on the console: its save may be new
+        notBefore = {};
+      }
       console = peer;
       lastBeacon = Clock::now();
       if (isNew) {
@@ -156,7 +160,11 @@ void AutoSync::loop() {
     }
     if (!pending || !gameWasRunning) toldWaiting = false;
     if (pending && console && now >= notBefore && !gameWasRunning) {
-      if (runPass(*console)) {
+      const bool done = runPass(*console);
+      // No beacons are read while a pass runs. After one that reached the console,
+      // don't let its length make the console look gone.
+      if (done) lastBeacon = Clock::now();
+      if (done) {
         pending = false;
         failures = 0;
       } else {

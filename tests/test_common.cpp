@@ -135,6 +135,20 @@ TEST_CASE("discovery datagrams") {
   CHECK_FALSE(proto::decodeDiscovery(junk, sizeof(junk), kind, out));
 }
 
+TEST_CASE("discovery: the announce carries a 'saves may have changed' counter") {
+  proto::Announce a{proto::kProtocolVersion, 40000, "dev-1", "Switch", 7};
+  auto bytes = proto::encodeAnnounce(a);
+  proto::DiscoveryKind kind{};
+  proto::Announce out;
+  REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
+  CHECK(out.generation == 7);
+  // An older agent's announce (no counter) still reads, as 0.
+  bytes.resize(bytes.size() - 4);
+  REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
+  CHECK(out.generation == 0);
+  CHECK(out.name == "Switch");
+}
+
 TEST_CASE("hello: capabilities are bounded so a peer can't flood us") {
   proto::Hello hello{proto::kProtocolVersion, "dev-1", "Switch", {}};
   proto::Hello out;

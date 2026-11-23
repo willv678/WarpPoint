@@ -87,12 +87,20 @@ def open_hbmenu() -> None:
 # ---- FTP (sys-ftpd) ----
 
 def ftp() -> ftplib.FTP:
+    # The Keychain password first; if sys-ftpd turns it down (its config.ini password
+    # line isn't being read, which leaves it open to anyone), log in anonymously.
     password = subprocess.run(
         ["security", "find-generic-password", "-s", "warppoint-switch-ftp", "-a", "warp", "-w"],
-        capture_output=True, text=True, check=True).stdout.strip()
+        capture_output=True, text=True).stdout.strip()
     f = ftplib.FTP()
     f.connect(switch_ip(), FTP_PORT, timeout=15)
-    f.login("warp", password)
+    try:
+        f.login("warp", password)
+    except ftplib.error_temp:
+        f.connect(switch_ip(), FTP_PORT, timeout=15)
+        f.login("anonymous", "")
+        print("[switch.py] FTP login: anonymous (sys-ftpd is open to anyone while it runs)",
+              file=sys.stderr)
     return f
 
 

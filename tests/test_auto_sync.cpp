@@ -39,7 +39,9 @@ struct Harness {
     sw.writable = true;
   }
 
-  void startSync(std::chrono::milliseconds consoleTimeout = 1500ms) {
+  // Longer than the agent's 2 s beacon interval, or the console would flicker out
+  // between beacons (the app uses 7 s).
+  void startSync(std::chrono::milliseconds consoleTimeout = 5000ms) {
     AutoSyncConfig cfg;
     cfg.makeLocal = [this] { return std::shared_ptr<UnitStore>(&mac, [](UnitStore*) {}); };
     cfg.emulatorBusy = [this] { return emulatorOpen.load(); };
@@ -127,7 +129,7 @@ TEST_CASE("autosync: closing the emulator sends the new save to the console") {
   REQUIRE(h.waitFor(K::PassFinished));  // in sync: nothing to do
 
   h.emulatorOpen = true;
-  std::this_thread::sleep_for(200ms);  // AutoSync sees it open
+  std::this_thread::sleep_for(700ms);  // long enough for AutoSync's loop (250 ms) to see it
   h.mac.saves[kGame] = {{"save.dat", "played on the mac"}};
   h.emulatorOpen = false;  // "quit Astris"
 
@@ -198,6 +200,33 @@ TEST_CASE("autosync: a save you stopped syncing is left alone") {
   REQUIRE(h.waitFor(K::PassFinished));
   CHECK(h.reports().empty());
   CHECK(h.mac.saves[kGame].at("save.dat") == "a");
+}
+
+TEST_CASE("autosync: a game closing on the console syncs its save to the Mac") {
+  Harness h;
+  h.mac.saves[kGame] = {{"save.dat", "same"}};
+  h.sw.saves[kGame] = {{"save.dat", "same"}};
+  h.setBase(h.mac.hashOf(kGame));
+  h.startSync();
+  h.startSwitch();
+  REQUIRE(h.waitFor(K::PassFinished));  // in sync
+
+  h.sw.saves[kGame] = {{"save.dat", "played on the switch"}};
+  h.agent.bumpGeneration();  // the console saw the game close
+  REQUIRE(h.waitFor(K::PassFinished, 2));
+  CHECK(h.mac.saves[kGame].at("save.dat") == "played on the switch");
+  CHECK(h.count(K::ConsoleFound) == 1);  // same console, no reconnect needed
+}
+
+TEST_CASE("autosync: a paused console looks gone, and comes back when resumed") {
+  Harness h;
+  h.startSync(/*consoleTimeout=*/800ms);
+  h.startSwitch();
+  REQUIRE(h.waitFor(K::ConsoleFound));
+  h.agent.setPaused(true);
+  REQUIRE(h.waitFor(K::ConsoleLost));
+  h.agent.setPaused(false);
+  REQUIRE(h.waitFor(K::ConsoleFound, 2));
 }
 
 TEST_CASE("autosync: notices when the console goes away") {

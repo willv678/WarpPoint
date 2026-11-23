@@ -33,6 +33,13 @@ class AgentRuntime {
   // Interrupts any session in progress and joins the worker threads.
   void stop();
 
+  // Tell the Mac the saves may have changed (a game closed, "Sync now" on the console).
+  void bumpGeneration() { ++generation_; }
+  // Paused: stop announcing, ignore probes and turn away connections, so the Mac sees
+  // the console as gone. Nothing syncs until it's resumed.
+  void setPaused(bool paused) { paused_ = paused; }
+  bool paused() const { return paused_; }
+
   uint16_t tcpPort() const { return listener_.port(); }
   uint16_t discoveryPort() const { return udp_.port(); }
   bool hostConnected() const { return connected_; }
@@ -46,6 +53,8 @@ class AgentRuntime {
   net::UdpSocket udp_;
   std::atomic<bool> stop_{false};
   std::atomic<bool> connected_{false};
+  std::atomic<uint32_t> generation_{0};
+  std::atomic<bool> paused_{false};
   std::mutex activeMutex_;
   net::TcpStream* active_ = nullptr;
   std::thread discovery_, server_;

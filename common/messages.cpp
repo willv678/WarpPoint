@@ -239,6 +239,7 @@ std::vector<uint8_t> encodeAnnounce(const Announce& a) {
   w.u16(a.tcpPort);
   w.str(a.deviceId);
   w.str(a.name);
+  w.u32(a.generation);
   return std::move(w.data());
 }
 
@@ -261,6 +262,7 @@ bool decodeDiscovery(const uint8_t* data, size_t len, DiscoveryKind& kind, Annou
   announce.tcpPort = r.u16();
   announce.deviceId = r.str();
   announce.name = r.str();
+  announce.generation = r.remaining() >= 4 ? r.u32() : 0;  // older agents don't send it
   return r.done();
 }
 
