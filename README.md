@@ -1,8 +1,6 @@
 <h1 align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="branding/wordmark-dark.png">
-    <img src="branding/wordmark-light.png" height="64" alt="WarpPoint">
-  </picture>
+  <img src="branding/wordmark-light.png#gh-light-mode-only" height="64" alt="WarpPoint">
+  <img src="branding/wordmark-dark.png#gh-dark-mode-only" height="64" alt="WarpPoint">
 </h1>
 
 <p align="center">
