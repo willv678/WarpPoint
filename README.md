@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="branding/appicon/icon-256.png" width="128" alt="WarpPoint icon: a UFO with a tractor beam">
+  <img src="branding/banner.gif" width="100%" alt="A little UFO picks up a save from a Nintendo Switch, flies it over to a laptop, and back">
 </p>
 
-<h1 align="center">WarpPoint</h1>
+<h1 align="center"><img src="branding/appicon/icon-256.png" width="40" align="center" alt=""> WarpPoint</h1>
 
 <p align="center">
   Keeps your Nintendo Switch saves and your Mac's Switch emulator in sync, on its own.<br>
