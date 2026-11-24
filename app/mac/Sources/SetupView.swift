@@ -73,7 +73,11 @@ struct SetupView: View {
     }
     .padding(26)
     .frame(width: 560, height: 600)
-    .onAppear(perform: prefill)
+    .onAppear {
+      model.windowOpened()
+      prefill()
+    }
+    .onDisappear { model.windowClosed() }
     .onChange(of: model.setup.consoleUsers) { prefill() }
   }
 

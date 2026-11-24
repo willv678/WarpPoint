@@ -99,7 +99,8 @@ struct LibraryView: View {
     } message: { _ in
       Text("Nothing is deleted: its saves stay in \(model.library.emulator) and on your Switch. WarpPoint just stops copying between them. You can add it back with +.")
     }
-    .onAppear { model.refreshLibrary() }
+    .onAppear { model.windowOpened() }
+    .onDisappear { model.windowClosed() }
   }
 
   /// Width the details card covers on the right (card + its margins).

@@ -49,6 +49,15 @@ final class WarpModel: ObservableObject {
   private var pulseStart = Date()
   private var failuresInARow = 0
   private var libraryTimer: Timer?
+  private var openWindows = 0
+
+  /// Windows that show the library or setup call these from onAppear / onDisappear.
+  func windowOpened() {
+    openWindows += 1
+    refreshLibrary()
+    refreshSetup()
+  }
+  func windowClosed() { openWindows = max(0, openWindows - 1) }
 
   init() {
     let dir = ProcessInfo.processInfo.environment["WARP_DATA_DIR"]
@@ -64,11 +73,14 @@ final class WarpModel: ObservableObject {
     pump = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated { self?.drainEvents() }
     }
-    // The library's "is Astris open" and saves lists: cheap to read (no hashing).
+    // While a window that shows them is open, keep the library and setup fresh (is
+    // Astris open, new saves). With every window closed the app only refreshes when a
+    // sync event arrives, so it sits idle in the menu bar.
     libraryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
-        self?.refreshLibrary()
-        self?.refreshSetup()
+        guard let self, self.openWindows > 0 else { return }
+        self.refreshLibrary()
+        self.refreshSetup()
       }
     }
     refreshLibrary()

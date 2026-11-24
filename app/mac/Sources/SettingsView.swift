@@ -52,7 +52,8 @@ struct SettingsView: View {
     .formStyle(.grouped)
     .frame(width: 480)
     .frame(minHeight: 460)
-    .onAppear { model.refreshSetup() }
+    .onAppear { model.windowOpened() }
+    .onDisappear { model.windowClosed() }
   }
 
   private func chooseFolder() {
