@@ -102,18 +102,25 @@ struct LibraryView: View {
     .onAppear { model.refreshLibrary() }
   }
 
+  /// Width the details card covers on the right (card + its margins).
+  static let cardRoom: CGFloat = 350
+
   private var grid: some View {
     GeometryReader { geo in
       ScrollView {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 118, maximum: 140), spacing: 20)],
-                  spacing: 22) {
+        // A layout that places every tile itself (not a lazy grid), so when the details
+        // card takes the right side, SwiftUI slides each tile to its new spot and the
+        // ones that no longer fit glide down to the next row instead of hiding under it.
+        TileFlow {
           ForEach(myGames) { game in
             GameTile(game: game, selected: game.key == selection, model: model,
                      stop: { stopping = $0 })
+              .frame(width: TileFlow.tileWidth)
               .onTapGesture { selection = game.key }
           }
         }
         .padding(20)
+        .padding(.trailing, selection == nil ? 0 : Self.cardRoom)
         // Fill the view so a click on empty space reaches us: it closes the details.
         .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
         .contentShape(Rectangle())
@@ -373,6 +380,52 @@ struct StatusBadge: View {
     case "conflict": return "Changed on both sides: pick one"
     case "problem": return "Didn't sync last time"
     default: return "Not synced yet"
+    }
+  }
+}
+
+/// Fixed-width tiles in as many columns as fit, left to right, top to bottom.
+/// Unlike LazyVGrid, a Layout's subviews animate between positions when the space
+/// changes, which is what makes the library reflow smoothly around the details card.
+struct TileFlow: Layout {
+  static let tileWidth: CGFloat = 130
+  var spacing: CGFloat = 20
+  var rowSpacing: CGFloat = 22
+
+  private func columns(for width: CGFloat) -> Int {
+    max(1, Int((width + spacing) / (Self.tileWidth + spacing)))
+  }
+
+  /// Each row's height: its tallest tile (names can wrap to two lines).
+  private func rowHeights(_ subviews: Subviews, columns: Int) -> [CGFloat] {
+    stride(from: 0, to: subviews.count, by: columns).map { start in
+      subviews[start..<min(start + columns, subviews.count)]
+        .map { $0.sizeThatFits(ProposedViewSize(width: Self.tileWidth, height: nil)).height }
+        .max() ?? 0
+    }
+  }
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let width = proposal.width ?? 800
+    let heights = rowHeights(subviews, columns: columns(for: width))
+    let total = heights.reduce(0, +) + rowSpacing * CGFloat(max(0, heights.count - 1))
+    return CGSize(width: width, height: total)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews,
+                     cache: inout ()) {
+    let cols = columns(for: bounds.width)
+    let heights = rowHeights(subviews, columns: cols)
+    var y = bounds.minY
+    for (row, height) in heights.enumerated() {
+      for col in 0..<cols {
+        let i = row * cols + col
+        guard i < subviews.count else { break }
+        subviews[i].place(at: CGPoint(x: bounds.minX + CGFloat(col) * (Self.tileWidth + spacing), y: y),
+                          anchor: .topLeading,
+                          proposal: ProposedViewSize(width: Self.tileWidth, height: nil))
+      }
+      y += height + rowSpacing
     }
   }
 }
