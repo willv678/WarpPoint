@@ -70,7 +70,7 @@ struct GameDetail: View {
   private func lastSync(_ at: Date) -> String {
     let when = WarpModel.ago(at)
     if game.lastText == "in sync" { return "Checked \(when)" }
-    let text = game.lastText.replacingOccurrences(of: "->", with: "→")
+    let text = game.lastText.replacingOccurrences(of: "->", with: "→")  // older records
     return text.prefix(1).uppercased() + text.dropFirst() + " " + when
   }
 

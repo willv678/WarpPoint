@@ -17,8 +17,8 @@ bool emulatorRunning() { return processRunning(kEmulatorProcesses); }
 std::string describeAction(SyncAction a, const std::string& local, const std::string& remote) {
   switch (a) {
     case SyncAction::None: return "in sync";
-    case SyncAction::Push: return "copied " + local + " -> " + remote;
-    case SyncAction::Pull: return "copied " + remote + " -> " + local;
+    case SyncAction::Push: return "copied " + local + " \u2192 " + remote;
+    case SyncAction::Pull: return "copied " + remote + " \u2192 " + local;
     case SyncAction::Conflict: return "CONFLICT";
   }
   return "?";
