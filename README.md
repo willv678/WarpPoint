@@ -70,6 +70,10 @@ Mostly, you don't. On the Switch, the **WarpPoint overlay** (open your overlay m
 shows whether it's running and when it last synced, and has **Sync now**, **pause**, and
 switches to run it and to start it at boot.
 
+<p align="center">
+  <img src="docs/images/overlay.jpg" width="300" alt="The WarpPoint overlay on a Switch: Ready, Mac: Will's MacBook Pro, Last synced 13 min ago, Sync now, Syncing On, WarpPoint running On, Start at boot On">
+</p>
+
 On the Mac, click the UFO for status and recent syncs, or **Open Library…** for your games:
 
 - **+ Add Game** lists the games on your Switch that aren't in Astris yet. Pick one to bring its
