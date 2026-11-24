@@ -1,8 +1,13 @@
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/wordmark-dark.png">
+    <img src="branding/wordmark-light.png" height="64" alt="WarpPoint">
+  </picture>
+</h1>
+
 <p align="center">
   <img src="branding/banner.gif" width="100%" alt="A little UFO picks up a save from a Nintendo Switch, flies it over to a laptop, and back">
 </p>
-
-<h1 align="center"><img src="branding/appicon/icon-256.png" width="40" align="center" alt=""> WarpPoint</h1>
 
 <p align="center">
   Keeps your Nintendo Switch saves and your Mac's Switch emulator in sync, on its own.<br>
@@ -19,7 +24,10 @@ behind. You never pick files or folders, and you don't open anything to sync: cl
 either side and its save is on the other a few seconds later.
 
 **Version 1.0** works with Astris (and other Ryujinx-based emulators) on an Apple Silicon Mac,
-and a Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere).
+and a Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere). That's the
+start, not the scope: WarpPoint is built so each emulator and each console is a plug-in to the
+same sync engine, and support for **Windows and Linux**, more emulators (including
+**nxnative** ports) and more consoles is planned. See the [roadmap](#roadmap).
 
 ## What it does
 
@@ -91,6 +99,17 @@ On the Mac, click the UFO for status and recent syncs, or **Open Library…** fo
   while it's open. Syncing saves it already has works with Astris open.
 - Very large saves (tens of MB) may not fit in one write on the Switch.
 - Mac only, and Ryujinx-family emulators only, for now.
+
+## Roadmap
+
+- [x] Sync both ways between the Switch and Astris, on its own (1.0)
+- [x] Menu bar app, library, backups and restore, first-run setup (1.0)
+- [x] Background module and Tesla overlay on the Switch (1.0)
+- [ ] Create a save on the Switch for a game only played on the Mac
+- [ ] Very large saves (TotK-size) written to the Switch in pieces
+- [ ] nxnative ports and more emulators
+- [ ] Windows and Linux
+- [ ] A signed and notarized Mac app
 
 ## How it works
 
