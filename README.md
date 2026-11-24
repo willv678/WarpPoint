@@ -16,86 +16,103 @@
   <img src="docs/images/library.png" width="720" alt="The WarpPoint library window: games with their icons and sync status">
 </p>
 
-WarpPoint is a small menu bar app for the Mac plus a background module for the Switch. While
-both are on the same Wi-Fi, they find each other and copy each game's save to whichever side is
-behind. You never pick files or folders, and you don't open anything to sync: close a game on
-either side and its save is on the other a few seconds later.
+WarpPoint is a small menu bar app for the Mac and a background module for the Switch. When both
+are on the same Wi-Fi they find each other and copy each game's save to whichever side is behind.
+There are no folders to pick and nothing to open. Close a game on one side, and a few seconds later
+its save is on the other.
 
-**Version 1.0** works with Astris (and other Ryujinx-based emulators) on an Apple Silicon Mac,
-and a Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere). That's the
-start, not the scope: WarpPoint is built so each emulator and each console is a plug-in to the
-same sync engine, and support for **Windows and Linux**, more emulators (including
-**nxnative** ports) and more consoles is planned. See the [roadmap](#roadmap).
+Version 1.0 works with Astris (and other Ryujinx-based emulators) on an Apple Silicon Mac, and a
+Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere). More is on the way.
+Each emulator and each console plugs into the same sync engine, so Windows, Linux, more emulators
+(nxnative ports included) and more consoles are planned. See the [roadmap](#roadmap).
 
 ## What it does
 
-- **Syncs on its own, both ways.** Close a game on the Switch and its save lands in Astris; stop
-  a game in Astris and its save goes to the Switch. Nothing to open on either side.
-- **Never guesses.** If a save changed on both sides since they last agreed, WarpPoint asks
-  which one to keep instead of picking.
-- **Backs up before it overwrites anything,** on either side. The newest 4 backups of each save
-  are kept on the Mac, and any of them can be restored.
-- **Never leaves half a save.** Writes land in a scratch copy first and become the real save in
-  one step, on the Switch and in Astris, so a crash or a dropped connection leaves the old save.
-- **Leaves running games alone.** A game's save is never touched while that game is running.
-- **Brings games over.** Pick any game you've played on the Switch and WarpPoint creates its
-  save in Astris, even if you've never launched it there.
-
-<p align="center">
-  <img src="docs/images/menu.png" width="330" alt="The WarpPoint menu: status, recent syncs, Sync Now">
-</p>
+- **Syncs both ways by itself.** Close a game on the Switch and its save lands in Astris. Stop a
+  game in Astris and its save goes to the Switch.
+- **Asks when it isn't sure.** If a save changed on both sides since they last matched, WarpPoint
+  lets you pick which one to keep.
+- **Backs up first.** Before it replaces a save anywhere, it keeps a copy on the Mac. It holds the
+  newest 4 of each save, and any of them can be restored.
+- **Writes all or nothing.** A new save goes into a scratch copy and becomes the real one in a
+  single step, on the Switch and in Astris. If the power or the Wi-Fi drops halfway, you still
+  have the old save.
+- **Waits for you to finish playing.** A save is never touched while its game is running.
+- **Brings games over.** Pick any game you've played on the Switch, and WarpPoint sets up its save
+  in Astris, even if you've never launched it there.
 
 ## Install
 
-**On the Mac** (Apple Silicon, macOS 14 or later):
+**On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.0.0.dmg` from [Releases](../../releases) and drag WarpPoint to Applications.
-2. Open it. This build isn't signed with an Apple developer certificate yet, so macOS will
-   refuse the first time: open **System Settings → Privacy & Security** and click **Open Anyway**.
-3. When macOS asks whether WarpPoint may find devices on your local network, click **Allow**.
+1. Download `WarpPoint-1.0.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+   Applications.
+2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
+   **System Settings → Privacy & Security** and click **Open Anyway**.
+3. When macOS asks whether WarpPoint can find devices on your local network, click **Allow**.
    That's how it hears your Switch.
 
-**On the Switch** (Atmosphère, with [Tesla](https://github.com/WerWolv/Tesla-Menu) or
-another overlay menu if you want the overlay):
+**On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
+overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.0.0.zip` onto the root of the SD card. It adds the background
-   module (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
+1. Unzip `WarpPoint-Switch-1.0.0.zip` onto the root of the SD card. It adds the background module
+   (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
 
-Don't want anything running in the background? Delete `atmosphere/contents/4200000000005750/`
-and open **WarpPoint** from the homebrew menu whenever you want to sync instead. (The two can't
-run at the same time.)
+Back on the Mac, a setup window walks you through the rest. It finds Astris, waits for the Switch,
+and asks which Astris profile goes with which Switch user.
 
-A setup window then walks you through the rest: it finds Astris, waits for the Switch, and asks
-which Astris profile goes with which Switch user.
+Rather not have anything running in the background? Delete
+`atmosphere/contents/4200000000005750/` and open **WarpPoint** from the homebrew menu whenever you
+want to sync. The app and the background module can't run at the same time.
 
 ## Using it
 
-Mostly, you don't. On the Switch, the **WarpPoint overlay** (open your overlay menu in any game)
-shows whether it's running and when it last synced, and has **Sync now**, **pause**, and
-switches to run it and to start it at boot.
+Mostly, you don't. On the Mac, WarpPoint lives in the menu bar. Click the UFO to see what it's
+doing and what it last moved.
+
+<p align="center">
+  <img src="docs/images/menu.png" width="400" alt="The WarpPoint menu open under its UFO icon in the macOS menu bar: Will's Switch is here, last sync just now, Fire Emblem: Three Houses copied Will's Switch → Astris">
+</p>
+
+**Open Library…** shows the games WarpPoint keeps in sync.
+
+- **+ Add Game** lists the games on your Switch that aren't in Astris yet. Pick one to bring its
+  save over.
+- Click a game for its status and its backups, and **Restore…** to put an older save back.
+- Right-click a game to sync it now, find its save in Finder, or stop syncing it. Nothing gets
+  deleted.
+
+On the Switch, the WarpPoint overlay (open your overlay menu in any game) shows whether it's
+running and when it last synced. It also has **Sync now**, a pause switch, and switches to run it
+and start it at boot.
 
 <p align="center">
   <img src="docs/images/overlay.jpg" width="300" alt="The WarpPoint overlay on a Switch: Ready, Mac: Will's MacBook Pro, Last synced 13 min ago, Sync now, Syncing On, WarpPoint running On, Start at boot On">
 </p>
 
-On the Mac, click the UFO for status and recent syncs, or **Open Library…** for your games:
+## How light is it?
 
-- **+ Add Game** lists the games on your Switch that aren't in Astris yet. Pick one to bring its
-  save over.
-- **Click a game** for its status and backups, and **Restore…** to put an older save back.
-- **Right-click a game** to sync now, show its save in Finder, or stop syncing it (nothing is
-  deleted).
+Light enough to forget about.
+
+| | Mac app | Switch module |
+|---|---|---|
+| Memory | about 19 MB | a little over 2 MB, fixed at build time |
+| CPU while idle | about 0.1% of one core | wakes once a second, otherwise asleep |
+| Download | 1.4 MB | 0.5 MB, plus a 0.3 MB overlay |
+
+Measured on an M2 Pro MacBook Pro and a launch-day Switch. The Mac app only does real work during
+a sync, when it reads the saves on both sides to see what changed.
 
 ## Limits of 1.0
 
-- **The Switch has to be awake** to sync; a sleeping Switch catches up when it wakes.
-- **WarpPoint can't create a save on the Switch yet.** A game you've only played on the Mac
-  waits quietly until you've started it once on the Switch; then you pick which save to keep.
-- **New saves in Astris need Astris quit,** because Astris keeps its list of saves in memory
-  while it's open. Syncing saves it already has works with Astris open.
-- Very large saves (tens of MB) may not fit in one write on the Switch.
+- The Switch has to be awake to sync. A sleeping Switch catches up when it wakes.
+- WarpPoint can't create a save on the Switch yet. A game you've only played on the Mac waits until
+  you've started it once on the Switch, and then you pick which save to keep.
+- Adding a new game's save to Astris needs Astris to be closed, because Astris keeps its list of
+  saves in memory while it runs. Saves it already has sync with Astris open.
+- Very large saves (tens of MB) may not fit in a single write on the Switch.
 - Mac only, and Ryujinx-family emulators only, for now.
 
 ## Roadmap
@@ -124,26 +141,25 @@ Mac                                                   Switch
                                                       └───────────────────────────┘
 ```
 
-- **Saves are named, not located.** Both sides call a save `game/<title id>/<user id>`. The Mac
-  never sends the Switch a file path; each side looks up where that save lives.
-- **Deciding** is a small pure function: each side's current fingerprint (a SHA-256 over the
-  save's files) against the last one both sides agreed on. One side changed: copy it. Both
-  changed: ask.
-- **Discovery and triggers**: the Switch announces itself on the network every 2 seconds, with a
-  counter that goes up whenever a game closes there. The Mac syncs when the Switch appears and
-  when that counter changes.
-- **Astris** keeps each save in a numbered folder with a committed copy (`0`) and a scratch copy
-  (`1`), and a save index (`imkvdb.arc`) that says which folder belongs to which game. WarpPoint
-  writes both copies, scratch first, and adds index rows in the emulator's own sort order.
-- **A running game** is detected by the lock file Astris holds open in that game's save folder,
-  and on the Switch by asking the system which game is running.
+- Both sides refer to a save by name, `game/<title id>/<user id>`, and each side looks up where
+  that save lives on its own. The Mac never sends the Switch a file path.
+- To decide what to copy, WarpPoint fingerprints each side's save (SHA-256 over its files) and
+  compares both against the last version they agreed on. If one side changed, that side wins. If
+  both did, it asks you.
+- The Switch announces itself on the network every 2 seconds, along with a counter that goes up
+  whenever a game closes. The Mac syncs when the Switch shows up and whenever that counter moves.
+- Astris keeps each save in a numbered folder, with a committed copy (`0`) and a scratch copy
+  (`1`), plus a save index (`imkvdb.arc`) that maps games to folders. WarpPoint writes the scratch
+  copy first, then the committed one, and keeps the index in the emulator's own sort order.
+- On the Mac, a running game shows up as the lock file Astris holds open in its save folder. On
+  the Switch, WarpPoint asks the system which game is running.
 
-The engine is built to be extended: a new emulator is one new "store" class (`host/`), and a new
-console is anything that speaks the same protocol (`common/messages.hpp`).
+Adding an emulator means writing one new "store" class in `host/`. Adding a console means
+speaking the same protocol, defined in `common/messages.hpp`.
 
 ## Build from source
 
-You need Xcode, CMake and Ninja (`brew install cmake ninja`), and for the Switch app,
+You need Xcode, CMake and Ninja (`brew install cmake ninja`), and for the Switch parts,
 [devkitPro](https://devkitpro.org/wiki/Getting_Started) with `switch-dev`.
 
 ```sh
@@ -156,20 +172,20 @@ app/mac/build.sh                                      # build-release/WarpPoint.
 ./make-release.sh                                     # everything for a release
 ```
 
-`build/host/warp` is a command line for the same engine: `warp list`, `warp sync downwell`,
-`warp watch`, `warp resolve "three houses" switch`, and more (`warp` alone shows them).
+`build/host/warp` is a command line for the same engine. Try `warp list`, `warp sync downwell`,
+`warp watch` or `warp resolve "three houses" switch`, or run `warp` on its own to see the rest.
 
 ## Thanks
 
 [devkitPro and libnx](https://devkitpro.org) for Switch homebrew,
-[LibHac](https://git.ryujinx.app/projects/LibHac) (the save formats were read from its source),
-[JKSV](https://github.com/J-D-K/JKSV) for showing how saves are handled on the console,
+[LibHac](https://git.ryujinx.app/projects/LibHac), whose source documents the save formats,
+[JKSV](https://github.com/J-D-K/JKSV) for showing how saves are handled on the console, and
 [nlohmann/json](https://github.com/nlohmann/json) and [doctest](https://github.com/doctest/doctest).
 
-WarpPoint is not affiliated with Nintendo. Use it with games you own.
+WarpPoint isn't affiliated with Nintendo. Use it with games you own.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The exception is the Tesla overlay in `switch/overlay/`, which is
-GPL-2.0 (see [its LICENSE](switch/overlay/LICENSE)) because it's built on
-[libtesla](https://github.com/WerWolv/libtesla), which is GPL-2.0.
+MIT, see [LICENSE](LICENSE). The one exception is the Tesla overlay in `switch/overlay/`, which is
+GPL-2.0 (see [its LICENSE](switch/overlay/LICENSE)) because the libtesla library it's built on is
+GPL-2.0.
