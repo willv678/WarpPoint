@@ -254,7 +254,8 @@ final class WarpModel: ObservableObject {
         libraryMessage = "\(s("name")): \(s("message"))"
       }
       if action == "push" || action == "pull" || !ok || skipped {
-        let text = skipped || !ok ? "\(s("text")): \(s("message"))" : s("text")
+        let why = s("message")
+        let text = skipped || !ok ? (why.isEmpty ? s("text") : "\(s("text")): \(why)") : s("text")
         recent.insert(RecentSync(name: s("name"), text: text, icon: s("icon"), ok: ok && !skipped,
                                  date: Date()), at: 0)
         recent = Array(recent.prefix(6))

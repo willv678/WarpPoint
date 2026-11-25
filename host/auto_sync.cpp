@@ -220,6 +220,22 @@ bool AutoSync::runPass(const Peer& console) {
   const auto reports = engine.runPass(keys);
   if (!state.save(error)) return fail("could not save sync state: " + error);
 
+  // The console went away mid-pass (asleep, out of Wi-Fi range): every unfinished save
+  // would read "status unavailable". Report what did finish, then one plain failure,
+  // and try again when it's back rather than listing each game as skipped.
+  if (session->store->broken()) {
+    std::vector<UnitReport> done;
+    for (const auto& r : reports) {
+      if (r.ok && !r.skipped && r.action != SyncAction::None) {
+        done.push_back(r);
+        emit({AutoSyncEvent::Kind::Synced, session->agent.name, localName, r, ""});
+      }
+    }
+    saveLastResults(cfg_.dataDir, done, localName, session->agent.name);
+    return fail("lost the connection to " + session->agent.name + " during the sync; " +
+                "it'll finish when it's back");
+  }
+
   // Remember what the console has (the library shows it while the console is off),
   // and fetch names for anything new.
   std::vector<UnitRef> consoleSaves;

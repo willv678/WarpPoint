@@ -67,6 +67,15 @@ struct MenuView: View {
     }
   }
 
+  /// "12:05 PM" today, "Yesterday 12:05 PM", or "Nov 22" for older ones.
+  static func when(_ date: Date) -> String {
+    let cal = Calendar.current
+    let time = date.formatted(date: .omitted, time: .shortened)
+    if cal.isDateInToday(date) { return time }
+    if cal.isDateInYesterday(date) { return "Yesterday " + time }
+    return date.formatted(.dateTime.month(.abbreviated).day())
+  }
+
   private var recent: some View {
     VStack(alignment: .leading, spacing: 6) {
       SectionTitle("Recent")
@@ -79,7 +88,7 @@ struct MenuView: View {
               .lineLimit(2)
           }
           Spacer()
-          Text(r.date, style: .time).font(.caption2).foregroundStyle(.tertiary)
+          Text(MenuView.when(r.date)).font(.caption2).foregroundStyle(.tertiary)
         }
       }
     }

@@ -124,6 +124,7 @@ void AppCore::push(const AutoSyncEvent& e) {
     j["action"] = actionName(r.action);
     j["ok"] = r.ok;
     j["skipped"] = r.skipped;
+    j["message"] = r.message;  // why it was skipped or failed
     j["quiet"] = r.quiet;
     j["text"] = r.skipped ? std::string("skipped")
                 : !r.ok   ? std::string("failed")
