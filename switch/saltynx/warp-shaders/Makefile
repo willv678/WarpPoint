@@ -1,0 +1,45 @@
+# Warp Shaders capture plugin for SaltyNX (Spike 2).
+# Needs devkitA64 only (no libnx): `make` builds warp-shaders.elf, `make check` verifies the
+# ELF has the shape SaltyNX's loader expects.
+
+DEVKITPRO ?= /opt/devkitpro
+PREFIX    := $(DEVKITPRO)/devkitA64/bin/aarch64-none-elf-
+CC        := $(PREFIX)gcc
+READELF   := $(PREFIX)readelf
+STRIP     := $(PREFIX)strip
+
+TARGET    := warp-shaders
+BUILD     := build
+SOURCES   := source/crt0.s source/plugin.c
+DEPS      := source/capture_format.h source/xxhash64.h plugin.ld
+
+CFLAGS    := -O2 -Wall -Wextra -Werror -std=gnu11 \
+             -march=armv8-a -mtune=cortex-a57 -mgeneral-regs-only -mno-outline-atomics \
+             -fPIE -fno-plt -fvisibility=hidden -ffreestanding -fno-builtin -nostdlib \
+             -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables \
+             -fno-tree-loop-distribute-patterns -ffunction-sections -fdata-sections
+LDFLAGS   := -nostdlib -nostartfiles -pie -T plugin.ld \
+             -Wl,-z,text -Wl,-z,now -Wl,-z,nopack-relative-relocs -Wl,--build-id=sha1 \
+             -Wl,--gc-sections -Wl,--no-undefined-version -Wl,-Map,$(BUILD)/$(TARGET).map
+
+.PHONY: all clean check
+
+all: $(TARGET).elf
+
+$(TARGET).elf: $(SOURCES) $(DEPS) Makefile
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(BUILD)/$(TARGET).full.elf $(SOURCES) -lgcc
+	$(STRIP) --strip-debug -o $@ $(BUILD)/$(TARGET).full.elf
+	@$(MAKE) --no-print-directory check
+
+# SaltyNX resolves our imports from GLOB_DAT/ABS64/JUMP_SLOT relocations and runs the image
+# base; we apply RELATIVE ones ourselves. RELR or TLS would not be handled, so refuse them.
+check: $(TARGET).elf
+	@if $(READELF) -d $(TARGET).elf | grep -q RELR; then echo "error: RELR relocations"; exit 1; fi
+	@if $(READELF) -lW $(TARGET).elf | grep -q TLS; then echo "error: TLS segment"; exit 1; fi
+	@$(READELF) -rW $(TARGET).elf | awk 'NR>3 && $$3 != "" && $$3 !~ /R_AARCH64_(RELATIVE|GLOB_DAT|ABS64|JUMP_SLOT)/ {print "error: relocation " $$3; bad=1} END {exit bad}'
+	@echo "imports:"; $(READELF) -rW $(TARGET).elf | awk '$$3 ~ /GLOB_DAT|JUMP_SLOT|ABS64/ {print "  " $$5}' | sort -u
+	@$(READELF) -lW $(TARGET).elf | awk '$$1=="LOAD" {f=$$7; if ($$8 ~ /^[RWE]+$$/) f=f $$8; printf "segment %s memsz %s flags %s\n", $$3, $$6, f}'
+
+clean:
+	rm -rf $(BUILD) $(TARGET).elf
