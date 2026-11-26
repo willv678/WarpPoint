@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/library.png" width="720" alt="The WarpPoint library window: games with their icons and sync status">
+  <img src="docs/images/library.png" width="720" alt="The WarpPoint library window: six games with their icons, all in sync, and Fire Emblem: Three Houses selected, showing its latest save (Autosave, Part II Azure Moon, Ch. 22 Oath of the Dagger, 27 hours in) with 4 more saves tucked below">
 </p>
 
 WarpPoint is a small menu bar app for the Mac and a background module for the Switch. When both

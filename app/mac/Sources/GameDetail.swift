@@ -23,6 +23,9 @@ struct GameDetail: View {
     ScrollView(.vertical) {
       VStack(alignment: .leading, spacing: 16) {
         header
+        if game.status == "conflict", let c = model.conflicts.first(where: { $0.key == game.key }) {
+          conflictCard(c)
+        }
         if preview.supported {
           SavePreviewSection(preview: preview,
                              source: game.isNative ? "the Mac app's save" : "\(emulator)'s save",
@@ -142,15 +145,53 @@ struct GameDetail: View {
            : "Not on \(console) yet. Start the game there once, then pick which save to keep on the next sync. (WarpPoint 1.3 on the Switch can make the save itself.)")
         .font(.callout).foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
-    } else if game.status == "conflict", let c = model.conflicts.first(where: { $0.key == game.key }) {
-      VStack(alignment: .leading, spacing: 6) {
-        HStack {
-          Button("Keep \(emulator)") { model.resolve(c, keepLocal: true) }
-          Button("Keep \(console)") { model.resolve(c, keepLocal: false) }
-        }
-        Text("The other copy is backed up first.").font(.caption).foregroundStyle(.secondary)
+    }
+  }
+
+  /// A save that changed on both sides: the first thing in the panel, with one big button
+  /// per copy.
+  private func conflictCard(_ c: Conflict) -> some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        Text("Changed on both sides").font(.headline)
+      }
+      Text("Which copy do you want to keep? The other one is backed up first, so you can get it back.")
+        .font(.callout).foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      keepButton(title: "Keep the Mac's copy", detail: game.macName, icon: "laptopcomputer") {
+        model.resolve(c, keepLocal: true)
+      }
+      keepButton(title: "Keep \(console)'s copy", detail: "The save on \(console)",
+                 icon: "gamecontroller") {
+        model.resolve(c, keepLocal: false)
       }
     }
+    .padding(12)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.orange.opacity(0.35)))
+  }
+
+  private func keepButton(title: String, detail: String, icon: String,
+                          action: @escaping () -> Void) -> some View {
+    Button(action: action) {
+      HStack(spacing: 10) {
+        Image(systemName: icon).font(.system(size: 17)).frame(width: 24)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(title).font(.callout.weight(.semibold))
+          Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        Spacer(minLength: 0)
+        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+      }
+      .padding(.horizontal, 10).padding(.vertical, 8)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(.background.opacity(0.8), in: RoundedRectangle(cornerRadius: 8))
+      .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator.opacity(0.6)))
+      .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
   }
 
   private var blockedByOpenApp: Bool {
