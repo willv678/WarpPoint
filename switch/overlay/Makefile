@@ -38,7 +38,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #   NACP building is skipped as well.
 #---------------------------------------------------------------------------------
 APP_TITLE	:=	WarpPoint
-APP_VERSION :=	1.3.0
+APP_VERSION :=	1.4.0
 
 TARGET		:=	warppoint
 BUILD		:=	build

@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.3.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.4.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.3.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.4.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -160,6 +160,29 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   "Nintendo Switch"), paste its Application ID into Settings › Discord, and turn it on. The menu
   shows what's playing on the Switch either way. `warp presence-test ID` checks the ID.
 
+## Live game info, mods and speedruns (1.4)
+
+- **Warp Tap: live game info.** **Live Game Info…** in the menu shows numbers from the game
+  running on the Switch, read-only, updating every 2 seconds. Fire Emblem: Three Houses 1.2.0
+  comes with gold, renown, and the level and HP of the unit under the battle cursor. Other games
+  and versions need a profile, a small JSON file; see
+  [docs/TAP_PROFILES.md](docs/TAP_PROFILES.md). `warp tap` in a terminal.
+- **Warp Mods: one mod library.** A game's details card has a **Mods** section. Add a mod's
+  folder, switch it on, and at the next sync it goes to the Switch
+  (`atmosphere/contents/<game>/`) and to this Mac's copy: Astris's mods folder, or an nxnative
+  app's RomFS overlay. WarpPoint only ever removes files it put there, leaves mods you installed
+  yourself alone, and tells you when two mods change the same file. `warp mods` in a terminal.
+- **Warp Split: LiveSplit.** With LiveSplit's TCP server on (Control › Start TCP Server) and
+  Settings › LiveSplit on, WarpPoint starts, splits, resets and pauses the timer by the rules in
+  the running game's Tap profile. For practice on real hardware.
+- **Warp Lexicon: game text.** **Lexicon…** shows the game's current line of text live, keeps
+  the earlier ones, lets you select words for macOS Look Up and Translate, and saves lines for
+  Anki. It needs a profile with a text field marked `"lexicon"`; none ships yet.
+
+Also in 1.4: the Switch remembers each save's hash until the save changes, so syncing no longer
+opens a game's save just as that game starts (which could make the game close with "an error
+occurred"). Passes after the first are about four times faster.
+
 ## How light is it?
 
 Light enough to forget about.
@@ -201,6 +224,12 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Warp Lens: crash reports from the Switch, on the Mac, explained (1.3)
 - [x] Warp Album: Switch screenshots and videos into a Mac folder (1.3)
 - [x] Warp Presence: what's playing on the Switch, in Discord (1.3)
+- [x] Warp Tap: live, read-only game info, with game profiles (1.4)
+- [x] Warp Mods: one mod library for the Switch, Astris and nxnative apps (1.4)
+- [x] Warp Split: LiveSplit auto-splitting from Tap (1.4)
+- [x] Warp Lexicon: the game's text in a Mac window, for Look Up and Anki (1.4)
+- [ ] More Tap profiles: other games, and FE3H's roster, supports and dialogue text
+- [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)
 - [x] nxnative ports, found and synced like emulator games (1.2)
 - [ ] More emulators
 - [ ] Windows and Linux
@@ -260,7 +289,8 @@ app/mac/build.sh                                      # build-release/WarpPoint.
 
 `build/host/warp` is a command line for the same engine. Try `warp list`, `warp sync downwell`,
 `warp watch`, `warp resolve "three houses" switch`, `warp nxnative`, `warp backups xenoblade`,
-`warp reports` or `warp album`, or run `warp` on its own to see the rest.
+`warp reports`, `warp album`, `warp tap` or `warp mods TITLE_ID`, or run `warp` on its own to see
+the rest.
 
 ## Thanks
 

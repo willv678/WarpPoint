@@ -24,7 +24,7 @@ using WarpPoint::currentIp;
 using WarpPoint::deviceName;
 using WarpPoint::loadOrCreateDeviceId;
 using WarpPoint::networkConnected;
-constexpr const char* kVersion = "1.3.0";
+constexpr const char* kVersion = "1.4.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
