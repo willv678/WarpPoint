@@ -30,11 +30,13 @@ later on the Switch. On by default. `warp album`.
 
 ### Presence
 
-Shows the game you're playing on the Switch in Discord.
+Shows the game you're playing in Discord, on the Switch or this Mac.
 
 Needs a Discord Application ID of your own (make one at
 discord.com/developers/applications and paste its ID into the plugin's settings) and the
-Discord app running on this Mac. Off by default. `warp presence-test ID`.
+Discord app running on this Mac. Off by default. The Switch's game comes first; when
+nothing is playing there, a game running on this Mac shows instead (an nxnative port, or a
+game in Astris). `warp presence-test ID`, `warp presence-mac [ID]`.
 
 ### Tap
 

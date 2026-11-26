@@ -70,21 +70,23 @@ std::vector<PluginInfo> makeCatalog() {
   presence.name = "Presence";
   presence.icon = "person.wave.2";
   presence.since = "1.3";
-  presence.summary = "Shows the game you're playing on the Switch in Discord.";
+  presence.summary = "Shows the game you're playing in Discord, on the Switch or this Mac.";
   presence.what =
       "Your Discord friends see \"Playing Nintendo Switch\" with the game's name, the way "
       "they see a game you play on a computer.";
   presence.how =
       "The Switch says which game is running in the short announcement it sends on your "
       "Wi-Fi every 2 seconds. WarpPoint passes the game's name to the Discord app on this "
-      "Mac, under a Discord application you make yourself. Nothing is sent anywhere except "
-      "to Discord on this Mac.";
+      "Mac, under a Discord application you make yourself. When nothing is playing on the "
+      "Switch, it shows a game running on this Mac instead: an nxnative port, or a game in "
+      "Astris. The game's picture comes from tinfoil.media, asked once per game with only "
+      "the game's id; nothing else leaves this Mac except to Discord.";
   presence.offNote = "Discord stops showing the game within a few seconds.";
   presence.needs = {{"setting", "discordAppId", "A Discord Application ID (see Settings below)"},
                     {"app", "discord", "The Discord app running on this Mac"}};
   presence.games = "any";
   presence.defaultOn = false;
-  presence.commands = {"warp presence-test ID"};
+  presence.commands = {"warp presence-test ID", "warp presence-mac [ID]"};
   c.push_back(presence);
 
   PluginInfo tap;
