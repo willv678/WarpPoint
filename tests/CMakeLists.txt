@@ -16,6 +16,7 @@ add_executable(warp_tests
   test_tap.cpp
   test_mods.cpp
   test_split.cpp
+  test_save_preview.cpp
 )
 target_include_directories(warp_tests PRIVATE third_party/doctest)
 target_link_libraries(warp_tests PRIVATE warp_agent warp_host_core warp_warnings Threads::Threads)

@@ -20,6 +20,7 @@ add_library(warp_host_core STATIC
   planner.cpp
   remote_store.cpp
   ryujinx_store.cpp
+  save_preview.cpp
   session.cpp
   state_store.cpp
   sync_engine.cpp

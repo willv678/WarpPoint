@@ -53,9 +53,9 @@ struct LibraryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if let game = selected {
           GameDetail(game: game, model: model)
-            .frame(width: 330)
             .frame(maxHeight: .infinity)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.separator.opacity(0.6)))
             .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 4)
             .padding(10)
@@ -111,7 +111,7 @@ struct LibraryView: View {
   }
 
   /// Width the details card covers on the right (card + its margins).
-  static let cardRoom: CGFloat = 350
+  static let cardRoom: CGFloat = GameDetail.width + 20
 
   private var grid: some View {
     GeometryReader { geo in

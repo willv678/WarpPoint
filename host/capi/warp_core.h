@@ -113,6 +113,11 @@ bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char**
 /* Copy a console-only save into the emulator ("Bring to Astris"). */
 bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error);
 
+/* Save previews: what a game's save slots hold, read from its save folder on the Mac
+ * (the library's "savePath"). titleId: 16 hex, the console save's. See savePreviewJson in
+ * host/save_preview.hpp: {"supported": false} for a game without a parser. */
+char* warp_core_save_preview(WarpCore* core, const char* titleId, const char* folder);
+
 /* The folder the core was created with (for "Show in Finder"). */
 char* warp_core_data_dir(WarpCore* core);
 

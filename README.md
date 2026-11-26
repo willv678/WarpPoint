@@ -91,6 +91,10 @@ doing and what it last moved.
   backup a note ("before the final boss") and pin it to keep it forever (1.5).
 - Right-click a game to sync it now, find its save in Finder, or stop syncing it. Nothing gets
   deleted.
+- For games WarpPoint can read, the details start with **Save Slots**: each slot's chapter, play
+  time and player, read from the save on the Mac, so you can see where you are without starting
+  the game. While the game runs on the Switch, a **Live** section adds Tap's numbers. Fire Emblem:
+  Three Houses is the first; see [docs/SAVE_PREVIEWS.md](docs/SAVE_PREVIEWS.md).
 
 On the Switch, the WarpPoint overlay (open your overlay menu in any game) shows whether it's
 running and when it last synced. It also has **Sync now**, a pause switch, and switches to run it

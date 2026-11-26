@@ -54,6 +54,12 @@ struct MenuBarLabel: View {
   var body: some View {
     Image(nsImage: UFOIcon.image(lift: model.lift, beam: model.beam))
       .task {
+        // For screenshots: WARP_APPEARANCE=dark or light, whatever the Mac is set to.
+        switch ProcessInfo.processInfo.environment["WARP_APPEARANCE"] {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break
+        }
         if model.setup.needsSetup {
           openWindow(id: "setup")
           NSApp.activate()

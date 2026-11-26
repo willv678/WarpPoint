@@ -1,6 +1,7 @@
 #include "warp_core.h"
 
 #include "app_core.hpp"
+#include "save_preview.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -207,6 +208,17 @@ bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error) 
   if (core->core.bringToEmulator(key ? key : "", e)) return true;
   setError(error, e);
   return false;
+}
+
+char* warp_core_save_preview(WarpCore* core, const char* titleId, const char* folder) {
+  (void)core;  // reads only the folder it's given
+  uint64_t id = 0;
+  try {
+    id = std::stoull(titleId ? titleId : "", nullptr, 16);
+  } catch (...) {
+    return dup(WarpPoint::savePreviewJson(0, ""));
+  }
+  return dup(WarpPoint::savePreviewJson(id, folder ? folder : ""));
 }
 
 char* warp_core_data_dir(WarpCore* core) { return dup(core->core.dataDir().string()); }
