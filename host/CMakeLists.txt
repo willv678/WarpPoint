@@ -12,6 +12,7 @@ add_library(warp_host_core STATIC
   mods.cpp
   presence.cpp
   mac_playing.cpp
+  game_icons.cpp
   split.cpp
   tap.cpp
   tap_profiles.cpp
@@ -30,7 +31,8 @@ add_library(warp_host_core STATIC
 target_include_directories(warp_host_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/capi)
 # nlohmann/json: Mac-side only, never compiled for the Switch.
 target_include_directories(warp_host_core PUBLIC ${PROJECT_SOURCE_DIR}/third_party)
-target_link_libraries(warp_host_core PUBLIC warp_common warp_net PRIVATE warp_warnings)
+find_package(CURL REQUIRED)  # Warp Presence's game pictures (macOS ships libcurl)
+target_link_libraries(warp_host_core PUBLIC warp_common warp_net CURL::libcurl PRIVATE warp_warnings)
 
 # `warp`: the Mac command line (for now a developer tool: find, list, pull).
 add_executable(warp warp_main.cpp)

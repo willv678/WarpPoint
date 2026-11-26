@@ -369,3 +369,40 @@ TEST_CASE("presence: finding the game on the Mac, from fake processes and files"
     CHECK(findMacGame(probe)->where == "on Mac");
   }
 }
+
+// ---- Game pictures from tinfoil.media (1.8) ----
+
+#include "game_icons.hpp"
+
+TEST_CASE("presence: game pictures are tinfoil's, checked once, left out when missing") {
+  CHECK(tinfoilIconUrl(kFe3h) == "https://tinfoil.media/ti/010055D009F78000/256/256/");
+  int asked = 0;
+  GameIcons icons([&](const std::string& url) {
+    ++asked;
+    return url.find("010055D009F78000") != std::string::npos;  // only FE3H has one
+  });
+  CHECK(icons.urlFor(kFe3h) == tinfoilIconUrl(kFe3h));
+  CHECK(icons.urlFor(kFe3h) == tinfoilIconUrl(kFe3h));
+  CHECK(icons.urlFor(0x0400ff500e34a001).empty());
+  CHECK(icons.urlFor(0x0400ff500e34a001).empty());  // not asked again within the hour
+  CHECK(icons.urlFor(0).empty());
+  CHECK(asked == 2);
+
+  // A Switch 2 Edition port shows its console game's picture.
+  const MacGame xeno2{0x0400ff500e34a001, "Xenoblade Chronicles", "on Mac", "", 10, kXeno};
+  CHECK(choosePresence({}, xeno2, true).iconId == kXeno);
+  CHECK(choosePresence({"S", kFe3h, "FE"}, std::nullopt, true).iconId == kFe3h);
+  CHECK(choosePresence({}, MacGame{0, "", "in Astris", "Astris", 5}, true).iconId == 0);
+}
+
+TEST_CASE("presence: the picture goes to Discord with the game's name") {
+  FakeDiscord discord;
+  Presence p;
+  Activity a = choosePresence({}, port(1700000000), true);
+  p.show(true, "1234567890", a);
+  CHECK_FALSE(discord.lastActivity.contains("assets"));  // no picture: the app's icon
+  a.largeImage = tinfoilIconUrl(kFe3h);
+  p.show(true, "1234567890", a);  // the picture arrived: sent again
+  CHECK(discord.lastActivity["assets"]["large_image"] == tinfoilIconUrl(kFe3h));
+  CHECK(discord.lastActivity["assets"]["large_text"] == "Fire Emblem: Three Houses");
+}

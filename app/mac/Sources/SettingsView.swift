@@ -187,7 +187,7 @@ struct DiscordSettings: View {
     } header: {
       Text("Discord")
     } footer: {
-      Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Games on this Mac (nxnative ports and Astris) show too, \"on Mac\" or \"in Astris\", when nothing is playing on the Switch. Nothing leaves this Mac except to the Discord app.")
+      Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Games on this Mac (nxnative ports and Astris) show too, \"on Mac\" or \"in Astris\", when nothing is playing on the Switch. The game's picture comes from tinfoil.media: WarpPoint asks it once per game whether it has one, sending only the game's id.")
         .font(.caption).foregroundStyle(.secondary)
     }
   }

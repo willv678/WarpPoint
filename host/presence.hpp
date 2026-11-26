@@ -28,6 +28,8 @@ struct Activity {
   std::string details;  // the first line: the game ("Fire Emblem: Three Houses")
   std::string state;    // the second line: "on Will's Switch", "on Mac", "in Astris"
   int64_t start = 0;    // elapsed time from (Unix seconds); 0 = from when it first showed
+  uint64_t iconId = 0;  // the title id whose picture to show (0 = none)
+  std::string largeImage;  // the picture's link (game_icons.hpp); "" = the app's icon
 };
 
 // The Switch's running game, from its beacon (titleId 0 = none, or no console).
@@ -44,6 +46,7 @@ struct MacGame {
   std::string where;     // "on Mac" (an nxnative port) or "in Astris"
   std::string app;       // the emulator's name, for "Astris" with no game
   int64_t startedAt = 0; // Unix seconds the app (or the game in it) started; 0 = unknown
+  uint64_t iconId = 0;   // whose picture: a Switch 2 Edition port shows its base game's
 };
 
 // The rule: the Switch's game if one is running there; else the Mac's (when showMac);

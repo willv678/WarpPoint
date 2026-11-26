@@ -158,15 +158,16 @@ Activity choosePresence(const SwitchPlaying& sw, const std::optional<MacGame>& m
                         bool showMac) {
   if (sw.titleId) {
     return {"switch:" + hex16(sw.titleId), sw.name.empty() ? "a game" : sw.name,
-            "on " + (sw.console.empty() ? std::string("Switch") : sw.console), 0};
+            "on " + (sw.console.empty() ? std::string("Switch") : sw.console), 0, sw.titleId,
+            ""};
   }
   if (showMac && mac) {
     if (mac->titleId) {
       return {"mac:" + hex16(mac->titleId), mac->name.empty() ? "a game" : mac->name,
-              mac->where, mac->startedAt};
+              mac->where, mac->startedAt, mac->iconId ? mac->iconId : mac->titleId, ""};
     }
     const std::string app = mac->app.empty() ? "an emulator" : mac->app;
-    return {"emulator:" + app, app, "", mac->startedAt};
+    return {"emulator:" + app, app, "", mac->startedAt, 0, ""};
   }
   return {};
 }
@@ -197,6 +198,7 @@ void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
   const bool playing = !a.key.empty();
   const bool changed = a.key != shown_.key ||
                        (playing && (a.details != shown_.details || a.state != shown_.state ||
+                                    a.largeImage != shown_.largeImage ||
                                     (a.start && a.start != shown_.start)));
   if (!changed && (ipc_.connected() || !playing)) return;
   if (!ipc_.connected()) {
@@ -227,6 +229,9 @@ void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
   }
   json activity = {{"details", a.details}, {"timestamps", {{"start", start}}}};
   if (!a.state.empty()) activity["state"] = a.state;
+  if (!a.largeImage.empty()) {
+    activity["assets"] = {{"large_image", a.largeImage}, {"large_text", a.details}};
+  }
   if (!ipc_.setActivity(activity.dump(), error)) {
     status_ = error;
     nextTry_ = now + std::chrono::seconds(30);

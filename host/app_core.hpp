@@ -4,6 +4,7 @@
 // UI language that can call C can drive WarpPoint.
 #pragma once
 #include "auto_sync.hpp"
+#include "game_icons.hpp"
 #include "mac_playing.hpp"
 #include "presence.hpp"
 
@@ -141,6 +142,7 @@ class AppCore {
   SwitchPlaying switchPlaying_;
   std::optional<MacGame> macGame_;
   MacGameWatcher macWatcher_;
+  GameIcons gameIcons_;
   std::mutex playingMutex_;    // guards the two below (read by the UI)
   uint64_t playingTitle_ = 0;
   std::string presenceStatus_ = "Off";

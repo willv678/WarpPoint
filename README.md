@@ -167,6 +167,11 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   processes every 5 seconds. Astris keeps no log, so WarpPoint looks at which game files it has
   open (the id in the file's name or in the NSP's ticket) and whether it's emulating; when
   that doesn't settle it, Discord shows just "Astris" rather than a guess. `warp presence-mac` prints what would show (`warp presence-mac ID` also shows it in Discord for 30 s).
+- **Game pictures.** The activity shows the game's icon from
+  [tinfoil.media](https://tinfoil.media) (Discord fetches it from there). WarpPoint asks
+  tinfoil once per game whether it has a picture, sending only the title id; without one,
+  Discord shows the Discord application's own icon. A Switch 2 Edition port shows its
+  Switch 1 game's picture.
 
 ## Live game info, mods and speedruns (1.4)
 

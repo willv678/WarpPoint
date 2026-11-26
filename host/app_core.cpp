@@ -1034,8 +1034,11 @@ bool AppCore::setPresenceMac(bool showMac, std::string& error) {
 }
 
 void AppCore::showPresence(const Config& c) {
-  presence_.show(c.presence.enabled, c.presence.discordAppId,
-                 choosePresence(switchPlaying_, macGame_, c.presence.showMac));
+  Activity a = choosePresence(switchPlaying_, macGame_, c.presence.showMac);
+  if (c.presence.enabled && !c.presence.discordAppId.empty()) {
+    a.largeImage = gameIcons_.urlFor(a.iconId);
+  }
+  presence_.show(c.presence.enabled, c.presence.discordAppId, a);
 }
 
 void AppCore::macTick() {

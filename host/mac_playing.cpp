@@ -222,7 +222,8 @@ std::optional<MacGame> findPort(const MacProbe& probe, const std::vector<Process
     if (best && started <= best->startedAt) continue;
     std::string name = probe.nameOf ? probe.nameOf(app.appTitleId) : "";
     if (name.empty()) name = app.name;
-    best = MacGame{app.appTitleId, name, "on Mac", "", started};
+    // The picture: the console game's (a Switch 2 Edition's own id has none).
+    best = MacGame{app.appTitleId, name, "on Mac", "", started, app.saveTitleId};
   }
   return best;
 }

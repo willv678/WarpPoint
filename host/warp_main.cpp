@@ -39,6 +39,7 @@
 #include "tap.hpp"
 
 #include <nlohmann/json.hpp>
+#include "game_icons.hpp"
 #include "mac_playing.hpp"
 #include "presence.hpp"
 #include "remote_store.hpp"
@@ -790,7 +791,9 @@ int main(int argc, char** argv) {
       const auto rec = titles.get(id);
       return rec && rec->found ? rec->name : std::string();
     });
-    const Activity a = choosePresence({}, g, true);
+    Activity a = choosePresence({}, g, true);
+    GameIcons icons;
+    a.largeImage = icons.urlFor(a.iconId);
     if (a.key.empty()) {
       std::printf("Nothing playing on this Mac.\n");
       return 0;
@@ -800,6 +803,7 @@ int main(int argc, char** argv) {
       const auto mins = (static_cast<int64_t>(std::time(nullptr)) - a.start) / 60;
       std::printf("  started %lld min ago\n", static_cast<long long>(mins));
     }
+    std::printf("  picture: %s\n", a.largeImage.empty() ? "none (the app's icon)" : a.largeImage.c_str());
     if (args.size() == 2) {
       Presence p;
       p.show(true, args[1], a);
