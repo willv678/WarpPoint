@@ -405,3 +405,29 @@ Coexistence builds (`make coexist`, source `source/coexist.c`):
 - `warp-shaders-F1.elf`: C1, our `nvnDeviceGetProcAddress`, the present hook and the flush
   thread. Frame timing only; writes the `.bin`.
 - `warp-shaders-F2.elf`: the full plugin.
+
+**F1 on hardware:** it booted, and its load lines show the relocation patch went in
+(`patched 2 slots`). After that, nothing appeared: no hook lines and no `.bin`. Either the
+game never calls our hook, or the hook runs and its first SaltyNX session (for the log line)
+fails.
+
+The source favours a failing session over a bypassed hook:
+- The game does go through these relocations: the double-patched build hung as soon as it
+  used them.
+- Core's built-ins hook through the same relocation addends, including ReverseNX's hooks in the
+  same table.
+
+`warp-shaders-F1b.elf` answers the question without depending on that session:
+- **`brk.flag`** (in all builds): the first `nvnBootstrapLoader` call executes `brk #0x57`. The
+  game freezing at the boot logo, or a crash report with pc at the hook, means the hook is
+  reached.
+- **`diag.flag`** (F1b only): a thread started at load sleeps 30 s, then writes
+  `sdmc:/config/warppoint/shaders/diag.txt`:
+  - hook call count and first-call tick;
+  - our hook and real addresses;
+  - each patched GOT slot's address and current value;
+  - runtime `SaltySD_Init` tries, failures and last result;
+  - frames.
+  It also logs one line. If it can't reach SaltyNX in six tries, 10 s apart, it executes
+  `brk #0x58` with the hook call count, both GOT slots, our hook, the real loader and the last
+  result in x0-x5.

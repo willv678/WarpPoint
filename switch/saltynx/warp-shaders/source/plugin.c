@@ -69,6 +69,7 @@ typedef struct { u64 addr, size; u32 type, attr, perm, ipc, dev, pad; } MemInfo;
 u32 wp_svcSleepThread(int64_t ns);
 u32 wp_svcCreateThread(u32* out, void (*entry)(void*), void* arg, void* stack_top, int prio, int cpuid);
 u32 wp_svcStartThread(u32 handle);
+void wp_svcExitThread(void);
 u32 wp_svcGetInfo(u64* out, u32 id, u32 handle, u64 sub);
 u32 wp_svcQueryMemory(MemInfo* out, u32* pageinfo, u64 addr);
 u64 wp_ticks(void);
@@ -282,6 +283,15 @@ static volatile int g_thread_live;
 static u64 g_owner_tls;
 static inline u64 tls_id(void) { u64 v; __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(v)); return v; }
 
+// Diagnostics that don't depend on SaltyNX IPC working (F1b): what the hook saw, and the result
+// of every runtime SaltySD_Init, kept in memory for the diag thread (diag.flag) to report.
+static volatile u64 g_hook_calls, g_hook_first_tick;
+static volatile u32 g_ipc_tries, g_ipc_fails, g_ipc_last_rc;
+static int g_brk_on_hook;                    // brk.flag: stop on the first nvnBootstrapLoader call
+#define MAX_SLOTS 8
+static u64* g_slot_addr[MAX_SLOTS];          // GOT slots our relocation patch targets
+static int g_slot_count;
+
 #define LOGQ 48
 typedef struct { const char* fmt; u64 a, b; volatile u32 used; u32 pad; } LogMsg;
 static LogMsg g_logq[LOGQ];
@@ -290,7 +300,10 @@ static void wp_log(const char* fmt, u64 a, u64 b) {
     if (!SaltySDCore_printf) return;
     if (g_in_main) { SaltySDCore_printf(fmt, (u64)WP_NAME, a, b); return; }
     if (!g_thread_live && g_owner_tls && tls_id() == g_owner_tls && SaltySD_Init && SaltySD_Deinit) {
-        if (SaltySD_Init() == 0) {
+        u32 rc = SaltySD_Init();
+        g_ipc_tries++;
+        if (rc) { g_ipc_fails++; g_ipc_last_rc = rc; }
+        if (rc == 0) {
             SaltySDCore_printf(fmt, (u64)WP_NAME, a, b);
             SaltySD_Deinit();
         }
@@ -712,6 +725,15 @@ static u64 hk_gpa(const void* device, const char* name) {
 
 static int g_boot_calls;
 static u64 hk_bootstrap(const char* name) {
+    if (g_brk_on_hook) {
+        // brk.flag: if the game stops at the boot logo (or a crash report appears with pc here,
+        // brk #0x57), the hook is reached. x0 = name, x1 = real loader.
+        register u64 r0 __asm__("x0") = (u64)name;
+        register u64 r1 __asm__("x1") = (u64)real_bootstrap;
+        __asm__ volatile("brk #0x57" :: "r"(r0), "r"(r1) : "memory");
+    }
+    if (!g_hook_calls) g_hook_first_tick = wp_ticks();
+    g_hook_calls++;
     int n = g_boot_calls++;
     if (!g_owner_tls) g_owner_tls = tls_id();
     if (n < 16) wp_log("WarpShaders %s: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
@@ -834,6 +856,59 @@ static void start_flush_thread(void) {
     if (rc != 0) wp_log("WarpShaders %s: flush thread failed, rc 0x%x\n", rc, 0);
 }
 
+// ---- diag thread (diag.flag) -------------------------------------------------------------------
+// Started at plugin load, independent of every hook. Sleeps 30 s, then writes
+// sdmc:/config/warppoint/shaders/diag.txt with the hook counters, the current value of each GOT
+// slot we patched (relocated by now), and the runtime IPC results, plus one log line. If it
+// can't reach SaltyNX after six tries, it stops with brk #0x58 holding the same numbers in
+// x0-x5, so a frozen title screen (or a crash report) still answers the question.
+#ifdef WP_DIAG
+static u8 g_diag_stack[0x4000] __attribute__((aligned(0x1000)));
+static char* put_hex(char* d, const char* label, u64 v) { d = str_put(d, label); d = str_put(d, "0x"); d = hex16(d, v); return str_put(d, "\n"); }
+static void diag_thread(void* arg) {
+    (void)arg;
+    wp_svcSleepThread(30ll * 1000 * 1000 * 1000);
+    for (int attempt = 0; attempt < 6; attempt++) {
+        u32 rc = SaltySD_Init ? SaltySD_Init() : 1;
+        g_ipc_tries++;
+        if (rc == 0) {
+            static char text[1024];
+            char* d = text;
+            d = put_hex(d, "build: ", PLUGIN_VERSION);
+            d = put_hex(d, "hook_calls: ", g_hook_calls);
+            d = put_hex(d, "hook_first_tick: ", g_hook_first_tick);
+            d = put_hex(d, "hook: ", (u64)hk_bootstrap);
+            d = put_hex(d, "real: ", (u64)real_bootstrap);
+            for (int i = 0; i < g_slot_count; i++) {
+                d = put_hex(d, "slot_addr: ", (u64)g_slot_addr[i]);
+                d = put_hex(d, "slot_value: ", *(volatile u64*)g_slot_addr[i]);
+            }
+            d = put_hex(d, "ipc_tries: ", g_ipc_tries);
+            d = put_hex(d, "ipc_fails: ", g_ipc_fails);
+            d = put_hex(d, "ipc_last_rc: ", g_ipc_last_rc);
+            d = put_hex(d, "frames: ", g_stats.frames);
+            void* f = SaltySDCore_fopen("sdmc:/config/warppoint/shaders/diag.txt", "wb");
+            if (f) { SaltySDCore_fwrite(text, 1, (size_t)(d - text), f); SaltySDCore_fclose(f); }
+            SaltySDCore_printf("WarpShaders %s: diag: hook calls %d, slot0 0x%lx (hook 0x%lx)\n", WP_NAME,
+                               (int)g_hook_calls, g_slot_count ? *(volatile u64*)g_slot_addr[0] : 0, (u64)hk_bootstrap);
+            drain_log();
+            SaltySD_Deinit();
+            wp_svcExitThread();
+        }
+        g_ipc_fails++; g_ipc_last_rc = rc;
+        wp_svcSleepThread(10ll * 1000 * 1000 * 1000);
+    }
+    register u64 r0 __asm__("x0") = g_hook_calls;
+    register u64 r1 __asm__("x1") = g_slot_count > 0 ? *(volatile u64*)g_slot_addr[0] : 0;
+    register u64 r2 __asm__("x2") = g_slot_count > 1 ? *(volatile u64*)g_slot_addr[1] : 0;
+    register u64 r3 __asm__("x3") = (u64)hk_bootstrap;
+    register u64 r4 __asm__("x4") = (u64)real_bootstrap;
+    register u64 r5 __asm__("x5") = g_ipc_last_rc;
+    __asm__ volatile("brk #0x58" :: "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(r5) : "memory");
+    wp_svcExitThread();
+}
+#endif
+
 // ---- entry ------------------------------------------------------------------------------------
 static int file_exists(const char* path) {
     void* f = SaltySDCore_fopen ? SaltySDCore_fopen(path, "rb") : 0;
@@ -871,7 +946,10 @@ static int patch_imports(const char* name, int64_t delta) {
             if (sidx >= numsyms || !str_eq(strtab + symtab[sidx].name, name)) continue;
             Rela r = rela[i];
             r.addend += delta;
-            if (SaltySD_Memcpy((u64)&rela[i], (u64)&r, sizeof r) == 0) patched++;
+            if (SaltySD_Memcpy((u64)&rela[i], (u64)&r, sizeof r) == 0) {
+                patched++;
+                if (g_slot_count < MAX_SLOTS) g_slot_addr[g_slot_count++] = (u64*)(base + r.off);
+            }
         }
     }
     return patched;
@@ -896,6 +974,7 @@ HIDDEN void wp_plugin_main(void) {
     p = hex16(p, g_title_id);
     str_put(p, ".bin");
     g_passthrough = file_exists("sdmc:/config/warppoint/shaders/passthrough.flag");
+    g_brk_on_hook = file_exists("sdmc:/config/warppoint/shaders/brk.flag");
     if (SaltySDCore_mkdir) {
         SaltySDCore_mkdir("sdmc:/config", 0777);
         SaltySDCore_mkdir("sdmc:/config/warppoint", 0777);
@@ -916,5 +995,17 @@ HIDDEN void wp_plugin_main(void) {
            (u64)real_bootstrap, (u64)n);
     wp_log("WarpShaders %s: output %s\n", (u64)g_path, 0);
     if (g_passthrough) wp_log("WarpShaders %s: passthrough.flag set: no capture\n", 0, 0);
+    if (g_brk_on_hook) wp_log("WarpShaders %s: brk.flag set: the first nvnBootstrapLoader call stops the game\n", 0, 0);
+    for (int i = 0; i < g_slot_count; i++)
+        wp_log("WarpShaders %s: patched GOT slot at %p (relocated after Core finishes)\n", (u64)g_slot_addr[i], 0);
+#ifdef WP_DIAG
+    if (file_exists("sdmc:/config/warppoint/shaders/diag.flag")) {
+        static const u32 prios[] = { 0x3F, 0x3B };
+        u32 th = 0, rc = 1, prio = 0;
+        for (int i = 0; i < 2 && rc; i++) { prio = prios[i]; rc = wp_svcCreateThread(&th, diag_thread, 0, g_diag_stack + sizeof g_diag_stack, prio, -2); }
+        if (rc == 0) rc = wp_svcStartThread(th);
+        wp_log("WarpShaders %s: diag.flag set: diag thread rc 0x%x, priority 0x%x (reports in 30 s)\n", rc, prio);
+    }
+#endif
     g_in_main = 0;
 }
