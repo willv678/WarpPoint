@@ -50,6 +50,18 @@ std::vector<ProcessInfo> listProcesses() {
   return out;
 }
 
+int threadCountOf(int pid) {
+#ifdef __APPLE__
+  proc_taskinfo info{};
+  if (proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, sizeof(info)) == static_cast<int>(sizeof(info))) {
+    return info.pti_threadnum;
+  }
+#else
+  (void)pid;
+#endif
+  return 0;
+}
+
 std::vector<fs::path> openFilesOfPid(int pid) {
   std::vector<fs::path> out;
 #ifdef __APPLE__
@@ -88,6 +100,8 @@ int64_t parseUtc(const std::string& s) {
 
 namespace {
 
+constexpr int kGameThreads = 40;
+
 std::optional<uint64_t> hexId(const std::string& s) {
   if (s.size() != 16) return std::nullopt;
   for (const char c : s) {
@@ -107,12 +121,47 @@ bool isGameImage(const fs::path& f) {
   return kExt.count(lower(f.extension().string())) > 0;
 }
 
+// An update (base + 0x800) or DLC (base + 0x1000 + n) id -> its game's. Games' own ids
+// end in 0x000 with bit 12 clear, so both fold back by clearing the low 13 bits.
+uint64_t baseGame(uint64_t id) { return id & ~uint64_t(0x1fff); }
+
 // "Fire Emblem Three Houses [010055D009F78000][v0].nsp" -> the id in brackets.
 std::optional<uint64_t> idInName(const std::string& name) {
   for (size_t at = name.find('['); at != std::string::npos; at = name.find('[', at + 1)) {
     if (at + 17 < name.size() && name[at + 17] == ']') {
       if (auto id = hexId(name.substr(at + 1, 16))) return id;
     }
+  }
+  return std::nullopt;
+}
+
+// An NSP is a PFS0 archive whose file table isn't encrypted. Its ticket and
+// certificate are named after the rights id, "<title id><key gen>.tik", so the first
+// 16 hex digits are the title id. NSPs without a ticket (and XCIs) give nothing.
+std::optional<uint64_t> idInNsp(const fs::path& f) {
+  if (lower(f.extension().string()) != ".nsp") return std::nullopt;
+  std::ifstream in(f, std::ios::binary);
+  uint8_t head[16];
+  if (!in.read(reinterpret_cast<char*>(head), sizeof(head))) return std::nullopt;
+  auto u32 = [&](int at) {
+    return uint32_t(head[at]) | uint32_t(head[at + 1]) << 8 | uint32_t(head[at + 2]) << 16 |
+           uint32_t(head[at + 3]) << 24;
+  };
+  if (std::string(reinterpret_cast<char*>(head), 4) != "PFS0") return std::nullopt;
+  const uint32_t files = u32(4), names = u32(8);
+  if (files > 4096 || names > (1u << 20)) return std::nullopt;
+  in.seekg(16 + std::streamoff(files) * 24);
+  std::string table(names, '\0');
+  if (!in.read(table.data(), names)) return std::nullopt;
+  for (size_t at = 0; at < table.size();) {
+    const size_t end = std::min(table.find('\0', at), table.size());
+    const std::string name = table.substr(at, end - at);
+    at = end + 1;
+    const auto dot = name.rfind('.');
+    if (dot != 32) continue;
+    const std::string ext = lower(name.substr(dot));
+    if (ext != ".tik" && ext != ".cert") continue;
+    if (auto id = hexId(name.substr(0, 16))) return id;
   }
   return std::nullopt;
 }
@@ -126,15 +175,14 @@ std::optional<uint64_t> idInGamesFolder(const fs::path& f, const fs::path& root)
   return hexId(s.substr(games.size(), 16));
 }
 
-struct Started {
-  uint64_t titleId = 0;
-  int64_t at = 0;
+struct Played {
+  int64_t at = 0;  // last_played_utc: when the game last started, or stopped
   std::string title;
 };
 
-// The games started (metadata.json's last_played_utc) at or after `since`.
-std::vector<Started> startedSince(const fs::path& root, int64_t since) {
-  std::vector<Started> out;
+// Every game's metadata.json stamp, by title id.
+std::map<uint64_t, Played> lastPlayed(const fs::path& root) {
+  std::map<uint64_t, Played> out;
   std::error_code ec;
   for (fs::directory_iterator it(root / "games", ec), end; !ec && it != end; it.increment(ec)) {
     const auto id = hexId(it->path().filename().string());
@@ -143,8 +191,10 @@ std::vector<Started> startedSince(const fs::path& root, int64_t since) {
     if (!in) continue;
     const json j = json::parse(in, nullptr, false);
     if (!j.is_object()) continue;
-    const int64_t at = parseUtc(j.value("last_played_utc", ""));
-    if (at && at >= since) out.push_back({*id, at, j.value("title", "")});
+    const auto stamp = j.find("last_played_utc");
+    const int64_t at = stamp != j.end() && stamp->is_string() ? parseUtc(*stamp) : 0;
+    const auto title = j.find("title");
+    if (at) out[*id] = {at, title != j.end() && title->is_string() ? title->get<std::string>() : ""};
   }
   return out;
 }
@@ -193,28 +243,54 @@ std::optional<MacGame> findInEmulator(const MacProbe& probe, const std::vector<P
   for (const auto& f : probe.openFiles ? probe.openFiles(emu->pid) : std::vector<fs::path>{}) {
     if (isGameImage(f)) {
       gameOpen = true;
-      if (auto id = idInName(f.filename().string())) ids.insert(*id);
+      auto id = idInName(f.filename().string());
+      if (!id) id = idInNsp(f);
+      if (id) ids.insert(baseGame(*id));
     }
-    if (auto id = idInGamesFolder(f, probe.emulatorRoot)) ids.insert(*id);
+    if (auto id = idInGamesFolder(f, probe.emulatorRoot)) ids.insert(baseGame(*id));
   }
   if (!gameOpen) return g;  // on its game list, or a game we can't see: just the emulator
+  // Astris keeps a stopped game's files open, so also ask whether it's emulating: about
+  // 90 threads with a game running, 15-22 on its game list (Astris, 2026-11-26).
+  if (probe.threadCount && probe.threadCount(emu->pid) < kGameThreads) return g;
 
-  // Allow a little clock slack between the process start and the emulator's own stamp.
-  const auto started = emu->started ? startedSince(probe.emulatorRoot, emu->started - 5)
-                                    : std::vector<Started>{};
+  const auto played = lastPlayed(probe.emulatorRoot);
   uint64_t id = 0;
   if (ids.size() == 1) {
     id = *ids.begin();
-  } else if (ids.empty() && started.size() == 1) {
-    id = started.front().titleId;
+  } else if (ids.size() > 1) {
+    // Files left open by a game played earlier in this session. Astris stamps a game
+    // when it starts and again when it stops, and one stops before the next starts,
+    // so the latest stamp is the running game's. Without every stamp: no guess.
+    int64_t best = 0;
+    bool tie = false;
+    for (const uint64_t c : ids) {
+      const auto it = played.find(c);
+      if (it == played.end()) return g;
+      if (it->second.at == best) tie = true;
+      if (it->second.at > best) {
+        best = it->second.at;
+        id = c;
+        tie = false;
+      }
+    }
+    if (tie) return g;
   } else {
-    return g;  // two candidates, or none: don't guess
+    // No id in the files: the one game stamped since the emulator started, if just one.
+    // Weak (a game stopped as the emulator quit is stamped then too), so one or nothing.
+    for (const auto& [c, p] : played) {
+      if (emu->started && p.at >= emu->started - 5) {
+        if (id) return g;
+        id = c;
+      }
+    }
+    if (!id) return g;
   }
   g.titleId = id;
-  for (const auto& s : started) {
-    if (s.titleId != id) continue;
-    g.startedAt = s.at;  // the game's own start, not the emulator's
-    g.name = s.title;
+  if (const auto it = played.find(id); it != played.end()) {
+    g.name = it->second.title;
+    // Running, so its stamp is its start (not before the emulator's, though).
+    g.startedAt = std::max(it->second.at, emu->started);
   }
   if (probe.nameOf) {
     const std::string n = probe.nameOf(id);

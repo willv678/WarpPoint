@@ -164,9 +164,9 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   also shows an nxnative port ("Fire Emblem: Three Houses", "on Mac") or a game in Astris
   ("in Astris"), with the time since it started. The rule when more than one is playing: the
   Switch first, then the Mac; on the Mac, a port before Astris. WarpPoint checks the Mac's
-  processes every 5 seconds. Astris keeps no log here, so its game is known only when its open
-  files name one game (or one game has started since Astris did); otherwise Discord shows just
-  "Astris" rather than a guess. `warp presence-mac` prints what would show (`warp presence-mac ID` also shows it in Discord for 30 s).
+  processes every 5 seconds. Astris keeps no log, so WarpPoint looks at which game files it has
+  open (the id in the file's name or in the NSP's ticket) and whether it's emulating; when
+  that doesn't settle it, Discord shows just "Astris" rather than a guess. `warp presence-mac` prints what would show (`warp presence-mac ID` also shows it in Discord for 30 s).
 
 ## Live game info, mods and speedruns (1.4)
 

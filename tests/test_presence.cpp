@@ -250,7 +250,9 @@ TEST_CASE("presence: finding the game on the Mac, from fake processes and files"
 
   std::vector<ProcessInfo> procs;
   std::vector<std::filesystem::path> files;
+  int threads = 90;  // emulating
   MacProbe probe;
+  probe.threadCount = [&](int) { return threads; };
   probe.processes = [&] { return procs; };
   probe.openFiles = [&](int pid) { return pid == 77 ? files : std::vector<std::filesystem::path>{}; };
   probe.apps = {fe3h};
@@ -293,6 +295,27 @@ TEST_CASE("presence: finding the game on the Mac, from fake processes and files"
     CHECK(g->where == "in Astris");
     CHECK(g->startedAt == 1795485790);
   }
+  SUBCASE("Astris with the game, its update and DLC open: one game") {
+    procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 100}};
+    files = {"/g/Fire Emblem Three Houses [010055D009F78000][v0].xci",
+             "/g/Fire Emblem Three Houses [010055D009F78800][v262144].nsp",
+             "/g/Fire Emblem Three Houses [Additional Quests][010055D009F79004][US][v196608].nsp"};
+    CHECK(findMacGame(probe)->titleId == kFe3h);
+  }
+  SUBCASE("Astris with an NSP named without its id: the ticket inside says") {
+    // A PFS0 header, two entries, and their names (a ticket and an NCA).
+    const std::string names = std::string("010093d00c7268000000000000000008.tik") + '\0' +
+                              "847adda7554b110a57155f4b07343c16.nca" + '\0';
+    std::string nsp = "PFS0";
+    for (uint32_t v : {2u, static_cast<uint32_t>(names.size()), 0u}) {
+      for (int i = 0; i < 4; ++i) nsp += static_cast<char>(v >> (8 * i));
+    }
+    nsp += std::string(48, '\0') + names;
+    std::ofstream(tmp.path() / "Downwell Update.nsp", std::ios::binary) << nsp;
+    procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 100}};
+    files = {tmp.path() / "Downwell Update.nsp"};
+    CHECK(findMacGame(probe)->titleId == 0x010093d00c726000);  // the update's game
+  }
   SUBCASE("Astris with a game open: the id from its games/<id>/ files") {
     procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 100}};
     files = {"/Users/me/Games/fe3h.xci", root / "games/010055d009f78000/cache/shader/guest.data"};
@@ -316,9 +339,28 @@ TEST_CASE("presence: finding the game on the Mac, from fake processes and files"
     played(kFe3h, "FE", "2026-11-24T02:03:10Z");  // two since Astris started
     played(kXeno, "Xenoblade", "2026-11-24T02:04:00Z");
     CHECK(findMacGame(probe)->titleId == 0);
-    // Two different ids in open files: also no guess.
-    files = {"/a/A [010055D009F78000].nsp", "/b/B [0100FF500E34A000].nsp"};
+    // Two different ids in open files, one never stamped: also no guess.
+    files = {"/a/A [010055D009F78000].nsp", "/b/B [0100430013120000].nsp"};
     CHECK(findMacGame(probe)->titleId == 0);
+  }
+  SUBCASE("Astris stopped the game but kept its file open: Astris alone") {
+    procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 100}};
+    files = {"/g/Shantae [0100430013120000] [USA] [v0].nsp"};
+    threads = 17;
+    const auto g = findMacGame(probe);
+    REQUIRE(g);
+    CHECK(g->titleId == 0);
+    CHECK(g->app == "Astris");
+  }
+  SUBCASE("files left from a game played earlier: the latest stamp is the running game") {
+    procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 1795485000}};
+    files = {"/g/A [010055D009F78000].nsp", "/g/B [0100FF500E34A000].nsp"};
+    played(kFe3h, "Fire Emblem: Three Houses", "2026-11-24T02:05:00Z");  // stopped then
+    played(kXeno, "Xenoblade", "2026-11-24T02:06:00Z");                   // started then
+    const auto g = findMacGame(probe);
+    REQUIRE(g);
+    CHECK(g->titleId == kXeno);
+    CHECK(g->startedAt == 1795485960);
   }
   SUBCASE("a port and Astris both open: the port") {
     procs = {{77, "Astris", "/Applications/Astris.app/Contents/MacOS/Astris", 5000},
