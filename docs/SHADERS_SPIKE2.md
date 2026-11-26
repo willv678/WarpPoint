@@ -431,3 +431,26 @@ The source favours a failing session over a bypassed hook:
   It also logs one line. If it can't reach SaltyNX in six tries, 10 s apart, it executes
   `brk #0x58` with the hook call count, both GOT slots, our hook, the real loader and the last
   result in x0-x5.
+
+**F1b on hardware:**
+- **`brk.flag`:** the game stopped at the logo, so the hook is reached and the patch works.
+- **`diag.flag`:** the diag thread never reported, never gave up and never stopped the game.
+  Its runtime session with SaltyNX blocked forever. That also explains F1's silence: the hook's
+  first log line blocked the thread that made it, and the flush thread was never created.
+
+**F1c: no SaltyNX after boot.** The plugin talks to SaltyNX only at load, inside Core's
+session. After that:
+- **Logging:** runtime log lines are queued. The flush thread appends them to
+  `sdmc:/config/warppoint/shaders/log.txt`.
+- **The flush thread** is an `nn::os` thread, so the game's SDK functions work on it:
+  - it's created from the game's first present with the game's own `nn::os::CreateThread`;
+  - at priority 31, the lowest normal one;
+  - with a 64 KiB stack from the game's heap (`aligned_alloc`, `memalign` or `malloc`).
+- **SD writes** go through the game's own `nn::fs`. The thread mounts the card as `wpsd:` with
+  `nn::fs::MountSdCardForDebug`, then appends with `OpenFile`/`GetFileSize`/`WriteFile`/
+  `FlushFile`/`CloseFile`. All of these are resolved from the game's SDK module at load.
+- **Auto-abort:** `nn::fs::SetEnabledAutoAbort(false)` is set only around our own calls, so a
+  missing file or a refused mount returns an error instead of aborting the game.
+- **Untested risk:** whether a retail game may mount the SD card with `MountSdCardForDebug` on
+  this setup. `fsbrk.flag` makes a failed mount stop with `brk #0x59` and the result in x0.
+  - If the mount is refused, the next option is SaltyNX's shared memory, mapped at load.

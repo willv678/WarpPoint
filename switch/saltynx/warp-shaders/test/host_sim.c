@@ -20,13 +20,40 @@
 static const char* g_sd_root;
 static void sd_path(char* out, size_t n, const char* path) {
     if (!strncmp(path, "sdmc:/", 6)) path += 6;
+    else if (!strncmp(path, "wpsd:/", 6)) path += 6;
     snprintf(out, n, "%s/%s", g_sd_root, path);
 }
+// The game's nn::fs, on the Mac's file system (mount "wpsd:" = SD_ROOT).
+static u32 h_mount(const char* m) { (void)m; return 0; }
+static u32 h_mkdir(const char* path) { char p[512]; sd_path(p, sizeof p, path); return mkdir(p, 0777) ? 1 : 0; }
+static u32 h_create(const char* path, int64_t size) { char p[512]; sd_path(p, sizeof p, path); FILE* f = fopen(p, "wb"); (void)size; if (!f) return 1; fclose(f); return 0; }
+static u32 h_open(FsFile* out, const char* path, int mode) {
+    char p[512]; sd_path(p, sizeof p, path);
+    FILE* f = fopen(p, (mode & 2) ? "r+b" : "rb");
+    out->handle = f;
+    return f ? 0 : 1;
+}
+static u32 h_size(int64_t* out, FsFile f) { fseek(f.handle, 0, SEEK_END); *out = ftell(f.handle); return 0; }
+static u32 h_write(FsFile f, int64_t off, const void* buf, u64 size, const FsWriteOption* o) {
+    (void)o; fseek(f.handle, off, SEEK_SET); return fwrite(buf, 1, size, f.handle) == size ? 0 : 1;
+}
+static u32 h_flush(FsFile f) { return fflush(f.handle) ? 1 : 0; }
+static void h_close(FsFile f) { fclose(f.handle); }
 static u64 fake_bootstrap(const char* name);
 void SaltySDCore_ReplaceImport(const char* name, void* func) { (void)name; (void)func; }
-u64 SaltySDCore_FindSymbolBuiltin(const char* name) { return str_eq(name, "nvnBootstrapLoader") ? (u64)fake_bootstrap : 0; }
+u64 SaltySDCore_FindSymbolBuiltin(const char* name) {
+    static const struct { const char* n; void* f; } t[] = {
+        { "nvnBootstrapLoader", fake_bootstrap },
+        { "_ZN2nn2fs19MountSdCardForDebugEPKc", h_mount }, { "_ZN2nn2fs15CreateDirectoryEPKc", h_mkdir },
+        { "_ZN2nn2fs10CreateFileEPKcl", h_create }, { "_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", h_open },
+        { "_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", h_size },
+        { "_ZN2nn2fs9WriteFileENS0_10FileHandleElPKvmRKNS0_11WriteOptionE", h_write },
+        { "_ZN2nn2fs9FlushFileENS0_10FileHandleE", h_flush }, { "_ZN2nn2fs9CloseFileENS0_10FileHandleE", h_close },
+    };
+    for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) if (str_eq(name, t[i].n)) return (u64)t[i].f;
+    return 0;
+}
 void* SaltySDCore_fopen(const char* path, const char* mode) { char p[512]; sd_path(p, sizeof p, path); return fopen(p, mode); }
-size_t SaltySDCore_fwrite(const void* p, size_t size, size_t count, void* f) { return fwrite(p, size, count, f) * size; }
 int SaltySDCore_fclose(void* f) { return fclose(f); }
 int SaltySDCore_mkdir(const char* path, u32 mode) { char p[512]; sd_path(p, sizeof p, path); return mkdir(p, mode); }
 u32 SaltySDCore_printf(const char* fmt, ...) {
@@ -34,8 +61,6 @@ u32 SaltySDCore_printf(const char* fmt, ...) {
     va_list ap; va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
     return 0;
 }
-u32 SaltySD_Init(void) { return 0; }
-u32 SaltySD_Deinit(void) { return 0; }
 u64 SaltySD_GetBID(void) { return 0x1234567890ABCDEFull; }
 void SaltySDCore_getDataForUpdate(u32* n, int32_t* ns, ReplacedSymbol** syms, void*** elfs) { *n = 0; *ns = 0; *syms = 0; *elfs = 0; }
 u32 SaltySD_Memcpy(u64 to, u64 from, u64 size) { memcpy((void*)to, (void*)from, size); return 0; }

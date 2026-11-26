@@ -53,12 +53,9 @@ _Static_assert(sizeof(WpscDispatch) == 40, "WpscDispatch layout");
 extern void SaltySDCore_ReplaceImport(const char* name, void* func) WEAK;
 extern u64  SaltySDCore_FindSymbolBuiltin(const char* name) WEAK;
 extern void* SaltySDCore_fopen(const char* path, const char* mode) WEAK;
-extern size_t SaltySDCore_fwrite(const void* p, size_t size, size_t count, void* f) WEAK;
 extern int  SaltySDCore_fclose(void* f) WEAK;
 extern int  SaltySDCore_mkdir(const char* path, u32 mode) WEAK;
 extern u32  SaltySDCore_printf(const char* fmt, ...) WEAK;
-extern u32  SaltySD_Init(void) WEAK;
-extern u32  SaltySD_Deinit(void) WEAK;
 extern u64  SaltySD_GetBID(void) WEAK;
 typedef struct { void* address; const char* name; } ReplacedSymbol;
 extern void SaltySDCore_getDataForUpdate(u32* nelfs, int32_t* nsyms, ReplacedSymbol** syms, void*** elfs) WEAK;
@@ -271,22 +268,13 @@ NVN_FUNCS(DECL)
 NVN_GETTERS(DECL)
 
 // ---- logging ----------------------------------------------------------------------------------
-// SaltySDCore_printf goes through SaltyNX Core's session with the SaltyNX service, which Core
-// closes once the game starts, and Core keeps that session's handle in one global. At runtime
-// only one thread may ever use it at a time, so without locks:
-//  - until the flush thread exists, the thread that first called nvnBootstrapLoader (the
-//    "owner") logs right away, opening a session around each line;
-//  - every other line, and every line after the flush thread starts, is queued, and the flush
-//    thread prints the queue inside its own session.
+// At load (inside SaltyNX Core's session) lines go to saltynx_core.log through SaltySDCore_printf.
+// After boot nothing talks to SaltyNX: SaltyNX's service can block forever then (F1b). Runtime
+// lines are queued, and the flush thread appends them to sdmc:/config/warppoint/shaders/log.txt.
 static int g_in_main;
 static volatile int g_thread_live;
-static u64 g_owner_tls;
-static inline u64 tls_id(void) { u64 v; __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(v)); return v; }
 
-// Diagnostics that don't depend on SaltyNX IPC working (F1b): what the hook saw, and the result
-// of every runtime SaltySD_Init, kept in memory for the diag thread (diag.flag) to report.
 static volatile u64 g_hook_calls, g_hook_first_tick;
-static volatile u32 g_ipc_tries, g_ipc_fails, g_ipc_last_rc;
 static int g_brk_on_hook;                    // brk.flag: stop on the first nvnBootstrapLoader call
 #define MAX_SLOTS 8
 static u64* g_slot_addr[MAX_SLOTS];          // GOT slots our relocation patch targets
@@ -297,19 +285,8 @@ typedef struct { const char* fmt; u64 a, b; volatile u32 used; u32 pad; } LogMsg
 static LogMsg g_logq[LOGQ];
 
 static void wp_log(const char* fmt, u64 a, u64 b) {
-    if (!SaltySDCore_printf) return;
-    if (g_in_main) { SaltySDCore_printf(fmt, (u64)WP_NAME, a, b); return; }
-    if (!g_thread_live && g_owner_tls && tls_id() == g_owner_tls && SaltySD_Init && SaltySD_Deinit) {
-        u32 rc = SaltySD_Init();
-        g_ipc_tries++;
-        if (rc) { g_ipc_fails++; g_ipc_last_rc = rc; }
-        if (rc == 0) {
-            SaltySDCore_printf(fmt, (u64)WP_NAME, a, b);
-            SaltySD_Deinit();
-        }
-        return;
-    }
-    for (int i = 0; i < LOGQ; i++) {
+    if (g_in_main) { if (SaltySDCore_printf) SaltySDCore_printf(fmt, (u64)WP_NAME, a, b); return; }
+    for (int i = 0; i < LOGQ; i++) {           // runtime: queue only; the flush thread writes log.txt
         if (g_logq[i].used) continue;
         g_logq[i].fmt = fmt; g_logq[i].a = a; g_logq[i].b = b;
         __atomic_store_n(&g_logq[i].used, 1, __ATOMIC_RELEASE);
@@ -317,12 +294,38 @@ static void wp_log(const char* fmt, u64 a, u64 b) {
     }
 }
 
-static void drain_log(void) {               // flush thread only, inside its session
+// Minimal formatter for our own log lines: %s %d %x %lx %p, first arg is the build name.
+static char* fmt_hex(char* d, u64 v) {
+    char t[16]; int n = 0;
+    do { u32 x = v & 15; t[n++] = x < 10 ? '0' + x : 'a' + x - 10; v >>= 4; } while (v);
+    while (n) *d++ = t[--n];
+    return d;
+}
+static char* fmt_line(char* d, char* end, const char* f, u64 a0, u64 a1, u64 a2) {
+    u64 args[3] = { a0, a1, a2 }; int k = 0;
+    for (; *f && d < end - 24; f++) {
+        if (*f != '%') { *d++ = *f; continue; }
+        f++;
+        if (*f == 'l') f++;
+        u64 v = k < 3 ? args[k++] : 0;
+        if (*f == 's') { const char* str = (const char*)v; if (!str) str = "(null)"; while (*str && d < end - 24) *d++ = *str++; }
+        else if (*f == 'd') { int64_t x = (int64_t)(int32_t)v; if (x < 0) { *d++ = '-'; x = -x; } char t[20]; int n = 0; do { t[n++] = '0' + x % 10; x /= 10; } while (x); while (n) *d++ = t[--n]; }
+        else if (*f == 'p') { *d++ = '0'; *d++ = 'x'; d = fmt_hex(d, v); }
+        else if (*f == 'x') d = fmt_hex(d, v);
+        else *d++ = *f;
+    }
+    return d;
+}
+// Flush thread only: format the queued lines into buf, return the length.
+static u32 drain_log(char* buf, u32 cap) {
+    char* d = buf;
     for (int i = 0; i < LOGQ; i++) {
         if (!__atomic_load_n(&g_logq[i].used, __ATOMIC_ACQUIRE)) continue;
-        SaltySDCore_printf(g_logq[i].fmt, (u64)WP_NAME, g_logq[i].a, g_logq[i].b);
+        if (d + 200 > buf + cap) break;
+        d = fmt_line(d, buf + cap, g_logq[i].fmt, (u64)WP_NAME, g_logq[i].a, g_logq[i].b);
         __atomic_store_n(&g_logq[i].used, 0, __ATOMIC_RELEASE);
     }
+    return (u32)(d - buf);
 }
 
 // One line the first time each wrapper runs, so the log shows how far the game got.
@@ -735,7 +738,6 @@ static u64 hk_bootstrap(const char* name) {
     if (!g_hook_calls) g_hook_first_tick = wp_ticks();
     g_hook_calls++;
     int n = g_boot_calls++;
-    if (!g_owner_tls) g_owner_tls = tls_id();
     if (n < 16) wp_log("WarpShaders %s: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
     u64 addr = real_bootstrap ? real_bootstrap(name) : 0;
     if (n < 16) wp_log("WarpShaders %s: nvnBootstrapLoader call %d returned %p\n", (u64)n + 1, addr);
@@ -746,84 +748,135 @@ static u64 hk_bootstrap(const char* name) {
     return wrap(name, addr);
 }
 
-// ---- flush thread -----------------------------------------------------------------------------
-static u8 g_stack[0x10000] __attribute__((aligned(0x1000)));
-static int g_session_written;
+// ---- output: the game's own nn::fs and nn::os ------------------------------------------------
+// After boot, SaltyNX's service can block forever (seen on hardware: F1b), so nothing at runtime
+// talks to SaltyNX. The flush thread is an nn::os thread created from the game's first present,
+// and it writes through the game's nn::fs, with the SD card mounted by MountSdCardForDebug.
+// All of these functions come from the game's SDK module, resolved at load.
+typedef struct { void* handle; } FsFile;
+typedef struct { int flags; } FsWriteOption;
+static u32 (*nn_fs_MountSdCardForDebug)(const char* mount);
+static u32 (*nn_fs_CreateDirectory)(const char* path);
+static u32 (*nn_fs_CreateFile)(const char* path, int64_t size);
+static u32 (*nn_fs_OpenFile)(FsFile* out, const char* path, int mode);
+static u32 (*nn_fs_GetFileSize)(int64_t* out, FsFile f);
+static u32 (*nn_fs_WriteFile)(FsFile f, int64_t offset, const void* buf, u64 size, const FsWriteOption* opt);
+static u32 (*nn_fs_FlushFile)(FsFile f);
+static void (*nn_fs_CloseFile)(FsFile f);
+static u32 (*nn_os_CreateThread)(void* thread, void (*fn)(void*), void* arg, void* stack, u64 size, int prio);
+static void (*nn_os_StartThread)(void* thread);
+static void* (*c_aligned_alloc)(u64 align, u64 size);
+static void* (*c_memalign)(u64 align, u64 size);
+static void* (*c_malloc)(u64 size);
+// nn::fs aborts the game on unexpected errors (a missing file, a refused mount) unless auto-abort
+// is off. We turn it off only while our own calls run, on the flush thread.
+static void (*nn_fs_SetEnabledAutoAbort)(int enabled);
+#define FS_BEGIN() do { if (nn_fs_SetEnabledAutoAbort) nn_fs_SetEnabledAutoAbort(0); } while (0)
+#define FS_END()   do { if (nn_fs_SetEnabledAutoAbort) nn_fs_SetEnabledAutoAbort(1); } while (0)
 
-static int write_all(void* f, const void* p, u64 n) {
-    const u8* b = p;
-    while (n) {
-        u64 chunk = n > 0x8000 ? 0x8000 : n;
-        if (SaltySDCore_fwrite(b, 1, chunk, f) != chunk) return 0;
-        b += chunk; n -= chunk;
-        STAT_ADD(bytes_written, chunk);
+#define FS_MOUNT "wpsd"
+#define STACK_SIZE 0x10000
+static u8 g_thread_obj[0x400] __attribute__((aligned(16)));   // nn::os::ThreadType (~0x1c0 bytes)
+static int g_session_written, g_mounted;
+static u32 g_mount_rc = 0xFFFFFFFF;
+static char g_fs_path[96], g_fs_log[96];
+static int g_fsbrk;                          // fsbrk.flag: brk #0x59 if the SD card can't be mounted
+static char g_logbuf[4096];
+
+// Appends n bytes to path (creating it), returns 1 on success.
+static int fs_append(const char* path, const void* p, u64 n) {
+    FsFile f;
+    if (nn_fs_OpenFile(&f, path, 2 | 4) != 0) {                // Write | AllowAppend
+        nn_fs_CreateFile(path, 0);
+        if (nn_fs_OpenFile(&f, path, 2 | 4) != 0) return 0;
     }
+    int64_t size = 0;
+    int ok = nn_fs_GetFileSize(&size, f) == 0;
+    const u8* b = p;
+    FsWriteOption opt = { 0 };
+    while (ok && n) {
+        u64 chunk = n > 0x10000 ? 0x10000 : n;
+        ok = nn_fs_WriteFile(f, size, b, chunk, &opt) == 0;
+        if (ok) { size += chunk; b += chunk; n -= chunk; STAT_ADD(bytes_written, chunk); }
+    }
+    if (ok) ok = nn_fs_FlushFile(f) == 0;
+    nn_fs_CloseFile(f);
+    return ok;
+}
+
+static int fs_ready(void) {
+    if (g_mounted) return 1;
+    g_mount_rc = nn_fs_MountSdCardForDebug(FS_MOUNT);
+    if (g_mount_rc != 0) {
+        if (g_fsbrk) {
+            register u64 r0 __asm__("x0") = g_mount_rc;
+            __asm__ volatile("brk #0x59" :: "r"(r0) : "memory");
+        }
+        return 0;
+    }
+    g_mounted = 1;
+    nn_fs_CreateDirectory(FS_MOUNT ":/config");
+    nn_fs_CreateDirectory(FS_MOUNT ":/config/warppoint");
+    nn_fs_CreateDirectory(FS_MOUNT ":/config/warppoint/shaders");
     return 1;
 }
 
-static void flush(void) {
-    if (!SaltySD_Init || !SaltySD_Deinit || !SaltySDCore_fopen) return;
-    u32 rc = SaltySD_Init();
-    if (rc != 0) {
-        STAT_ADD(flush_fail, 1);
-        if (g_stats.flush_fail == 1) wp_log("WarpShaders %s: flush could not connect to SaltyNX (0x%x)\n", rc, 0);
-        return;
-    }
-    drain_log();
-    int ok = 0;
-    int is_new = 0;
+static void flush_locked(void);
+static void flush(void) { FS_BEGIN(); flush_locked(); FS_END(); }
+static void flush_locked(void) {
+    if (!fs_ready()) { STAT_ADD(flush_fail, 1); return; }
+    int ok = 1;
+    u32 nlog = drain_log(g_logbuf, sizeof g_logbuf);
+    if (nlog) fs_append(g_fs_log, g_logbuf, nlog);
     if (!g_session_written) {
-        void* probe = SaltySDCore_fopen(g_path, "rb");
-        if (probe) SaltySDCore_fclose(probe); else is_new = 1;
+        FsFile probe;
+        int is_new = nn_fs_OpenFile(&probe, g_fs_path, 1) != 0;
+        if (!is_new) nn_fs_CloseFile(probe);
+        struct { WpscFileHeader fh; WpscRecHeader h; WpscSession s; } rec;
+        memcpy(rec.fh.magic, WPSC_MAGIC, 8);
+        rec.fh.version = WPSC_VERSION; rec.fh.header_size = sizeof rec.fh;
+        rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_SESSION; rec.h.reserved = 0;
+        rec.h.size = sizeof rec.h + sizeof rec.s;
+        rec.s.title_id = g_title_id; rec.s.build_id = g_build_id; rec.s.plugin_version = PLUGIN_VERSION;
+        rec.s.flags = (u32)g_passthrough; rec.s.start_tick = wp_ticks();
+        rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
+        ok = is_new ? fs_append(g_fs_path, &rec, sizeof rec) : fs_append(g_fs_path, &rec.h, sizeof rec - sizeof rec.fh);
+        if (ok) g_session_written = 1;
     }
-    void* f = SaltySDCore_fopen(g_path, "ab");
-    if (f) {
-        ok = 1;
-        if (is_new) {
-            WpscFileHeader fh;
-            memcpy(fh.magic, WPSC_MAGIC, 8);
-            fh.version = WPSC_VERSION; fh.header_size = sizeof fh;
-            ok = write_all(f, &fh, sizeof fh);
-        }
-        if (ok && !g_session_written) {
-            struct { WpscRecHeader h; WpscSession s; } rec = { { WPSC_REC_MAGIC, WPSC_REC_SESSION, 0, sizeof rec, 0 },
-                { g_title_id, g_build_id, PLUGIN_VERSION, (u32)g_passthrough, wp_ticks() } };
-            rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
-            ok = write_all(f, &rec, sizeof rec);
-            if (ok) g_session_written = 1;
-        }
-        u64 w = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE), r = g_rpos;
-        while (ok && r < w) {
-            u32 at = (u32)(r % RING_SIZE);
-            u64 n = w - r;
-            if (n > RING_SIZE - at) n = RING_SIZE - at;
-            ok = write_all(f, g_ring + at, n);
-            if (ok) { r += n; __atomic_store_n(&g_rpos, r, __ATOMIC_RELEASE); }
-        }
-        if (ok) {
-            struct { WpscRecHeader h; WpscStats s; } rec;
-            g_stats.ticks = wp_ticks();
-            memcpy(&rec.s, &g_stats, sizeof g_stats);
-            rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_STATS; rec.h.reserved = 0; rec.h.size = sizeof rec;
-            rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
-            ok = write_all(f, &rec, sizeof rec);
-        }
-        SaltySDCore_fclose(f);
+    u64 w = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE), r = g_rpos;
+    while (ok && r < w) {
+        u32 at = (u32)(r % RING_SIZE);
+        u64 n = w - r;
+        if (n > RING_SIZE - at) n = RING_SIZE - at;
+        ok = fs_append(g_fs_path, g_ring + at, n);
+        if (ok) { r += n; __atomic_store_n(&g_rpos, r, __ATOMIC_RELEASE); }
     }
-    if (g_stats.flush_ok + g_stats.flush_fail == 0 && SaltySDCore_printf)
-        SaltySDCore_printf("WarpShaders %s: first flush %s, %d bytes so far\n", WP_NAME,
-                           ok ? "ok" : (f ? "write failed" : "fopen failed"), (int)g_stats.bytes_written);
-    drain_log();
-    SaltySD_Deinit();
+    if (ok) {
+        struct { WpscRecHeader h; WpscStats s; } rec;
+        g_stats.ticks = wp_ticks();
+        memcpy(&rec.s, &g_stats, sizeof g_stats);
+        rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_STATS; rec.h.reserved = 0; rec.h.size = sizeof rec;
+        rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
+        ok = fs_append(g_fs_path, &rec, sizeof rec);
+    }
+    if (g_stats.flush_ok + g_stats.flush_fail == 0)
+        wp_log(ok ? "WarpShaders %s: first flush ok, %d bytes so far\n" : "WarpShaders %s: first flush failed, %d bytes\n",
+               (u64)g_stats.bytes_written, 0);
     if (ok) STAT_ADD(flush_ok, 1); else STAT_ADD(flush_fail, 1);
 }
 
 static void flush_thread(void* arg) {
     (void)arg;
+    wp_log("WarpShaders %s: flush thread running; SD mount next\n", 0, 0);
     wp_svcSleepThread(5ll * 1000 * 1000 * 1000);
+    FS_BEGIN();
+    if (fs_ready()) {
+        static const char hello[] = "WarpShaders: SD card mounted by the game process\n";
+        fs_append(g_fs_log, hello, sizeof hello - 1);
+    }
+    FS_END();
     u64 last = 0, last_frames = 0;
     for (u32 tick = 0;; tick++) {
-        wp_svcSleepThread(500ll * 1000 * 1000);
         u64 pending = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE) - g_rpos;
         int logs = 0;
         for (int i = 0; i < LOGQ; i++) logs |= g_logq[i].used;
@@ -834,80 +887,30 @@ static void flush_thread(void* arg) {
             last = tick;
             last_frames = g_stats.frames;
         }
+        wp_svcSleepThread(500ll * 1000 * 1000);
     }
 }
 
-// Started from the game's first present, long after SaltyNX Core has closed its own session
-// with the SaltyNX service (the flush opens a fresh one each time). Never blocks the caller.
-// Lowest priority the game allows, and it only ever sleeps between flushes (no polling).
+// Created from the game's first present, through nn::os so nn::fs works on it. Lowest normal
+// nn::os priority (31); the stack comes from the game's heap, which nn::os can map.
 static int g_thread_started;
 static void start_flush_thread(void) {
     if (g_thread_started) return;
     g_thread_started = 1;
-    static const u32 prios[] = { 0x3F, 0x3B, 0x2C };
-    u32 th = 0, prio = 0, rc = 1;
-    void* top = g_stack + sizeof g_stack;
-    for (int i = 0; i < 3 && rc != 0; i++) { prio = prios[i]; rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2); }
-    if (rc == 0) {
-        wp_log("WarpShaders %s: flush thread created, priority 0x%x (first flush in 5 s)\n", prio, 0);
-        g_thread_live = 1;                         // from here on, only the flush thread talks to SaltyNX
-        rc = wp_svcStartThread(th);
+    if (!nn_os_CreateThread || !nn_os_StartThread || !(c_aligned_alloc || c_memalign || c_malloc) || !nn_fs_MountSdCardForDebug) {
+        wp_log("WarpShaders %s: no flush thread: an nn::os/nn::fs function is missing\n", 0, 0);
+        return;
     }
-    if (rc != 0) wp_log("WarpShaders %s: flush thread failed, rc 0x%x\n", rc, 0);
-}
-
-// ---- diag thread (diag.flag) -------------------------------------------------------------------
-// Started at plugin load, independent of every hook. Sleeps 30 s, then writes
-// sdmc:/config/warppoint/shaders/diag.txt with the hook counters, the current value of each GOT
-// slot we patched (relocated by now), and the runtime IPC results, plus one log line. If it
-// can't reach SaltyNX after six tries, it stops with brk #0x58 holding the same numbers in
-// x0-x5, so a frozen title screen (or a crash report) still answers the question.
-#ifdef WP_DIAG
-static u8 g_diag_stack[0x4000] __attribute__((aligned(0x1000)));
-static char* put_hex(char* d, const char* label, u64 v) { d = str_put(d, label); d = str_put(d, "0x"); d = hex16(d, v); return str_put(d, "\n"); }
-static void diag_thread(void* arg) {
-    (void)arg;
-    wp_svcSleepThread(30ll * 1000 * 1000 * 1000);
-    for (int attempt = 0; attempt < 6; attempt++) {
-        u32 rc = SaltySD_Init ? SaltySD_Init() : 1;
-        g_ipc_tries++;
-        if (rc == 0) {
-            static char text[1024];
-            char* d = text;
-            d = put_hex(d, "build: ", PLUGIN_VERSION);
-            d = put_hex(d, "hook_calls: ", g_hook_calls);
-            d = put_hex(d, "hook_first_tick: ", g_hook_first_tick);
-            d = put_hex(d, "hook: ", (u64)hk_bootstrap);
-            d = put_hex(d, "real: ", (u64)real_bootstrap);
-            for (int i = 0; i < g_slot_count; i++) {
-                d = put_hex(d, "slot_addr: ", (u64)g_slot_addr[i]);
-                d = put_hex(d, "slot_value: ", *(volatile u64*)g_slot_addr[i]);
-            }
-            d = put_hex(d, "ipc_tries: ", g_ipc_tries);
-            d = put_hex(d, "ipc_fails: ", g_ipc_fails);
-            d = put_hex(d, "ipc_last_rc: ", g_ipc_last_rc);
-            d = put_hex(d, "frames: ", g_stats.frames);
-            void* f = SaltySDCore_fopen("sdmc:/config/warppoint/shaders/diag.txt", "wb");
-            if (f) { SaltySDCore_fwrite(text, 1, (size_t)(d - text), f); SaltySDCore_fclose(f); }
-            SaltySDCore_printf("WarpShaders %s: diag: hook calls %d, slot0 0x%lx (hook 0x%lx)\n", WP_NAME,
-                               (int)g_hook_calls, g_slot_count ? *(volatile u64*)g_slot_addr[0] : 0, (u64)hk_bootstrap);
-            drain_log();
-            SaltySD_Deinit();
-            wp_svcExitThread();
-        }
-        g_ipc_fails++; g_ipc_last_rc = rc;
-        wp_svcSleepThread(10ll * 1000 * 1000 * 1000);
+    void* stack = c_aligned_alloc ? c_aligned_alloc(0x1000, STACK_SIZE) : c_memalign ? c_memalign(0x1000, STACK_SIZE) : 0;
+    if (!stack && c_malloc) {                    // align by hand inside a larger block
+        u8* raw = c_malloc(STACK_SIZE + 0x1000);
+        if (raw) stack = (void*)(((u64)raw + 0xFFF) & ~0xFFFull);
     }
-    register u64 r0 __asm__("x0") = g_hook_calls;
-    register u64 r1 __asm__("x1") = g_slot_count > 0 ? *(volatile u64*)g_slot_addr[0] : 0;
-    register u64 r2 __asm__("x2") = g_slot_count > 1 ? *(volatile u64*)g_slot_addr[1] : 0;
-    register u64 r3 __asm__("x3") = (u64)hk_bootstrap;
-    register u64 r4 __asm__("x4") = (u64)real_bootstrap;
-    register u64 r5 __asm__("x5") = g_ipc_last_rc;
-    __asm__ volatile("brk #0x58" :: "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4), "r"(r5) : "memory");
-    wp_svcExitThread();
+    if (!stack) { wp_log("WarpShaders %s: no flush thread: stack allocation failed\n", 0, 0); return; }
+    u32 rc = nn_os_CreateThread(g_thread_obj, flush_thread, 0, stack, STACK_SIZE, 31);
+    wp_log("WarpShaders %s: nn::os::CreateThread rc 0x%x\n", rc, 0);
+    if (rc == 0) { g_thread_live = 1; nn_os_StartThread(g_thread_obj); }
 }
-#endif
 
 // ---- entry ------------------------------------------------------------------------------------
 static int file_exists(const char* path) {
@@ -975,6 +978,35 @@ HIDDEN void wp_plugin_main(void) {
     str_put(p, ".bin");
     g_passthrough = file_exists("sdmc:/config/warppoint/shaders/passthrough.flag");
     g_brk_on_hook = file_exists("sdmc:/config/warppoint/shaders/brk.flag");
+    g_fsbrk = file_exists("sdmc:/config/warppoint/shaders/fsbrk.flag");
+    {
+        char* q = str_put(g_fs_path, FS_MOUNT ":/config/warppoint/shaders/");
+        q = hex16(q, g_title_id);
+        str_put(q, ".bin");
+        str_put(g_fs_log, FS_MOUNT ":/config/warppoint/shaders/log.txt");
+    }
+#define RESOLVE(var, sym) var = (__typeof__(var))SaltySDCore_FindSymbolBuiltin(sym)
+    RESOLVE(nn_fs_MountSdCardForDebug, "_ZN2nn2fs19MountSdCardForDebugEPKc");
+    RESOLVE(nn_fs_CreateDirectory, "_ZN2nn2fs15CreateDirectoryEPKc");
+    RESOLVE(nn_fs_CreateFile, "_ZN2nn2fs10CreateFileEPKcl");
+    RESOLVE(nn_fs_OpenFile, "_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci");
+    RESOLVE(nn_fs_GetFileSize, "_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE");
+    RESOLVE(nn_fs_WriteFile, "_ZN2nn2fs9WriteFileENS0_10FileHandleElPKvmRKNS0_11WriteOptionE");
+    RESOLVE(nn_fs_FlushFile, "_ZN2nn2fs9FlushFileENS0_10FileHandleE");
+    RESOLVE(nn_fs_CloseFile, "_ZN2nn2fs9CloseFileENS0_10FileHandleE");
+    RESOLVE(nn_os_CreateThread, "_ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mi");
+    RESOLVE(nn_os_StartThread, "_ZN2nn2os11StartThreadEPNS0_10ThreadTypeE");
+    RESOLVE(c_aligned_alloc, "aligned_alloc");
+    RESOLVE(c_memalign, "memalign");
+    RESOLVE(c_malloc, "malloc");
+    RESOLVE(nn_fs_SetEnabledAutoAbort, "_ZN2nn2fs19SetEnabledAutoAbortEb");
+    wp_log("WarpShaders %s: nn::fs Mount %p OpenFile %p\n", (u64)nn_fs_MountSdCardForDebug, (u64)nn_fs_OpenFile);
+    wp_log("WarpShaders %s: nn::fs WriteFile %p, CreateFile %p\n", (u64)nn_fs_WriteFile, (u64)nn_fs_CreateFile);
+    wp_log("WarpShaders %s: nn::os CreateThread %p, aligned_alloc %p\n", (u64)nn_os_CreateThread, (u64)c_aligned_alloc);
+    wp_log("WarpShaders %s: memalign %p, malloc %p\n", (u64)c_memalign, (u64)c_malloc);
+    wp_log("WarpShaders %s: nn::fs SetEnabledAutoAbort %p\n", (u64)nn_fs_SetEnabledAutoAbort, 0);
+    if (!nn_fs_GetFileSize || !nn_fs_FlushFile || !nn_fs_CloseFile || !nn_fs_CreateDirectory || !nn_os_StartThread)
+        wp_log("WarpShaders %s: some nn::fs/nn::os functions are missing; no output this run\n", 0, 0);
     if (SaltySDCore_mkdir) {
         SaltySDCore_mkdir("sdmc:/config", 0777);
         SaltySDCore_mkdir("sdmc:/config/warppoint", 0777);
@@ -998,14 +1030,5 @@ HIDDEN void wp_plugin_main(void) {
     if (g_brk_on_hook) wp_log("WarpShaders %s: brk.flag set: the first nvnBootstrapLoader call stops the game\n", 0, 0);
     for (int i = 0; i < g_slot_count; i++)
         wp_log("WarpShaders %s: patched GOT slot at %p (relocated after Core finishes)\n", (u64)g_slot_addr[i], 0);
-#ifdef WP_DIAG
-    if (file_exists("sdmc:/config/warppoint/shaders/diag.flag")) {
-        static const u32 prios[] = { 0x3F, 0x3B };
-        u32 th = 0, rc = 1, prio = 0;
-        for (int i = 0; i < 2 && rc; i++) { prio = prios[i]; rc = wp_svcCreateThread(&th, diag_thread, 0, g_diag_stack + sizeof g_diag_stack, prio, -2); }
-        if (rc == 0) rc = wp_svcStartThread(th);
-        wp_log("WarpShaders %s: diag.flag set: diag thread rc 0x%x, priority 0x%x (reports in 30 s)\n", rc, prio);
-    }
-#endif
     g_in_main = 0;
 }
