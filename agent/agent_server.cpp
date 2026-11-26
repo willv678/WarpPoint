@@ -68,6 +68,8 @@ bool handleRead(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) {
   return sendError(s, ErrorCode::Io, error);
 }
 
+bool receiveUnit(Stream& s, UnitWriter* writer, const std::string& label, const LogFn& log);
+
 // Returns false if the stream is unusable afterwards.
 bool handleWrite(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) {
   proto::WriteReq req;
@@ -81,7 +83,28 @@ bool handleWrite(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) 
     return sendError(s, ErrorCode::Changed, error);
   }
   if (!send(s, Msg::WriteReady)) return false;
+  return receiveUnit(s, writer.get(), req.ref.key, log);
+}
 
+// Updating the Switch side: only after the player chose Update in the overlay.
+bool handleUpdate(Stream& s, UpdateSource* update, const Frame& f, const LogFn& log) {
+  ByteReader r(f.payload);
+  const std::string version = r.str();
+  if (!r.done() || !update || version.empty()) {
+    return sendError(s, ErrorCode::BadRequest, "bad update request");
+  }
+  std::string error;
+  auto writer = update->begin(version, error);
+  if (!writer) {
+    log("Update refused: " + error);
+    return sendError(s, ErrorCode::BadRequest, error);
+  }
+  if (!send(s, Msg::WriteReady)) return false;
+  return receiveUnit(s, writer.get(), "WarpPoint " + version, log);
+}
+
+// The unit stream after WriteReady: (FileBegin Chunk* FileEnd)* UnitEnd, or Abort.
+bool receiveUnit(Stream& s, UnitWriter* writer, const std::string& label, const LogFn& log) {
   // Keep consuming the stream even after a failure so the session stays in sync;
   // the error is reported once the host finishes (UnitEnd).
   bool failed = false;
@@ -90,7 +113,7 @@ bool handleWrite(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) 
     const auto type = static_cast<Msg>(in.type);
     if (type == Msg::Abort) {
       writer->abort();
-      log("Write aborted for " + req.ref.key);
+      log("Write aborted for " + label);
       return true;
     }
     if (type == Msg::UnitEnd) {
@@ -98,10 +121,10 @@ bool handleWrite(Stream& s, UnitStore& store, const Frame& f, const LogFn& log) 
       if (failed || !proto::decodeHash(in.payload, hash) || !writer->commit(hash)) {
         const std::string why = writer->error().empty() ? "write failed" : writer->error();
         writer->abort();
-        log("Write failed for " + req.ref.key + ": " + why);
+        log("Write failed for " + label + ": " + why);
         return sendError(s, ErrorCode::Io, why);
       }
-      log("Received " + req.ref.key);
+      log("Received " + label);
       return send(s, Msg::Committed, proto::encodeHash(hash));
     }
     if (failed) continue;
@@ -145,7 +168,7 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
                   TitleSource* titles, UserSource* users, ReportSource* reports,
-                  AlbumSource* album, TapSource* tap) {
+                  AlbumSource* album, TapSource* tap, UpdateSource* update) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -237,6 +260,19 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
         }
         break;
       }
+      case Msg::UpdateOffer: {
+        ByteReader r(f.payload);
+        const std::string version = r.str();
+        if (!r.done() || !update) {
+          ok = sendError(s, ErrorCode::BadRequest, "this agent can't update itself");
+        } else {
+          ok = send(s, Msg::UpdateState, proto::encode(update->offered(version)));
+        }
+        break;
+      }
+      case Msg::UpdateReq:
+        ok = handleUpdate(s, update, f, log);
+        break;
       case Msg::TapReq: {
         std::vector<proto::TapEntry> plan;
         proto::TapReply reply;

@@ -3,7 +3,7 @@
 //
 // It talks to the background module (program 4200000000005750) through files in
 // sdmc:/config/warppoint: it reads status.json (rewritten every 2 s while the module
-// runs) and writes a one-word request ("sync", "pause", "resume"). It starts and stops
+// runs) and writes a one-word request ("sync", "pause", "resume", "update"). It starts and stops
 // the module through the process manager, and turns "start at boot" on and off with
 // Atmosphère's boot2.flag.
 //
@@ -20,7 +20,7 @@
 namespace {
 
 constexpr u64 kProgramId = 0x4200000000005750;
-constexpr const char* kVersion = "1.4.0";
+constexpr const char* kVersion = "1.10.0";
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
 constexpr const char* kModuleDir = "sdmc:/atmosphere/contents/4200000000005750";
 
@@ -76,6 +76,10 @@ struct Status {
   long long activityAt = 0;
   long long lastSyncAt = 0;
   long long updatedAt = 0;
+  std::string version;       // the running module's
+  std::string updateOffer;   // a newer version the Mac has, or ""
+  bool updateWanted = false;
+  std::string updateStatus;  // "", "installing 1.x", "installed 1.x", "failed: ...", "updated to 1.x"
 };
 
 std::string field(const std::string& json, const std::string& key) {
@@ -111,6 +115,10 @@ Status readStatus() {
   s.activityAt = std::atoll(field(json, "lastActivityAt").c_str());
   s.lastSyncAt = std::atoll(field(json, "lastSyncAt").c_str());
   s.updatedAt = std::atoll(field(json, "updatedAt").c_str());
+  s.version = field(json, "version");
+  s.updateOffer = field(json, "updateOffer");
+  s.updateWanted = field(json, "updateWanted") == "true";
+  s.updateStatus = field(json, "updateStatus");
   return s;
 }
 
@@ -153,6 +161,24 @@ class MainGui : public tsl::Gui {
     syncing_ = new tsl::elm::ToggleListItem("Syncing", true, "On", "Paused");
     syncing_->setStateChangedListener([](bool on) { request(on ? "resume" : "pause"); });
     list->addItem(syncing_);
+
+    list->addItem(new tsl::elm::CategoryHeader("Update"));
+    update_ = new tsl::elm::ListItem("Check for update");
+    update_->setClickListener([this](u64 keys) {
+      if (!(keys & HidNpadButton_A)) return false;
+      if (offer_.empty()) {
+        // Nothing offered yet: a sync makes the Mac say what it has.
+        request("sync");
+        update_->setValue("Asking\u2026");
+        return true;
+      }
+      request("update");
+      updateAsked_ = true;
+      updateAskedFrame_ = frames_;
+      update_->setValue("Waiting\u2026");
+      return true;
+    });
+    list->addItem(update_);
 
     list->addItem(new tsl::elm::CategoryHeader("Background"));
     running_ = new tsl::elm::ToggleListItem("WarpPoint running", running());
@@ -199,6 +225,7 @@ class MainGui : public tsl::Gui {
       clearAtFrame_ = 0;
     }
     if (syncing_ && s.read && syncing_->getState() == s.paused) syncing_->setState(!s.paused);
+    followUpdate(s);
 
     if (!on) {
       line1_ = "Off";
@@ -219,7 +246,67 @@ class MainGui : public tsl::Gui {
                                 : "Not synced yet";
   }
 
+  // The Update item: offer, waiting, installing, then restart the module ourselves
+  // (once: the new module rewrites status.json a second or two after it starts).
+  void followUpdate(const Status& s) {
+    if (!update_) return;
+    if (restartStage_ == 1) {  // stopping: start it again once it's really gone
+      if (!running() || frames_ >= restartAtFrame_) {
+        start();
+        restartStage_ = 2;
+        update_->setText("Updated to " + installed_);
+        update_->setValue("");
+      }
+      return;
+    }
+    if (restartStage_ == 2) return;  // done for this overlay session
+    const std::string& st = s.updateStatus;
+    // New files are in place but the old module still runs: restart it, once. (Also
+    // when this overlay was reopened after the files arrived.)
+    if (st.rfind("installed ", 0) == 0 && st.substr(10) != s.version) {
+      installed_ = st.substr(10);
+      stop();
+      restartStage_ = 1;
+      restartAtFrame_ = frames_ + 120;
+      update_->setValue("Restarting\u2026");
+      return;
+    }
+    if (st.rfind("installing", 0) == 0) {
+      update_->setValue("Installing\u2026");
+      return;
+    }
+    if (st.rfind("failed: ", 0) == 0 && updateAsked_) {
+      update_->setValue("Failed", true);
+      line3_ = st.substr(8);
+      updateAsked_ = false;
+      return;
+    }
+    offer_ = s.updateOffer;
+    if (updateAsked_) {
+      // The module notes the request within a second or two; give the Mac 20 s more.
+      if (!s.updateWanted && frames_ - updateAskedFrame_ > 25 * 60) {
+        update_->setValue("No Mac", true);
+        updateAsked_ = false;
+      }
+      return;
+    }
+    if (!offer_.empty()) {
+      update_->setText("Update to " + offer_);
+      update_->setValue("");
+    } else {
+      update_->setText(st.rfind("updated to ", 0) == 0 ? "Updated to " + s.version : "Check for update");
+      update_->setValue("");
+    }
+  }
+
   std::string line1_, line2_, line3_;
+  tsl::elm::ListItem* update_ = nullptr;
+  std::string offer_;
+  bool updateAsked_ = false;
+  u32 restartAtFrame_ = 0;
+  int restartStage_ = 0;
+  u32 updateAskedFrame_ = 0;  // 1 = stopping the old module, 2 = started the new one
+  std::string installed_;
   tsl::elm::ListItem* syncNow_ = nullptr;
   tsl::elm::ToggleListItem* syncing_ = nullptr;
   tsl::elm::ToggleListItem* running_ = nullptr;

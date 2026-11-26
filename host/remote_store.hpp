@@ -44,6 +44,10 @@ class RemoteStore : public UnitStore {
 
   // Warp Tap (needs "tap"): read these pointer chains in the running game.
   bool tap(const std::vector<proto::TapEntry>& plan, proto::TapReply& reply, std::string& error);
+  // Updating the Switch side (cap "update"): tell the module what this Mac has, and get
+  // its version and whether the player asked to update; then send the files.
+  bool updateOffer(const std::string& version, proto::UpdateStateMsg& state, std::string& error);
+  std::unique_ptr<UnitWriter> updateWriter(const std::string& version, std::string& error);
 
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }

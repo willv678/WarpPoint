@@ -21,6 +21,7 @@ struct AgentConfig {
   ReportSource* reports = nullptr;  // optional: crash and error reports (Warp Lens)
   AlbumSource* album = nullptr;     // optional: screenshots and videos (Warp Album)
   TapSource* tap = nullptr;         // optional: read-only live game state (Warp Tap)
+  UpdateSource* update = nullptr;   // optional: new Switch files from the Mac, on the player's say-so
   // optional: the game running now, sent in every beacon (Warp Presence)
   std::function<uint64_t()> runningTitle;
   // Where the announce's generation starts. Start it somewhere random so a restarted

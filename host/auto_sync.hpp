@@ -47,6 +47,7 @@ struct AutoSyncEvent {
     Crash,         // Warp Lens: something crashed on the console (message: explained)
     Album,         // Warp Album: captures copied (message: "3 screenshots from X", image: one)
     Mods,          // Warp Mods: a game's mods were applied, or couldn't be (message says)
+    Update,        // the Switch side was updated from this Mac (message says)
   };
   Kind kind;
   std::string console;  // "Will's Switch"

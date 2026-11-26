@@ -11,10 +11,11 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$ROOT/app/mac/Support/Info.plist")
 OUT="$ROOT/build-release"
 
-"$ROOT/app/mac/build.sh"
 for part in agent sysmodule overlay; do
   (cd "$ROOT/switch/$part" && make -j8 >/dev/null)
 done
+"$ROOT/app/mac/build.sh"  # after the Switch parts: the app carries them (SwitchPackage)
+[ -f "$OUT/WarpPoint.app/Contents/Resources/SwitchPackage/package.json" ] || { echo "no SwitchPackage in the app"; exit 1; }
 
 DIST="$OUT/dist"
 rm -rf "$DIST" "$OUT/dmg" "$OUT/sd"

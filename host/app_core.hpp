@@ -86,6 +86,13 @@ class AppCore {
                      std::string& error);
   // Apply every game's mods to the console in s and to this Mac (AutoSync's afterPass).
   std::vector<AutoSyncEvent> applyMods(struct Session& s);
+  // Updating the Switch side: offer this Mac's Switch package, send it when the player
+  // chose Update in the overlay. Returns an event when it sent one.
+  std::vector<AutoSyncEvent> switchUpdate(struct Session& s);
+  // Where this Mac's Switch package is (the app's Resources/SwitchPackage), and what the
+  // last pass learned: {"console","canUpdate","package","module","wanted","status","error"}.
+  void setSwitchPackage(const std::string& dir);
+  std::string switchUpdateJson();
 
   // Warp Album: copy the Switch's screenshots and videos into folder ("" = ~/Pictures/WarpPoint).
   bool setAlbum(bool enabled, const std::string& folder, std::string& error);
@@ -132,6 +139,9 @@ class AppCore {
   std::string gameDataWantedJson();
 
  private:
+  std::mutex updateMutex_;
+  std::string switchPackageDir_;
+  std::string switchInfo_;  // JSON from the last pass, for the app
   void push(const AutoSyncEvent& e);
 
   bool takeLock(class FileLock& lock, std::string& error);

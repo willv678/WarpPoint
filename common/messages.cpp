@@ -136,6 +136,22 @@ bool decode(const std::vector<uint8_t>& p, std::vector<TapEntry>& plan) {
   return r.done();
 }
 
+std::vector<uint8_t> encode(const UpdateStateMsg& m) {
+  ByteWriter w;
+  w.str(m.moduleVersion);
+  w.u8(m.wanted ? 1 : 0);
+  w.str(m.status);
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, UpdateStateMsg& m) {
+  ByteReader r(p);
+  m.moduleVersion = r.str();
+  m.wanted = r.u8() != 0;
+  m.status = r.str();
+  return r.done();
+}
+
 std::vector<uint8_t> encode(const TapReply& reply) {
   ByteWriter w;
   w.u64(reply.titleId);

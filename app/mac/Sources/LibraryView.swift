@@ -41,6 +41,7 @@ struct LibraryView: View {
     VStack(spacing: 0) {
       banner
       ForEach(conflicts) { conflictBanner($0) }
+      if model.switchUpdate.available { switchUpdateBanner(model.switchUpdate) }
       // The details float over the grid as a card, so the grid never reflows (a
       // narrower grid would re-pick its columns and every tile would jump).
       ZStack(alignment: .trailing) {
@@ -171,6 +172,28 @@ struct LibraryView: View {
     .padding(.horizontal, 20)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+
+  /// This app has newer Switch files: how to put them on the Switch.
+  private func switchUpdateBanner(_ info: SwitchUpdateInfo) -> some View {
+    let console = info.console.isEmpty ? "your Switch" : info.console
+    return HStack(spacing: 10) {
+      Image(systemName: "arrow.down.circle.fill").foregroundStyle(.blue)
+      if info.canUpdate {
+        Text("WarpPoint \(info.package) is ready for \(console). On the Switch, open the WarpPoint overlay and choose **Update to \(info.package)**.")
+      } else {
+        Text("\(console) has an older WarpPoint. Copy the new Switch files to its SD card once; after that it updates from the overlay.")
+        Spacer()
+        Button("Show Switch Files") {
+          if let url = model.switchPackageFolder { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        }
+      }
+      Spacer(minLength: 0)
+    }
+    .font(.callout)
+    .padding(.horizontal, 20)
+    .padding(.vertical, 9)
+    .background(Color.blue.opacity(0.10))
   }
 
   /// A save changed on both sides: say so up top, one click from the Keep buttons.

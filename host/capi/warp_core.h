@@ -127,6 +127,11 @@ char* warp_core_data_dir(WarpCore* core);
 /* Plugins: [{"id","name","icon","summary","what","how","enabled","status","statusText",
  * "needs","games",...}] (see pluginsJson in host/plugins.hpp). */
 char* warp_core_plugins(WarpCore* core);
+
+/* Updating the Switch side: where this app's Switch files are (Resources/SwitchPackage),
+   and what the last sync learned: {"console","canUpdate","package","module","wanted","status","error"}. */
+void warp_core_set_switch_package(WarpCore* core, const char* dir);
+char* warp_core_switch_update(WarpCore* core);
 bool warp_core_set_plugin_enabled(WarpCore* core, const char* pluginId, bool enabled, char** error);
 /* The plugin store. indexJson: plugins/index.json as just downloaded, or NULL when the
  * download failed (fetchError says why; the last copy is used). See PackStore. */

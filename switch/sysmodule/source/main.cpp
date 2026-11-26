@@ -18,6 +18,7 @@
 #include "mod_store.hpp"
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
+#include "switch_update.hpp"
 #include "switch_titles.hpp"
 
 #include <switch.h>
@@ -84,7 +85,7 @@ namespace {
 
 using namespace WarpPoint;
 
-constexpr const char* kVersion = "1.4.0";
+constexpr const char* kVersion = "1.10.0";
 
 // Small socket buffers: a background program can't afford the app's defaults.
 const SocketInitConfig kSocketConfig = {
@@ -186,6 +187,8 @@ std::string jsonEscape(const std::string& s) {
   return out;
 }
 
+WarpPoint::SwitchUpdater* g_updater = nullptr;
+
 void writeStatus(bool online, bool paused, uint32_t generation) {
   std::string host, activity;
   time_t at = 0;
@@ -207,10 +210,14 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
                "\"connected\":%s,"
                "\"lastActivity\":\"%s\",\"lastActivityAt\":%lld,\"lastSyncAt\":%lld,"
                "\"generation\":%u,"
+               "\"updateOffer\":\"%s\",\"updateWanted\":%s,\"updateStatus\":\"%s\","
                "\"updatedAt\":%lld}\n",
                kVersion, online ? "true" : "false", paused ? "true" : "false",
                jsonEscape(host).c_str(), connected ? "true" : "false", jsonEscape(activity).c_str(),
                static_cast<long long>(at), static_cast<long long>(lastSync), generation,
+               jsonEscape(g_updater ? g_updater->offer() : "").c_str(),
+               g_updater && g_updater->wanted() ? "true" : "false",
+               jsonEscape(g_updater ? g_updater->status() : "").c_str(),
                static_cast<long long>(std::time(nullptr)));
   std::fclose(f);
   std::remove(path("status.json").c_str());
@@ -298,6 +305,11 @@ int main(int, char**) {
   cfg.album = &album;
   cfg.identity.caps.push_back("album");
   // Warp Tap: read-only live game state (dmnt:cht, opened when first asked).
+  // Updating these files from the Mac, when the player asks for it in the overlay.
+  static WarpPoint::SwitchUpdater updater(kVersion, kDataDir);
+  g_updater = &updater;
+  cfg.update = &updater;
+  cfg.identity.caps.push_back("update");
   static WarpPoint::SwitchTap tap;
   cfg.tap = &tap;
   cfg.identity.caps.push_back("tap");
@@ -366,6 +378,12 @@ int main(int, char**) {
       ++generation;
       runtime.bumpGeneration();
       logLine("Sync now (from the overlay)");
+    } else if (request == "update") {
+      updater.want();
+      ++generation;
+      runtime.bumpGeneration();  // so the Mac connects now and sends the files
+      logLine("Update (from the overlay): waiting for the Mac");
+      statusCountdown = 0;
     } else if (request == "pause" || request == "resume") {
       paused = request == "pause";
       runtime.setPaused(paused);

@@ -1,4 +1,5 @@
 #include "app_core.hpp"
+#include "switch_package.hpp"
 
 #include "backup_store.hpp"
 #include "config.hpp"
@@ -52,6 +53,7 @@ const char* kindName(AutoSyncEvent::Kind k) {
     case K::Crash: return "crash";
     case K::Album: return "album";
     case K::Mods: return "mods";
+    case K::Update: return "update";
   }
   return "?";
 }
@@ -138,7 +140,11 @@ bool AppCore::start(std::string& error) {
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
   cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
   cfg.onTick = [this] { macTick(); };
-  cfg.afterPass = [this](Session& s) { return applyMods(s); };
+  cfg.afterPass = [this](Session& s) {
+    auto events = applyMods(s);
+    for (auto& e : switchUpdate(s)) events.push_back(std::move(e));
+    return events;
+  };
   splitStop_ = false;
   splitThread_ = std::thread([this] { splitLoop(); });
   cfg.albumFolder = [dataDir]() -> std::optional<std::filesystem::path> {
@@ -1124,6 +1130,56 @@ std::string AppCore::gameDataWantedJson() {
     }
   }
   return json(PackStore(dataDir_).wantedFor(games)).dump();
+}
+
+// ---- Updating the Switch side from the Mac ----
+
+void AppCore::setSwitchPackage(const std::string& dir) {
+  std::lock_guard<std::mutex> lock(updateMutex_);
+  switchPackageDir_ = dir;
+}
+
+std::vector<AutoSyncEvent> AppCore::switchUpdate(Session& s) {
+  std::vector<AutoSyncEvent> events;
+  std::string dir;
+  {
+    std::lock_guard<std::mutex> lock(updateMutex_);
+    dir = switchPackageDir_;
+  }
+  if (dir.empty()) {
+    if (const char* env = std::getenv("WARP_SWITCH_PACKAGE")) dir = env;
+  }
+  std::string error;
+  const auto pkg = dir.empty() ? std::nullopt : loadSwitchPackage(dir, error);
+  json info = {{"console", s.agent.name}, {"canUpdate", s.can("update")},
+               {"package", pkg ? pkg->version : ""}, {"module", ""}, {"wanted", false},
+               {"status", ""}, {"error", pkg || dir.empty() ? "" : error}};
+  if (s.can("update") && pkg) {
+    proto::UpdateStateMsg st;
+    if (s.store->updateOffer(pkg->version, st, error)) {
+      info["module"] = st.moduleVersion;
+      info["wanted"] = st.wanted;
+      info["status"] = st.status;
+      if (st.wanted && compareVersions(pkg->version, st.moduleVersion) > 0) {
+        std::string why;
+        const bool sent = sendSwitchPackage(*s.store, *pkg, why);
+        info["status"] = sent ? "installed " + pkg->version : "failed: " + why;
+        events.push_back({AutoSyncEvent::Kind::Update, "", "", {},
+                          sent ? "Updated to WarpPoint " + pkg->version + "; the overlay restarts it"
+                               : "Couldn't update the Switch: " + why});
+      }
+    } else {
+      info["error"] = error;
+    }
+  }
+  std::lock_guard<std::mutex> lock(updateMutex_);
+  switchInfo_ = info.dump();
+  return events;
+}
+
+std::string AppCore::switchUpdateJson() {
+  std::lock_guard<std::mutex> lock(updateMutex_);
+  return switchInfo_.empty() ? "{}" : switchInfo_;
 }
 
 }  // namespace WarpPoint

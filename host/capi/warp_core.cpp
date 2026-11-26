@@ -232,6 +232,12 @@ char* warp_core_data_dir(WarpCore* core) { return dup(core->core.dataDir().strin
 
 char* warp_core_plugins(WarpCore* core) { return dup(core->core.pluginsJson()); }
 
+void warp_core_set_switch_package(WarpCore* core, const char* dir) {
+  core->core.setSwitchPackage(dir ? dir : "");
+}
+
+char* warp_core_switch_update(WarpCore* core) { return dup(core->core.switchUpdateJson()); }
+
 bool warp_core_set_plugin_enabled(WarpCore* core, const char* pluginId, bool enabled, char** error) {
   std::string e;
   if (core->core.setPluginEnabled(pluginId ? pluginId : "", enabled, e)) return true;

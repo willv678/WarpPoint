@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.9.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.10.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.9.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.10.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -69,6 +69,15 @@ overlay menu for the overlay)
 Back on the Mac, a setup window walks you through the rest. It finds Astris and any nxnative
 apps, waits for the Switch, and asks which Astris profile goes with which Switch user (and whose
 saves the nxnative apps hold). No Astris? nxnative apps alone are enough.
+
+**Updating the Switch side (1.10).** Each Mac app carries the Switch files that match it. When
+they're newer than what's on your Switch, the Library says so, and the WarpPoint overlay shows
+**Update to 1.x**. Choose it: the Mac sends the files, the Switch checks each one against its
+checksum, swaps them in and restarts WarpPoint. Nothing else needed. The Switch only takes files
+after you choose Update on the Switch itself (the link has no password, so that's what keeps
+anyone else on your Wi-Fi from installing code), and only WarpPoint's three files. Updating from
+1.9 or older? Unzip the Switch zip once more by hand; from 1.10 on it updates from the overlay.
+`warp switch-update` does the same from a terminal.
 
 Rather not have anything running in the background? Delete
 `atmosphere/contents/4200000000005750/` and open **WarpPoint** from the homebrew menu whenever you
@@ -271,6 +280,7 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Warp Chronicle: notes on backups, and pinned backups kept forever (1.5)
 - [x] Labs: Divergence, the Switch against an nxnative port, field by field (1.6, terminal only)
 - [x] FE3H dialogue in Lexicon (1.7, found with Labs on the Mac port, checked on a Switch)
+- [x] Update the Switch side from the Mac, through the overlay (1.10)
 - [ ] More Tap profiles: other games, and FE3H's roster and supports
 - [ ] Labs: Tracy, a profiler for retail games on hardware
 - [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)

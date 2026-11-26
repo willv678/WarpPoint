@@ -23,6 +23,21 @@ swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14.0 \
   -lwarp_host_core -lwarp_common -lwarp_net -lcurl -lc++ -framework SystemConfiguration \
   -o "$APP/Contents/MacOS/WarpPoint"
 
+# The matching Switch files, so the app can update the Switch from the overlay
+# (host/switch_package.hpp). Skipped when the Switch parts haven't been built.
+SW="$ROOT/switch"
+if [ -f "$SW/sysmodule/warppoint-sys.nsp" ] && [ -f "$SW/overlay/warppoint.ovl" ] && [ -f "$SW/agent/warppoint.nro" ]; then
+  PKG="$APP/Contents/Resources/SwitchPackage"
+  mkdir -p "$PKG"
+  cp "$SW/sysmodule/warppoint-sys.nsp" "$PKG/exefs.nsp"
+  cp "$SW/overlay/warppoint.ovl" "$PKG/warppoint.ovl"
+  cp "$SW/agent/warppoint.nro" "$PKG/warppoint.nro"
+  SWV=$(sed -n 's/.*kVersion = "\([0-9.]*\)".*/\1/p' "$SW/sysmodule/source/main.cpp" | head -1)
+  sha() { shasum -a 256 "$PKG/$1" | cut -d' ' -f1; }
+  printf '{"version": "%s", "files": {"exefs.nsp": "%s", "warppoint.ovl": "%s", "warppoint.nro": "%s"}}\n' \
+    "$SWV" "$(sha exefs.nsp)" "$(sha warppoint.ovl)" "$(sha warppoint.nro)" > "$PKG/package.json"
+fi
+
 # Ad-hoc signature: enough to run on this Mac. Real signing comes with packaging.
 codesign --force --sign - "$APP" >/dev/null
 echo "Built $APP"

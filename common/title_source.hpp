@@ -6,6 +6,7 @@
 #include "unit_store.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace WarpPoint {
@@ -25,6 +26,16 @@ class ReportSource {
   virtual bool list(uint64_t newerThan, std::vector<proto::ReportEntry>& out) = 0;
   // One report by a name from list(); at most kMaxReportSize bytes (truncated says if cut).
   virtual bool read(const std::string& name, std::vector<uint8_t>& out, bool& truncated) = 0;
+};
+
+// Updating the Switch side from the Mac (the module implements it).
+class UpdateSource {
+ public:
+  virtual ~UpdateSource() = default;
+  // The Mac has these Switch files (version); remember it so the overlay can offer it.
+  virtual proto::UpdateStateMsg offered(const std::string& version) = 0;
+  // A writer for the new files, or nullptr (with why) when the player didn't ask for it.
+  virtual std::unique_ptr<UnitWriter> begin(const std::string& version, std::string& error) = 0;
 };
 
 // Warp Tap: read-only access to the running game's memory.

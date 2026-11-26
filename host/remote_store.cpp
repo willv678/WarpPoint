@@ -271,6 +271,42 @@ bool RemoteStore::tap(const std::vector<proto::TapEntry>& plan, proto::TapReply&
   return true;
 }
 
+bool RemoteStore::updateOffer(const std::string& version, proto::UpdateStateMsg& state,
+                              std::string& error) {
+  ByteWriter w;
+  w.str(version);
+  Frame f;
+  if (writeOpen_ || !send(Msg::UpdateOffer, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::UpdateState)) {
+    error = errorText(f);
+    return false;
+  }
+  if (!proto::decode(f.payload, state)) {
+    broken_ = true;
+    error = "bad update reply from the console";
+    return false;
+  }
+  return true;
+}
+
+std::unique_ptr<UnitWriter> RemoteStore::updateWriter(const std::string& version, std::string& error) {
+  ByteWriter w;
+  w.str(version);
+  Frame f;
+  if (writeOpen_ || !send(Msg::UpdateReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return nullptr;
+  }
+  if (!is(f, Msg::WriteReady)) {
+    error = errorText(f);
+    return nullptr;
+  }
+  return std::make_unique<RemoteWriter>(*this);
+}
+
 bool RemoteStore::albumList(uint64_t newerThan, std::vector<proto::AlbumEntry>& out,
                             std::string& error) {
   ByteWriter w;

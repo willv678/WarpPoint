@@ -11,6 +11,8 @@ add_executable(warp_tests
   test_nxnative.cpp
   test_labs.cpp
   test_save_convert.cpp
+  test_switch_update.cpp
+  ../switch/common/switch_update.cpp
   test_lens.cpp
   test_presence.cpp
   test_album.cpp
@@ -20,7 +22,7 @@ add_executable(warp_tests
   test_save_preview.cpp
   test_plugins.cpp
 )
-target_include_directories(warp_tests PRIVATE third_party/doctest)
+target_include_directories(warp_tests PRIVATE third_party/doctest ../switch/common)
 # The repo itself, for tests that check plugins/ and docs/ against the code.
 target_compile_definitions(warp_tests PRIVATE WARP_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_link_libraries(warp_tests PRIVATE warp_agent warp_host_core warp_warnings Threads::Threads)

@@ -34,6 +34,7 @@
 #include "album.hpp"
 #include "app_core.hpp"
 #include "labs.hpp"
+#include "switch_package.hpp"
 #include "lens.hpp"
 #include "mods.hpp"
 #include "plugin_store.hpp"
@@ -98,6 +99,7 @@ int usage() {
                "       warp mods-apply                     (apply every game's mods now)\n"
                "       warp lab-launch APP / lab-tap APP / lab-diff APP   (Labs: an nxnative app's\n"
                "                                           live values, and where they differ from the Switch)\n"
+               "       warp switch-update [PACKAGE_DIR]   (update the Switch side; choose Update in its overlay)\n"
                "       warp lab-run APP SCRIPT             (Divergence: the same presses on both, stop at the\n"
                "                                           first field that differs; see docs/LABS.md)\n"
                "       warp tap-dump FILE SIZE REGION OFFSET [HOP...]  (for profile authors)\n"
@@ -907,7 +909,8 @@ int main(int argc, char** argv) {
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
                      cmd == "reports" || cmd == "album" || cmd == "tap" ||
                      (cmd == "tap-dump" && args.size() >= 5) || cmd == "mods-apply" ||
-                     (cmd == "lab-diff" && args.size() == 2) || (cmd == "lab-run" && args.size() == 3);
+                     (cmd == "lab-diff" && args.size() == 2) || (cmd == "lab-run" && args.size() == 3) ||
+                     (cmd == "switch-update" && args.size() <= 2);
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -971,6 +974,56 @@ int main(int argc, char** argv) {
                   d.console.empty() ? "-" : d.console.c_str(), d.mac.empty() ? "-" : d.mac.c_str());
     }
     std::printf("%zu field%s differ (*).\n", differ, differ == 1 ? "" : "s");
+  }
+  if (cmd == "switch-update") {
+    // The package: an argument, $WARP_SWITCH_PACKAGE, or the installed app's.
+    std::string dir = args.size() == 2 ? args[1] : "";
+    if (dir.empty()) {
+      const char* env = std::getenv("WARP_SWITCH_PACKAGE");
+      dir = env ? env : "/Applications/WarpPoint.app/Contents/Resources/SwitchPackage";
+    }
+    std::string e;
+    const auto pkg = loadSwitchPackage(dir, e);
+    if (!pkg) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    if (!session->can("update")) {
+      std::printf("%s's WarpPoint is too old to update from the Mac. Copy the files in\n%s\n"
+                  "to its SD card once (exefs.nsp to atmosphere/contents/4200000000005750/,\n"
+                  "warppoint.ovl to switch/.overlays/, warppoint.nro to switch/).\n",
+                  session->agent.name.c_str(), dir.c_str());
+      return 1;
+    }
+    proto::UpdateStateMsg st;
+    if (!session->store->updateOffer(pkg->version, st, e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    std::printf("Switch: WarpPoint %s. This Mac has %s.\n", st.moduleVersion.c_str(), pkg->version.c_str());
+    if (compareVersions(pkg->version, st.moduleVersion) <= 0) {
+      std::printf("Up to date.\n");
+      return 0;
+    }
+    if (!st.wanted) std::printf("On the Switch, open the WarpPoint overlay and choose Update to %s.\n",
+                                pkg->version.c_str());
+    for (int i = 0; i < 100 && !st.wanted; ++i) {  // up to 5 minutes
+      std::this_thread::sleep_for(std::chrono::seconds(3));
+      if (!session->store->updateOffer(pkg->version, st, e)) {
+        std::fprintf(stderr, "%s\n", e.c_str());
+        return 1;
+      }
+    }
+    if (!st.wanted) {
+      std::fprintf(stderr, "Nobody chose Update on the Switch.\n");
+      return 1;
+    }
+    if (!sendSwitchPackage(*session->store, *pkg, e)) {
+      std::fprintf(stderr, "Update failed: %s\n", e.c_str());
+      return 1;
+    }
+    std::printf("Sent WarpPoint %s. The overlay restarts the module.\n", pkg->version.c_str());
+    return 0;
   }
   if (cmd == "lab-run") {
     std::string e;

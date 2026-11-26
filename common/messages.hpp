@@ -48,6 +48,9 @@ enum class Msg : uint8_t {
   AlbumReq = 46,       // host -> agent: one capture, streamed as FileBegin Chunk* FileEnd UnitEnd
   TapReq = 47,         // host -> agent: read these pointer chains in the running game (cap "tap")
   TapResp = 48,        // agent -> host: the game's ids, then each entry's status and bytes
+  UpdateOffer = 49,    // host -> agent: the Switch files this Mac has (version) (cap "update")
+  UpdateState = 50,    // agent -> host: module version, and whether the player asked to update
+  UpdateReq = 51,      // host -> agent: install these files (version), then a unit stream
 };
 
 enum class ErrorCode : uint16_t {
@@ -151,6 +154,16 @@ struct TapResult {
   TapStatus status = TapStatus::Ok;
   std::vector<uint8_t> bytes;
 };
+// Updating the Switch side from the Mac. The module only takes files after the player
+// chose Update in the overlay (consent on the console), and only these files.
+struct UpdateStateMsg {
+  std::string moduleVersion;  // the running module's version
+  bool wanted = false;        // the player asked to update, a few minutes ago at most
+  std::string status;         // "", "installed 1.10.0", "failed: why"
+};
+std::vector<uint8_t> encode(const UpdateStateMsg& m);
+bool decode(const std::vector<uint8_t>& p, UpdateStateMsg& m);
+
 struct TapReply {
   uint64_t titleId = 0;  // 0 = no game
   std::string buildId;   // main module's build id, 16 hex (what cheat files are named by)

@@ -69,6 +69,10 @@ final class WarpModel: ObservableObject {
       ?? FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/WarpPoint").path
     core = warp_core_create(dir)
+    if let pkg = Bundle.main.resourceURL?.appendingPathComponent("SwitchPackage"),
+       FileManager.default.fileExists(atPath: pkg.appendingPathComponent("package.json").path) {
+      warp_core_set_switch_package(core, pkg.path)
+    }
     var error: UnsafeMutablePointer<CChar>?
     if !warp_core_start(core, &error) {
       problem = take(error) ?? "WarpPoint couldn't start"
@@ -215,6 +219,18 @@ final class WarpModel: ObservableObject {
     guard let raw = take(warp_core_games(core)), let data = raw.data(using: .utf8),
           let lib = try? JSONDecoder().decode(Library.self, from: data) else { return }
     library = lib
+    if let raw = take(warp_core_switch_update(core)),
+       let info = try? JSONDecoder().decode(SwitchUpdateInfo.self, from: Data(raw.utf8)) {
+      switchUpdate = info
+    }
+  }
+
+  /// The Switch side's version and whether this app has newer files for it.
+  @Published private(set) var switchUpdate = SwitchUpdateInfo()
+
+  /// The Switch files this app carries, for copying by hand (older modules).
+  var switchPackageFolder: URL? {
+    Bundle.main.resourceURL?.appendingPathComponent("SwitchPackage")
   }
 
   func backups(for key: String) -> [Backup] {
@@ -360,6 +376,11 @@ final class WarpModel: ObservableObject {
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "update":
+      recent.insert(RecentSync(name: "Your Switch", text: s("message"), icon: "",
+                               ok: !s("message").hasPrefix("Couldn't"), date: Date()), at: 0)
+      recent = Array(recent.prefix(6))
+      refreshLibrary()
     case "mods":
       recent.insert(RecentSync(name: s("name"), text: s("message"), icon: s("icon"),
                                ok: !s("message").contains("couldn't") && !s("message").contains("didn't"),
@@ -649,5 +670,32 @@ final class WarpModel: ObservableObject {
     }
     reloadStoreOffline()
     refreshPlugins()
+  }
+}
+
+/// What the last sync learned about updating the Switch side (warp_core_switch_update).
+struct SwitchUpdateInfo: Codable {
+  var console = ""
+  var canUpdate = false   // the module can take files from the Mac (1.10 and later)
+  var package = ""        // the version this app carries
+  var module = ""         // the version on the Switch ("" when unknown)
+  var wanted = false
+  var status = ""
+  var error = ""
+
+  /// This app has newer Switch files than the Switch runs.
+  var available: Bool {
+    guard !package.isEmpty else { return false }
+    if !canUpdate { return !console.isEmpty }  // older than 1.10: by hand, once
+    return SwitchUpdateInfo.compare(package, module) > 0
+  }
+
+  static func compare(_ a: String, _ b: String) -> Int {
+    let x = a.split(separator: ".").map { Int($0) ?? 0 }, y = b.split(separator: ".").map { Int($0) ?? 0 }
+    for i in 0..<max(x.count, y.count) {
+      let p = i < x.count ? x[i] : 0, q = i < y.count ? y[i] : 0
+      if p != q { return p < q ? -1 : 1 }
+    }
+    return 0
   }
 }
