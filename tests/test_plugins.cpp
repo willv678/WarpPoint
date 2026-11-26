@@ -81,6 +81,7 @@ TEST_CASE("plugins: on and off, in config.json") {
   CHECK(pluginEnabled(c, "album"));
   CHECK_FALSE(pluginEnabled(c, "presence"));
   CHECK_FALSE(pluginEnabled(c, "split"));
+  CHECK_FALSE(pluginEnabled(c, "lexicon"));
 
   std::string error;
   CHECK(setPluginEnabled(c, "lens", false, error));
@@ -120,7 +121,11 @@ TEST_CASE("plugins: status says what's missing") {
   CHECK(pluginById(all, "mods")["status"] == "needsSwitch");
   CHECK(pluginById(all, "mods")["statusText"] == "Needs WarpPoint 1.4 on the Switch");
   CHECK(pluginById(all, "presence")["status"] == "off");
+  CHECK(pluginById(all, "lexicon")["status"] == "off");  // off by default
+  c.plugins["lexicon"] = true;
+  all = pluginsJson(c, ctx);
   CHECK(pluginById(all, "lexicon")["status"] == "needsProfile");  // no lexicon field
+  c.plugins.clear();
   CHECK(pluginById(all, "tap")["games"].size() == 1);
   CHECK(pluginById(all, "tap")["games"][0]["sources"][0] == "built in");
   CHECK(pluginById(all, "album")["anyGame"] == true);

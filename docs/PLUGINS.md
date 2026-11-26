@@ -82,7 +82,7 @@ The game's current line of dialogue in a window, for Look Up, Translate and Anki
 
 Reads the profile's text field marked `"lexicon"`. Saved lines go to
 `~/Documents/WarpPoint Lexicon.csv`. Needs Tap on and a profile with a lexicon field
-(Fire Emblem: Three Houses 1.2.0 has one). On by default.
+(Fire Emblem: Three Houses 1.2.0 has one). Off by default.
 
 ### Chronicle
 

@@ -209,7 +209,7 @@ its own capability on the Switch side, so an older Switch module just doesn't of
 - **Warp Lexicon: game text.** **Lexicon…** shows the game's current line of text live, keeps
   the earlier ones, lets you select words for macOS Look Up and Translate, and saves lines for
   Anki. Fire Emblem: Three Houses 1.2.0's dialogue is built in (1.7); other games need a profile
-  with a text field marked `"lexicon"`.
+  with a text field marked `"lexicon"`. Off by default; turn it on in Plugins.
 
 Also in 1.4: the Switch remembers each save's hash until the save changes, so syncing no longer
 opens a game's save just as that game starts (which could make the game close with "an error

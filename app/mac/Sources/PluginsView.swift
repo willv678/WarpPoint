@@ -13,11 +13,7 @@ struct PluginsView: View {
   var body: some View {
     NavigationSplitView {
       List(selection: $selection) {
-        Section("Plugins") {
-          ForEach(model.plugins) { p in
-            PluginRow(plugin: p).tag(p.id)
-          }
-        }
+        // Get More first, so it never scrolls out of reach below the plugins.
         Section("Plugin Store") {
           HStack(spacing: 10) {
             PluginIcon(symbol: "arrow.down.circle", on: true)
@@ -28,6 +24,11 @@ struct PluginsView: View {
           }
           .padding(.vertical, 3)
           .tag(Self.storeTag)
+        }
+        Section("Plugins") {
+          ForEach(model.plugins) { p in
+            PluginRow(plugin: p).tag(p.id)
+          }
         }
       }
       .listStyle(.sidebar)
