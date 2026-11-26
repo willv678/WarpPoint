@@ -1,3 +1,6 @@
+# Save preview parsers: one file per game (host/save_previews/games.def lists them).
+file(GLOB WARP_SAVE_PREVIEWS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/save_previews/*.cpp)
+
 # The Mac side's logic, as a library so the CLI, the future app and the tests share it.
 add_library(warp_host_core STATIC
   app_core.cpp
@@ -25,6 +28,7 @@ add_library(warp_host_core STATIC
   remote_store.cpp
   ryujinx_store.cpp
   save_preview.cpp
+  ${WARP_SAVE_PREVIEWS}
   session.cpp
   state_store.cpp
   sync_engine.cpp

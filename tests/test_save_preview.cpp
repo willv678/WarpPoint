@@ -161,6 +161,6 @@ TEST_CASE("Save preview JSON: supported games, missing saves, other games") {
   CHECK(json::parse(savePreviewJson(kFe3h, ""))["supported"] == true);
 
   CHECK(savePreviewParser(kFe3h) != nullptr);
-  CHECK(savePreviewParser(0x0100FF500E34A000) == nullptr);
-  CHECK(json::parse(savePreviewJson(0x0100FF500E34A000, dir.path()))["supported"] == false);
+  CHECK(savePreviewParser(0x0100000000010000) == nullptr);
+  CHECK(json::parse(savePreviewJson(0x0100000000010000, dir.path()))["supported"] == false);
 }

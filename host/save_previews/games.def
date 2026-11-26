@@ -1,0 +1,9 @@
+// The games with a save preview: one line each, title id (the console save's) and the
+// parser defined in this folder. Keep it sorted by name. See docs/SAVE_PREVIEWS.md.
+// No include guard: save_preview.cpp includes this list twice, with SAVE_PREVIEW_GAME
+// defined differently each time.
+SAVE_PREVIEW_GAME(0x010093D00C726000, parseDownwellFolder)        // Downwell
+SAVE_PREVIEW_GAME(0x010055D009F78000, parseFe3hFolder)            // Fire Emblem: Three Houses
+SAVE_PREVIEW_GAME(0x0100E65002BB8000, parseStardewFolder)         // Stardew Valley
+SAVE_PREVIEW_GAME(0x0100F2C0115B6000, parseTotkFolder)            // Zelda: Tears of the Kingdom
+SAVE_PREVIEW_GAME(0x0100FF500E34A000, parseXenobladeDeFolder)     // Xenoblade Chronicles DE

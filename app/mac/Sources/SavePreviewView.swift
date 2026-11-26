@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// What a game's save slots hold, read from its save on the Mac (host/save_preview.cpp).
@@ -11,13 +12,31 @@ struct SavePreviewData: Decodable {
     var player = ""
     var playTime = ""
     var playSeconds = 0
+    var saved = ""
     var emblem = ""
     var accent = ""
     var tags: [String] = []
+    var details: [Detail] = []
+    var thumbnail: Thumbnail?
     var id: Int { index }
 
+    struct Detail: Decodable, Hashable {
+      var label = ""
+      var value = ""
+    }
+    /// A picture in the save: a JPEG or PNG, or raw RGB, at `offset` in the file at `path`.
+    struct Thumbnail: Decodable, Hashable {
+      var path = ""
+      var offset = 0
+      var length = 0
+      var format = ""
+      var width = 0
+      var height = 0
+    }
+
     private enum CodingKeys: String, CodingKey {
-      case index, slot, file, place, heading, player, playTime, playSeconds, emblem, accent, tags
+      case index, slot, file, place, heading, player, playTime, playSeconds, saved, emblem, accent,
+           tags, details, thumbnail
     }
     init(from d: Decoder) throws {
       let c = try d.container(keyedBy: CodingKeys.self)
@@ -29,9 +48,12 @@ struct SavePreviewData: Decodable {
       player = (try? c.decode(String.self, forKey: .player)) ?? ""
       playTime = (try? c.decode(String.self, forKey: .playTime)) ?? ""
       playSeconds = (try? c.decode(Int.self, forKey: .playSeconds)) ?? 0
+      saved = (try? c.decode(String.self, forKey: .saved)) ?? ""
       emblem = (try? c.decode(String.self, forKey: .emblem)) ?? ""
       accent = (try? c.decode(String.self, forKey: .accent)) ?? ""
       tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+      details = (try? c.decode([Detail].self, forKey: .details)) ?? []
+      thumbnail = try? c.decode(Thumbnail.self, forKey: .thumbnail)
     }
   }
   var supported = false
@@ -72,7 +94,7 @@ struct SavePreviewSection: View {
   }
 }
 
-/// One save slot as a card: crest colour down the side, where you are, who and how long.
+/// One save slot as a card: the save's picture (or the crest), where you are, who and how long.
 struct SlotCard: View {
   let slot: SavePreviewData.Slot
 
@@ -88,22 +110,36 @@ struct SlotCard: View {
     }
   }
 
+  private var picture: NSImage? { slot.thumbnail.flatMap(SlotPicture.image) }
+
   var body: some View {
     HStack(alignment: .top, spacing: 10) {
-      // The crest: a shield in the house colour.
-      ZStack {
-        Circle().fill(tint.opacity(0.18))
-        Image(systemName: "shield.lefthalf.filled").foregroundStyle(tint)
-          .font(.system(size: 15, weight: .semibold))
+      if let picture {
+        Image(nsImage: picture)
+          .resizable()
+          .interpolation(.high)
+          .aspectRatio(contentMode: .fill)
+          .frame(width: 96, height: 54)
+          .clipShape(RoundedRectangle(cornerRadius: 5))
+          .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.separator.opacity(0.6)))
+      } else {
+        // The crest: a shield in the house colour, or a plain mark for games without one.
+        ZStack {
+          Circle().fill(tint.opacity(0.18))
+          Image(systemName: slot.emblem.isEmpty ? "bookmark.fill" : "shield.lefthalf.filled")
+            .foregroundStyle(tint)
+            .font(.system(size: 15, weight: .semibold))
+        }
+        .frame(width: 30, height: 30)
+        .help(slot.emblem)
       }
-      .frame(width: 30, height: 30)
-      .help(slot.emblem)
 
       VStack(alignment: .leading, spacing: 3) {
         HStack(spacing: 6) {
           Text(slot.slot.uppercased())
             .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             .tracking(0.6)
+            .lineLimit(1)
           ForEach(slot.tags, id: \.self) { tag in
             Text(tag)
               .font(.caption2.weight(.medium))
@@ -124,16 +160,31 @@ struct SlotCard: View {
         }
         Text(slot.heading).font(.callout.weight(.semibold))
           .fixedSize(horizontal: false, vertical: true)
-        HStack(spacing: 10) {
-          if !slot.player.isEmpty {
-            Label(slot.player, systemImage: "person.fill")
+        ForEach(slot.details, id: \.self) { d in
+          HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Text(d.label).foregroundStyle(.secondary)
+            Text(d.value)
           }
-          if !slot.emblem.isEmpty {
-            Text(slot.emblem).foregroundStyle(tint)
-          }
+          .font(.caption)
+          .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.caption).foregroundStyle(.secondary)
-        .lineLimit(1)
+        if !slot.player.isEmpty || !slot.emblem.isEmpty || !slot.saved.isEmpty {
+          HStack(spacing: 10) {
+            if !slot.player.isEmpty {
+              Label(slot.player, systemImage: "person.fill")
+            }
+            if !slot.emblem.isEmpty {
+              Text(slot.emblem).foregroundStyle(tint)
+            }
+            if !slot.saved.isEmpty {
+              Label(slot.saved, systemImage: "calendar")
+                .monospacedDigit()
+                .help("Saved")
+            }
+          }
+          .font(.caption).foregroundStyle(.secondary)
+          .lineLimit(1)
+        }
       }
     }
     .padding(10)
@@ -145,6 +196,54 @@ struct SlotCard: View {
         .frame(width: 3)
     }
     .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.separator.opacity(0.5)))
+  }
+}
+
+/// Reads a slot's picture from the save, as host/save_preview.hpp describes it, and keeps it
+/// until the file changes.
+enum SlotPicture {
+  private static let cache = NSCache<NSString, NSImage>()
+
+  static func image(_ t: SavePreviewData.Slot.Thumbnail) -> NSImage? {
+    let url = URL(fileURLWithPath: t.path)
+    let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+      .contentModificationDate?.timeIntervalSince1970 ?? 0
+    let key = "\(t.path)#\(t.offset)#\(t.length)#\(modified)" as NSString
+    if let hit = cache.object(forKey: key) { return hit }
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? handle.close() }
+    guard (try? handle.seek(toOffset: UInt64(t.offset))) != nil else { return nil }
+    let read = t.length > 0 ? try? handle.read(upToCount: t.length) : try? handle.readToEnd()
+    guard let data = read ?? nil, !data.isEmpty else { return nil }
+
+    let image: NSImage?
+    if t.format == "rgb" {
+      image = rgbImage(data, width: t.width, height: t.height)
+    } else {
+      image = NSImage(data: data)
+    }
+    if let image { cache.setObject(image, forKey: key) }
+    return image
+  }
+
+  /// Raw 8-bit RGB, top row first.
+  private static func rgbImage(_ data: Data, width: Int, height: Int) -> NSImage? {
+    guard width > 0, height > 0, data.count >= width * height * 3 else { return nil }
+    var rgba = [UInt8](repeating: 255, count: width * height * 4)
+    data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
+      for i in 0..<(width * height) {
+        rgba[i * 4] = src[i * 3]
+        rgba[i * 4 + 1] = src[i * 3 + 1]
+        rgba[i * 4 + 2] = src[i * 3 + 2]
+      }
+    }
+    guard let provider = CGDataProvider(data: Data(rgba) as CFData),
+          let cg = CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                           bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                           provider: provider, decode: nil, shouldInterpolate: true,
+                           intent: .defaultIntent) else { return nil }
+    return NSImage(cgImage: cg, size: NSSize(width: width, height: height))
   }
 }
 
