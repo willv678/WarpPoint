@@ -16,6 +16,7 @@ add_library(warp_host_core STATIC
   tap_profiles.cpp
   mac_store.cpp
   nxnative_store.cpp
+  save_convert.cpp
   file_lock.cpp
   planner.cpp
   remote_store.cpp

@@ -118,6 +118,9 @@ class NxNativeStore : public UnitStore {
   // Whether any of the apps is open.
   bool gameRunning() const;
   bool running(const NxNativeApp& app) const { return isRunning_(app); }
+  // For a Switch 2 Edition app with a save converter: why its save can't go to a
+  // Switch 1 right now ("" when it can).
+  std::string convertRefused(const NxNativeApp& app) const;
 
  private:
   std::vector<NxNativeApp> apps_;
@@ -129,5 +132,15 @@ class NxNativeStore : public UnitStore {
 // names translated back. hash is "" when it has no files.
 bool streamNxNativeSave(const std::filesystem::path& dir, UnitSink* sink, std::string& hash,
                         std::string& error);
+
+// The same, for a Switch 2 Edition app whose saves WarpPoint can convert (save_convert):
+// files are hashed and streamed in their Switch 1 form. When a file can't be converted,
+// it goes as it is and `refused` says why (so it must not be sent to a Switch 1).
+// An app's save as the sync sees it: in Switch 1 form when the app is a Switch 2
+// Edition whose saves WarpPoint can convert.
+bool streamApp(const NxNativeApp& app, UnitSink* sink, std::string& hash, std::string& error);
+
+bool streamNxNativeSave(const std::filesystem::path& dir, uint64_t convertTitleId, UnitSink* sink,
+                        std::string& hash, std::string& refused, std::string& error);
 
 }  // namespace WarpPoint

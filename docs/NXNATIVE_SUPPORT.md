@@ -121,6 +121,28 @@ nxnative asks which save to keep, and keeps the other in `save-backups/`.
     `kept on this Mac: Xenoblade Chronicles is a Switch 2 Edition, and the Switch 1 version can't
     load its saves`, and the Switch keeps its working save.
   - The Switch was put back on its own save with the new `warp restore GAME BACKUP switch`.
+- **Xenoblade, converted back (1.8, 2026-11-26).** The upgrade turned out to be small. Compared
+  one save before and after the Switch 2 Edition upgraded it (the app keeps the previous save as
+  `bfsgame00a.sav`):
+  - `bfsgame*.sav` go from version 7 (1,390,688 bytes) to version 10 (1,392,432 bytes). The
+    header is the version (u32), play time in seconds (u32) and the save time; there's no
+    checksum.
+  - Version 10 adds a 960-byte block at 0x152318 and 784 bytes at the end. Everything else is the
+    same layout. Both new parts were all zeros: the save hadn't started any Switch 2-only content.
+  - `bfssystem.sav` keeps its version (5); the Switch 2 Edition sets one more flag byte, which
+    the Switch 1 game accepts.
+  - The converter (`host/save_convert.cpp`) sets the version back to 7 and removes the two parts,
+    only when both are empty. The nxnative store hashes and sends the app's save in that form, so
+    the sync compares like with like and sees the two sides as in sync. The other way needs nothing:
+    the Switch 2 Edition upgrades a Switch 1 save itself.
+  - **On the Switch 1 (1.1.2):**
+    - The converted save showed on Load Game as the Mac's progress: Satorl Marsh, 9:47, saved
+      11/25 22:25.
+    - It loaded and played: party at Lv 25, 4,523 G, menus fine.
+    - The same check worked again through the real sync path (`warp resolve xenoblade mac`), with
+      the Mac's settings file. Later passes report in sync.
+  - The slot's thumbnail shows black, because the nxnative app writes an empty thumbnail; the
+    save itself is fine.
 
 Note: Fire Emblem erases a bookmark when it's resumed (as on the console). A test run that
 resumes one and is killed leaves a save with no bookmark, which then looks like a real change.

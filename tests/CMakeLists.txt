@@ -10,6 +10,7 @@ add_executable(warp_tests
   test_auto_sync.cpp
   test_nxnative.cpp
   test_labs.cpp
+  test_save_convert.cpp
   test_lens.cpp
   test_presence.cpp
   test_album.cpp

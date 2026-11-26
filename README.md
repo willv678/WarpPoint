@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.7.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.8.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.7.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.8.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -129,11 +129,14 @@ save. Nothing to set up beyond picking, once, which Switch user the apps' saves 
   in the library and leaves nxnative's `.sync` / `.dmsync` files alone. The app sends WarpPoint's
   save to iCloud on its next start, since only the local copy changed.
 
-- **Switch 2 Editions go one way.** A Switch 2 Edition app upgrades the save it loads, and the
-  Switch 1 version of the game crashes on the result. So WarpPoint brings your Switch save into a
-  Switch 2 Edition app, but keeps the app's newer saves on the Mac ("Newer save kept on this
-  Mac") instead of sending them to a Switch 1. If your console can read them, turn on **Send its
-  saves to** your console in the game's details.
+- **Switch 2 Editions, converted back (1.8).** A Switch 2 Edition app upgrades the save it
+  loads, and the Switch 1 version of the game crashes on the upgraded file. For Xenoblade
+  Chronicles: Definitive Edition, WarpPoint turns the Switch 2 Edition's save back into a Switch 1
+  save on the way to the console, so you can play on the Mac in the Switch 2 Edition and carry on
+  on a Switch 1. It only does that when nothing would be lost. Once you start Switch 2-only
+  content, the save stays on the Mac ("Newer save kept on this Mac") and says why. Other Switch 2
+  Editions stay on the Mac until WarpPoint learns their format. If your console can read them
+  (a Switch 2), turn on **Send its saves to** your console in the game's details.
 
 Tested on a Switch 1 with Fire Emblem: Three Houses (a mid-battle bookmark carried both ways,
 checked in-game on both sides) and Xenoblade Chronicles: Definitive Edition, whose Switch 2
@@ -221,9 +224,9 @@ a sync, when it reads the saves on both sides to see what changed.
 - An nxnative app's main player is synced. Extra local players (nxnative's `save_userN` folders)
   are left alone.
 - A Switch 2 Edition app upgrades the save as it loads it, and the Switch 1 version of the game
-  crashes on the upgraded save (tested with Xenoblade Chronicles DE). So saves made in a Switch 2
-  Edition app stay on the Mac and are never sent to a Switch 1. Your Switch's saves still come to
-  the Mac. Details in [docs/NXNATIVE_SUPPORT.md](docs/NXNATIVE_SUPPORT.md).
+  crashes on the upgraded save. WarpPoint converts it back for Xenoblade Chronicles DE (until you
+  start Switch 2-only content). Other Switch 2 Editions' saves stay on the Mac. Your Switch's saves
+  always come to the Mac. Details in [docs/NXNATIVE_SUPPORT.md](docs/NXNATIVE_SUPPORT.md).
 
 ## Roadmap
 

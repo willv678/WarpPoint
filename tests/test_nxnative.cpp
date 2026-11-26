@@ -494,7 +494,7 @@ TEST_CASE("sync: a Switch 2 Edition app's saves stay on the Mac unless the conso
   CHECK(r[0].action == SyncAction::Push);
   CHECK(r[0].held);
   CHECK(r[0].skipped);
-  CHECK(r[0].message.find("Switch 2 Edition") != std::string::npos);
+  CHECK(r[0].message.find("kept on this Mac") != std::string::npos);  // not a save it can convert
   CHECK(console.saves[kXenoKey]["bfsgame00.sav"] == "switch, chapter 6");
 
   // The console's saves still come to the Mac (the Switch 2 Edition reads them).
@@ -517,4 +517,33 @@ TEST_CASE("sync: a Switch 2 Edition app's saves stay on the Mac unless the conso
 
   // A Switch 1 game's app (one id for both) is never held.
   CHECK(local.sendBlocked(kFe3hKey).empty());
+}
+
+TEST_CASE("sync: a Xenoblade Switch 2 Edition save goes to the Switch in its Switch 1 form") {
+  FakeMac mac;
+  TempDir data;
+  MemoryStore console;
+  console.writable = true;
+  std::string v7(1390688, '\0'), v10(1392432, '\0');
+  v7[0] = 7;
+  v10[0] = 10;
+  v10[100] = 'm';  // played further on the Mac
+  console.saves[kXenoKey] = {{"bfsgame00.sav", v7}};
+  writeFile(mac.save(kXenoApp) / "bfsgame00.sav", v7);
+  StateStore state(data / "state.json");
+  BackupStore backups(data / "backups");
+  MacStore local(nullptr, mac.store());
+  SyncEngine engine(local, console, state, backups, "sw", true);
+  CHECK(engine.runPass({kXenoKey})[0].action == SyncAction::None);
+
+  writeFile(mac.save(kXenoApp) / "bfsgame00.sav", v10);  // the Switch 2 Edition upgraded it
+  auto r = engine.runPass({kXenoKey});
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK_FALSE(r[0].held);
+  const std::string sent = console.saves[kXenoKey]["bfsgame00.sav"];
+  REQUIRE(sent.size() == 1390688);
+  CHECK(sent[0] == 7);
+  CHECK(sent[100] == 'm');
+  // Same progress on both sides now, even though the Mac's file is still version 10.
+  CHECK(engine.runPass({kXenoKey})[0].action == SyncAction::None);
 }

@@ -1,4 +1,5 @@
 #include "nxnative_store.hpp"
+#include "save_convert.hpp"
 
 #include "paths.hpp"
 #include "sha256.hpp"
@@ -222,6 +223,29 @@ bool sendFile(const SaveFile& f, UnitSink* sink, std::string& sha, std::string& 
   return true;
 }
 
+bool sendBuffer(const std::string& path, const std::vector<uint8_t>& data, UnitSink* sink,
+                std::string& sha, std::string& error) {
+  if (sink && !sink->beginFile(path, data.size())) {
+    error = sink->error();
+    return false;
+  }
+  Sha256 hash;
+  hash.update(data.data(), data.size());
+  for (size_t at = 0; sink && at < data.size(); at += kBufferSize) {
+    const size_t n = std::min(kBufferSize, data.size() - at);
+    if (!sink->writeChunk(data.data() + at, n)) {
+      error = sink->error();
+      return false;
+    }
+  }
+  sha = hash.finishHex();
+  if (sink && !sink->endFile(sha)) {
+    error = sink->error();
+    return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 std::string nxTitleFolder(uint64_t titleId) {
@@ -239,6 +263,13 @@ uint64_t nacpSaveOwner(const std::vector<uint8_t>& nacp) {
 
 bool streamNxNativeSave(const fs::path& dir, UnitSink* sink, std::string& hash,
                         std::string& error) {
+  std::string refused;
+  return streamNxNativeSave(dir, 0, sink, hash, refused, error);
+}
+
+bool streamNxNativeSave(const fs::path& dir, uint64_t convertTitleId, UnitSink* sink,
+                        std::string& hash, std::string& refused, std::string& error) {
+  refused.clear();
   std::vector<SaveFile> files;
   std::error_code ec;
   if (fs::is_directory(dir, ec) && !listSave(dir, "", files, error)) return false;
@@ -253,6 +284,20 @@ bool streamNxNativeSave(const fs::path& dir, UnitSink* sink, std::string& hash,
   std::vector<FileDigest> digests;
   for (const auto& f : files) {
     std::string sha;
+    if (convertTitleId && hasSaveConverter(convertTitleId)) {
+      std::ifstream in(f.full, std::ios::binary);
+      std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), {});
+      if (!in.eof() && in.fail()) {
+        error = "cannot read " + f.path;
+        return false;
+      }
+      std::string why;
+      const Conversion c = toSwitch1Form(convertTitleId, f.path, data, why);
+      if (c == Conversion::Refused && refused.empty()) refused = why;
+      if (!sendBuffer(f.path, data, sink, sha, error)) return false;
+      digests.push_back({f.path, data.size(), sha});
+      continue;
+    }
     if (!sendFile(f, sink, sha, error)) return false;
     digests.push_back({f.path, f.size, sha});
   }
@@ -406,7 +451,7 @@ class NxNativeWriter : public StagedWriter {
     }
     const fs::path save = app_.saveDir();
     std::string current;
-    if (!streamNxNativeSave(save, nullptr, current, error)) return false;
+    if (!streamApp(app_, nullptr, current, error)) return false;
     if (current != expected_) {
       error = app_.name + "'s save changed during the sync; sync again";
       return false;
@@ -574,6 +619,19 @@ bool NxNativeStore::list(std::vector<UnitRef>& out, std::string&) {
   return true;
 }
 
+bool streamApp(const NxNativeApp& app, UnitSink* sink, std::string& hash, std::string& error) {
+  std::string refused;
+  return streamNxNativeSave(app.saveDir(), app.upgradesSave() ? app.saveTitleId : 0, sink, hash,
+                            refused, error);
+}
+
+std::string NxNativeStore::convertRefused(const NxNativeApp& app) const {
+  if (!app.upgradesSave() || !hasSaveConverter(app.saveTitleId)) return "";
+  std::string hash, refused, error;
+  if (!streamNxNativeSave(app.saveDir(), app.saveTitleId, nullptr, hash, refused, error)) return error;
+  return refused;
+}
+
 std::vector<UnitStatus> NxNativeStore::status(const std::vector<UnitRef>& refs) {
   std::vector<UnitStatus> out;
   for (const auto& ref : refs) {
@@ -583,7 +641,7 @@ std::vector<UnitStatus> NxNativeStore::status(const std::vector<UnitRef>& refs) 
       st.error = "no nxnative app for " + ref.key;
     } else {
       st.busy = isRunning_(*a);
-      if (!streamNxNativeSave(a->saveDir(), nullptr, st.hash, st.error)) st.hash.clear();
+      if (!streamApp(*a, nullptr, st.hash, st.error)) st.hash.clear();
       st.exists = st.error.empty() && !st.hash.empty();
     }
     out.push_back(st);
@@ -598,7 +656,7 @@ bool NxNativeStore::read(const UnitRef& ref, UnitSink& sink, std::string& unitHa
     error = "no nxnative app for " + ref.key;
     return false;
   }
-  if (!streamNxNativeSave(a->saveDir(), &sink, unitHash, error)) return false;
+  if (!streamApp(*a, &sink, unitHash, error)) return false;
   if (unitHash.empty()) {
     error = a->name + " has no save yet";
     return false;
@@ -620,7 +678,7 @@ std::unique_ptr<UnitWriter> NxNativeStore::write(const UnitRef& ref,
     return nullptr;
   }
   std::string current;
-  if (!streamNxNativeSave(a->saveDir(), nullptr, current, error)) return nullptr;
+  if (!streamApp(*a, nullptr, current, error)) return nullptr;
   if (current != expectedHash) {
     error = a->name + "'s save changed since it was checked";
     return nullptr;

@@ -1,4 +1,5 @@
 #include "mac_store.hpp"
+#include "save_convert.hpp"
 
 #include "session.hpp"  // titleIdOfKey
 
@@ -27,6 +28,11 @@ MacStore::MacStore(std::shared_ptr<RyujinxStore> emulator, std::shared_ptr<NxNat
 std::string MacStore::sendBlocked(const std::string& key) const {
   const auto* a = nxApp(key);
   if (!a || !a->upgradesSave() || sendUpgraded_.count(a->saveTitleId)) return "";
+  if (hasSaveConverter(a->saveTitleId)) {
+    // WarpPoint turns this game's Switch 2 Edition saves back into Switch 1 saves.
+    const std::string why = nx_->convertRefused(*a);
+    return why.empty() ? "" : "kept on this Mac: " + why;
+  }
   return "kept on this Mac: " + a->name + " is a Switch 2 Edition, and the Switch 1 version "
          "can't load its saves";
 }
