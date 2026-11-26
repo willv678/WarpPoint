@@ -1,4 +1,5 @@
 #include "agent_server.hpp"
+#include "pairing.hpp"
 
 #include "messages.hpp"
 #include "paths.hpp"
@@ -168,7 +169,7 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
                   TitleSource* titles, UserSource* users, ReportSource* reports,
-                  AlbumSource* album, TapSource* tap, UpdateSource* update) {
+                  AlbumSource* album, TapSource* tap, UpdateSource* update, TrustSource* trust) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -188,9 +189,92 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
   }
   log("Host connected: " + hello.name);
 
+  // With a TrustSource, nothing but the handshake, pairing and the session proof is
+  // served until this session is proven (pairing.hpp).
+  bool trusted = trust == nullptr;
+  std::string authHost;
+  Key32 authKey{};
+  bool authKnown = false;
+  Nonce16 hostNonce{}, agentNonce{};
+
   while (readFrame(s, f)) {
     bool ok = true;
-    switch (static_cast<Msg>(f.type)) {
+    const auto type = static_cast<Msg>(f.type);
+    if (!trusted && type != Msg::Ping && type != Msg::PairBegin && type != Msg::AuthBegin &&
+        type != Msg::AuthProof && type != Msg::UpdateOffer) {
+      if (!sendError(s, ErrorCode::NotPaired,
+                     "this Mac isn't paired with " + identity.name + ": pair it in WarpPoint")) {
+        return false;
+      }
+      continue;
+    }
+    switch (type) {
+      case Msg::PairBegin: {
+        ByteReader r(f.payload);
+        const std::string hostId = r.str(), hostName = r.str();
+        std::vector<uint8_t> pub;
+        if (!trust || !r.bytes(32, pub) || !r.done() || hostId.empty()) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad pairing request");
+          break;
+        }
+        Key32 seed{}, hostPub{}, linkKey{};
+        std::copy(pub.begin(), pub.end(), hostPub.begin());
+        trust->random(seed.data(), seed.size());
+        const PairKeys mine = pairKeysFrom(seed);
+        std::string code;
+        if (!pairDerive(mine, hostPub, hostPub, mine.pub, linkKey, code)) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad pairing key");
+          break;
+        }
+        trust->pairOffered(hostId, hostName, linkKey, code);
+        log("Pairing requested by " + hostName + ": code " + code);
+        ByteWriter w;
+        w.raw(mine.pub.data(), mine.pub.size());
+        if (!send(s, Msg::PairKey, w.data())) return false;
+        const int answer = trust->pairAnswer(120);
+        log(answer == 1 ? "Paired with " + hostName : "Pairing with " + hostName + " not accepted");
+        ByteWriter d;
+        d.u8(answer == 1 ? 1 : 0);
+        ok = send(s, Msg::PairDone, d.data());
+        if (answer == 1) trusted = true;
+        break;
+      }
+      case Msg::AuthBegin: {
+        ByteReader r(f.payload);
+        authHost = r.str();
+        std::vector<uint8_t> n;
+        if (!trust || !r.bytes(16, n) || !r.done()) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad auth request");
+          break;
+        }
+        std::copy(n.begin(), n.end(), hostNonce.begin());
+        authKnown = trust->keyFor(authHost, authKey);
+        trust->random(agentNonce.data(), agentNonce.size());
+        const Key32 proof = authKnown ? sessionProof(authKey, "agent", hostNonce, agentNonce) : Key32{};
+        ByteWriter w;
+        w.u8(authKnown ? 1 : 0);
+        w.raw(agentNonce.data(), agentNonce.size());
+        w.raw(proof.data(), proof.size());
+        ok = send(s, Msg::AuthChallenge, w.data());
+        break;
+      }
+      case Msg::AuthProof: {
+        ByteReader r(f.payload);
+        std::vector<uint8_t> p;
+        if (!trust || !r.bytes(32, p) || !r.done()) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad auth proof");
+          break;
+        }
+        Key32 got{};
+        std::copy(p.begin(), p.end(), got.begin());
+        trusted = authKnown && proofEqual(got, sessionProof(authKey, "host", agentNonce, hostNonce));
+        authKnown = false;  // one proof per challenge
+        if (!trusted) log("A Mac failed the pairing proof: " + authHost);
+        ByteWriter w;
+        w.u8(trusted ? 1 : 0);
+        ok = send(s, Msg::AuthResult, w.data());
+        break;
+      }
       case Msg::StatusReq: {
         std::vector<UnitRef> refs;
         if (!proto::decode(f.payload, refs)) {

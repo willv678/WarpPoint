@@ -23,6 +23,7 @@ add_library(warp_host_core STATIC
   nxnative_store.cpp
   save_convert.cpp
   switch_package.cpp
+  pair_store.cpp
   file_lock.cpp
   planner.cpp
   remote_store.cpp

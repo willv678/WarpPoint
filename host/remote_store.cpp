@@ -271,6 +271,95 @@ bool RemoteStore::tap(const std::vector<proto::TapEntry>& plan, proto::TapReply&
   return true;
 }
 
+bool RemoteStore::pairBegin(const std::string& hostId, const std::string& hostName,
+                            const Key32& hostPub, Key32& agentPub, std::string& error) {
+  ByteWriter w;
+  w.str(hostId);
+  w.str(hostName);
+  w.raw(hostPub.data(), hostPub.size());
+  Frame f;
+  if (writeOpen_ || !send(Msg::PairBegin, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::PairKey)) {
+    error = errorText(f);
+    return false;
+  }
+  ByteReader r(f.payload);
+  std::vector<uint8_t> pub;
+  if (!r.bytes(32, pub) || !r.done()) {
+    broken_ = true;
+    error = "bad pairing reply";
+    return false;
+  }
+  std::copy(pub.begin(), pub.end(), agentPub.begin());
+  return true;
+}
+
+bool RemoteStore::pairResult(bool& accepted, std::string& error) {
+  Frame f;
+  if (!receive(f)) {
+    error = "no answer from the Switch";
+    return false;
+  }
+  if (!is(f, Msg::PairDone)) {
+    error = errorText(f);
+    return false;
+  }
+  ByteReader r(f.payload);
+  accepted = r.u8() == 1;
+  return r.done();
+}
+
+bool RemoteStore::authenticate(const std::string& hostId, const Key32& key, bool& trusted,
+                               std::string& error) {
+  trusted = false;
+  Nonce16 mine{};
+  arc4random_buf(mine.data(), mine.size());
+  ByteWriter w;
+  w.str(hostId);
+  w.raw(mine.data(), mine.size());
+  Frame f;
+  if (writeOpen_ || !send(Msg::AuthBegin, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::AuthChallenge)) {
+    error = errorText(f);
+    return false;
+  }
+  ByteReader r(f.payload);
+  const bool known = r.u8() == 1;
+  std::vector<uint8_t> n, p;
+  if (!r.bytes(16, n) || !r.bytes(32, p) || !r.done()) {
+    broken_ = true;
+    error = "bad auth challenge";
+    return false;
+  }
+  Nonce16 theirs{};
+  Key32 proof{};
+  std::copy(n.begin(), n.end(), theirs.begin());
+  std::copy(p.begin(), p.end(), proof.begin());
+  // The Switch proves itself first: a console that doesn't know our key gets nothing.
+  const bool switchOk = known && proofEqual(proof, sessionProof(key, "agent", mine, theirs));
+  const Key32 answer = switchOk ? sessionProof(key, "host", theirs, mine) : Key32{};
+  ByteWriter a;
+  a.raw(answer.data(), answer.size());
+  if (!send(Msg::AuthProof, a.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::AuthResult)) {
+    error = errorText(f);
+    return false;
+  }
+  ByteReader rr(f.payload);
+  trusted = switchOk && rr.u8() == 1;
+  if (!switchOk) error = known ? "the Switch's proof didn't match this Mac's key" : "the Switch doesn't know this Mac";
+  return true;
+}
+
 bool RemoteStore::updateOffer(const std::string& version, proto::UpdateStateMsg& state,
                               std::string& error) {
   ByteWriter w;

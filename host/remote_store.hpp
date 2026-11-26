@@ -1,6 +1,7 @@
 // The Switch agent, seen through a protocol v3 session, as a UnitStore.
 #pragma once
 #include "messages.hpp"
+#include "pairing.hpp"
 #include "stream.hpp"
 #include "unit_store.hpp"
 
@@ -47,6 +48,13 @@ class RemoteStore : public UnitStore {
   // Updating the Switch side (cap "update"): tell the module what this Mac has, and get
   // its version and whether the player asked to update; then send the files.
   bool updateOffer(const std::string& version, proto::UpdateStateMsg& state, std::string& error);
+  // Pairing (cap "auth", pairing.hpp): send our public key and get the Switch's; then
+  // wait (long: the player answers on the console) for the decision.
+  bool pairBegin(const std::string& hostId, const std::string& hostName, const Key32& hostPub,
+                 Key32& agentPub, std::string& error);
+  bool pairResult(bool& accepted, std::string& error);
+  // Prove this session with a paired link key. trusted = the Switch accepted it.
+  bool authenticate(const std::string& hostId, const Key32& key, bool& trusted, std::string& error);
   std::unique_ptr<UnitWriter> updateWriter(const std::string& version, std::string& error);
 
   // The agent's name from the handshake ("Will's Switch").

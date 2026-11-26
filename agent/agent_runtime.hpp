@@ -22,6 +22,7 @@ struct AgentConfig {
   AlbumSource* album = nullptr;     // optional: screenshots and videos (Warp Album)
   TapSource* tap = nullptr;         // optional: read-only live game state (Warp Tap)
   UpdateSource* update = nullptr;   // optional: new Switch files from the Mac, on the player's say-so
+  TrustSource* trust = nullptr;     // optional: require pairing (cap "auth"); nullptr = trust everyone
   // optional: the game running now, sent in every beacon (Warp Presence)
   std::function<uint64_t()> runningTitle;
   // Where the announce's generation starts. Start it somewhere random so a restarted

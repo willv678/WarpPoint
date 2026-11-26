@@ -51,6 +51,15 @@ enum class Msg : uint8_t {
   UpdateOffer = 49,    // host -> agent: the Switch files this Mac has (version) (cap "update")
   UpdateState = 50,    // agent -> host: module version, and whether the player asked to update
   UpdateReq = 51,      // host -> agent: install these files (version), then a unit stream
+  // Pairing and per-session proof (cap "auth"; see pairing.hpp). An agent with "auth"
+  // answers only Hello, Ping, these and UpdateOffer until the session is proven.
+  PairBegin = 52,      // host -> agent: host id, name, X25519 public key
+  PairKey = 53,        // agent -> host: agent public key (both sides now show the code)
+  PairDone = 54,       // agent -> host: u8 accepted (after the player chose on the Switch)
+  AuthBegin = 55,      // host -> agent: host id, host nonce
+  AuthChallenge = 56,  // agent -> host: u8 known host, agent nonce, agent proof
+  AuthProof = 57,      // host -> agent: host proof
+  AuthResult = 58,     // agent -> host: u8 trusted
 };
 
 enum class ErrorCode : uint16_t {
@@ -61,6 +70,7 @@ enum class ErrorCode : uint16_t {
   Changed = 5,  // compare-and-swap failed: the unit changed since it was listed
   Io = 6,
   Integrity = 7,  // hash or size mismatch
+  NotPaired = 8,  // the agent needs pairing (or the session's proof) first
 };
 
 // Names a save. Only a name: each side decides for itself where and how the save

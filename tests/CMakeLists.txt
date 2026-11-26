@@ -15,6 +15,7 @@ add_executable(warp_tests
   test_labs.cpp
   test_save_convert.cpp
   test_switch_update.cpp
+  test_pairing.cpp
   ../switch/common/switch_update.cpp
   test_lens.cpp
   test_presence.cpp

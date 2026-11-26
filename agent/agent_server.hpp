@@ -24,6 +24,7 @@ using LogFn = std::function<void(const std::string&)>;
 bool serveSession(Stream& stream, UnitStore& store, const AgentIdentity& identity,
                   const LogFn& log, TitleSource* titles = nullptr, UserSource* users = nullptr,
                   ReportSource* reports = nullptr, AlbumSource* album = nullptr,
-                  TapSource* tap = nullptr, UpdateSource* update = nullptr);
+                  TapSource* tap = nullptr, UpdateSource* update = nullptr,
+                  TrustSource* trust = nullptr);
 
 }  // namespace WarpPoint

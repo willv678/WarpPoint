@@ -5,6 +5,7 @@
 #include "messages.hpp"
 #include "unit_store.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -26,6 +27,20 @@ class ReportSource {
   virtual bool list(uint64_t newerThan, std::vector<proto::ReportEntry>& out) = 0;
   // One report by a name from list(); at most kMaxReportSize bytes (truncated says if cut).
   virtual bool read(const std::string& name, std::vector<uint8_t>& out, bool& truncated) = 0;
+};
+
+// Pairing: the agent's paired Macs (the module implements it on the SD card).
+class TrustSource {
+ public:
+  virtual ~TrustSource() = default;
+  virtual void random(uint8_t* out, size_t len) = 0;
+  // Start pairing with a Mac: remember the link key and code until the player decides.
+  virtual void pairOffered(const std::string& hostId, const std::string& hostName,
+                           const std::array<uint8_t, 32>& linkKey, const std::string& code) = 0;
+  // Wait for the player's answer on the console: 1 = pair, 0 = refused, -1 = no answer.
+  virtual int pairAnswer(int timeoutSeconds) = 0;
+  // A paired Mac's link key.
+  virtual bool keyFor(const std::string& hostId, std::array<uint8_t, 32>& key) = 0;
 };
 
 // Updating the Switch side from the Mac (the module implements it).
