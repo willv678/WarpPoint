@@ -175,6 +175,15 @@ std::string AppCore::dropClassify(const std::string& requestJson) {
   const DropContext ctx = contextFor(dataDir_);
   const PluginContext pctx = pluginContext(dataDir_);
   TitleCache titles(dataDir_ / "titles");
+  // A game's name: the console's, else a Tap profile's (cheats are often for those).
+  std::map<uint64_t, std::string> profileNames;
+  for (const auto& p : pctx.profiles) profileNames[p.profile.titleId] = p.profile.name;
+  auto gameName = [&](uint64_t id) {
+    std::string n = titles.nameOf(id);
+    const auto it = profileNames.find(id);
+    if ((n.empty() || n == hex16(id)) && it != profileNames.end()) n = it->second;
+    return n;
+  };
   json items = json::array();
   for (const auto& r : req.is_object() ? req.value("items", json::array()) : json::array()) {
     if (!r.is_object()) continue;
@@ -216,7 +225,7 @@ std::string AppCore::dropClassify(const std::string& requestJson) {
                 {"kind", dropKindId(plan.kind)}, {"label", dropKindLabel(plan.kind)},
                 {"side", dropSideId(plan.side)}, {"dest", plan.dest},
                 {"titleId", plan.titleId ? hex16(plan.titleId) : ""},
-                {"game", plan.titleId ? titles.nameOf(plan.titleId) : ""},
+                {"game", plan.titleId ? gameName(plan.titleId) : ""},
                 {"buildId", plan.buildId}, {"needsGame", plan.needsGame},
                 {"runsAtBoot", plan.runsAtBoot}, {"notInstallable", plan.notInstallable},
                 {"remembered", plan.remembered}, {"note", plan.note}, {"problem", problem}});

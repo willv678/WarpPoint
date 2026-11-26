@@ -442,6 +442,8 @@ final class WarpModel: ObservableObject {
       // The first attempt can fail for passing reasons (the Switch app still starting,
       // macOS asking about local network access); AutoSync retries in 2 s.
       if failuresInARow >= 2 { problem = s("message") }
+    case "drop", "dropDone":
+      drop.handle(kind, e)  // WarpDrop: the transfer queue changed
     default:
       break
     }
@@ -686,6 +688,11 @@ final class WarpModel: ObservableObject {
   func setTipSeen(_ id: String) -> String? {
     call { warp_core_set_tip_seen(core, id, &$0) }
   }
+
+  // MARK: - WarpDrop
+
+  /// The Send window and the transfer queue (DropModel.swift).
+  lazy var drop = DropModel(core: core)
 }
 
 /// What the last sync learned about updating the Switch side (warp_core_switch_update).
