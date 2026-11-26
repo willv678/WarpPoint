@@ -37,8 +37,10 @@ class SyncEngine {
  public:
   // remoteDevice: the Switch's id in the state store. remoteWritable: false when the
   // Switch's WarpPoint can't write saves (no "write" capability); pushes are skipped.
+  // remoteCanCreate: the console can make a save for a game it has none for ("create",
+  // 1.3): a game played only on the Mac is then pushed instead of waiting.
   SyncEngine(UnitStore& local, UnitStore& remote, StateStore& state, BackupStore& backups,
-             std::string remoteDevice, bool remoteWritable);
+             std::string remoteDevice, bool remoteWritable, bool remoteCanCreate = false);
 
   std::vector<UnitReport> runPass(const std::vector<std::string>& keys);
 
@@ -55,6 +57,7 @@ class SyncEngine {
   BackupStore& backups_;
   std::string device_;
   bool remoteWritable_;
+  bool remoteCanCreate_;
 };
 
 }  // namespace WarpPoint

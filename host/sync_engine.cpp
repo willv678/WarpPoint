@@ -9,13 +9,15 @@ std::string currentHash(const UnitStatus& s) { return s.exists ? s.hash : ""; }
 }  // namespace
 
 SyncEngine::SyncEngine(UnitStore& local, UnitStore& remote, StateStore& state,
-                       BackupStore& backups, std::string remoteDevice, bool remoteWritable)
+                       BackupStore& backups, std::string remoteDevice, bool remoteWritable,
+                       bool remoteCanCreate)
     : local_(local),
       remote_(remote),
       state_(state),
       backups_(backups),
       device_(std::move(remoteDevice)),
-      remoteWritable_(remoteWritable) {}
+      remoteWritable_(remoteWritable),
+      remoteCanCreate_(remoteCanCreate) {}
 
 std::vector<UnitReport> SyncEngine::runPass(const std::vector<std::string>& keys) {
   std::vector<UnitRef> refs;
@@ -75,9 +77,10 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
     r.message = "both sides changed; pick one with `warp resolve`";
     return r;
   }
-  if (r.action == SyncAction::Push && s.empty()) {
-    // The console has no save for this game and WarpPoint can't create one there (yet).
-    // Once the game is started there, both sides have a save and the user picks.
+  if (r.action == SyncAction::Push && s.empty() && (!remoteCanCreate_ || !sw.error.empty())) {
+    // The console has no save for this game and its WarpPoint can't create one there
+    // (before 1.3). Once the game is started there, both sides have a save and the
+    // user picks.
     r.skipped = true;
     r.quiet = true;
     r.message = "not on the Switch yet: start the game there once";
@@ -110,6 +113,15 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
   } else {
     r.ok = (h.empty() || backup(local_, key, "mac", "before-pull", error)) &&
            copy(remote_, local_, key, h, hash, error);
+  }
+  if (!r.ok && r.action == SyncAction::Push && s.empty()) {
+    // Making the save on the console didn't work (the game isn't installed there, or
+    // keeps no save): nothing went wrong on either side, it just stays on the Mac.
+    r.ok = true;
+    r.skipped = true;
+    r.quiet = true;
+    r.message = error;
+    return r;
   }
   if (!r.ok) {
     r.message = error;

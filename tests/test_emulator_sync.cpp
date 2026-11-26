@@ -390,8 +390,8 @@ struct SyncHarness {
   StateStore state{"unused.json"};
   BackupStore backups{tmp / "backups"};
 
-  std::vector<UnitReport> sync(bool switchWritable = false) {
-    SyncEngine engine(mac, sw, state, backups, "switch-1", switchWritable);
+  std::vector<UnitReport> sync(bool switchWritable = false, bool switchCanCreate = false) {
+    SyncEngine engine(mac, sw, state, backups, "switch-1", switchWritable, switchCanCreate);
     return engine.runPass({kShantae});
   }
 };
@@ -461,6 +461,34 @@ TEST_CASE("sync: a game only on the Mac waits quietly until the Switch has a sav
   CHECK(r[0].action == SyncAction::Push);
   CHECK(r[0].skipped);
   CHECK(r[0].quiet);  // not an error: nothing the Mac can do yet
+  CHECK(h.sw.saves.empty());
+}
+
+TEST_CASE("sync: a console that can make saves gets the Mac-only game's save (1.3)") {
+  SyncHarness h;
+  h.mac.writable = true;
+  h.mac.saves[kShantae] = {{"SHANLRG.sav", "a new game"}};
+  h.sw.writable = true;
+  auto r = h.sync(/*switchWritable=*/true, /*switchCanCreate=*/true);
+  REQUIRE(r.size() == 1);
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK(r[0].ok);
+  CHECK_FALSE(r[0].skipped);
+  CHECK(h.sw.saves[kShantae] == h.mac.saves[kShantae]);
+  CHECK(h.backups.list(kShantae).empty());  // nothing on the Switch to back up
+  r = h.sync(true, true);
+  CHECK(r[0].action == SyncAction::None);
+}
+
+TEST_CASE("sync: if the console can't make the save (game not installed), it waits quietly") {
+  SyncHarness h;
+  h.mac.writable = true;
+  h.mac.saves[kShantae] = {{"SHANLRG.sav", "a new game"}};
+  h.sw.writable = false;  // the write is refused, as when the game isn't installed there
+  const auto r = h.sync(/*switchWritable=*/true, /*switchCanCreate=*/true);
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK(r[0].ok);
+  CHECK(r[0].quiet);
   CHECK(h.sw.saves.empty());
 }
 

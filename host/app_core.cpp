@@ -248,6 +248,7 @@ std::string AppCore::gamesJson() {
   // What the console has, as last seen (the newest file, if several consoles).
   std::map<std::string, bool> onConsole;
   std::string consoleName, consoleSeen;
+  bool consoleCanCreate = false;
   std::error_code ec;
   for (const auto& f : std::filesystem::directory_iterator(dataDir_ / "consoles", ec)) {
     const json j = readJsonFile(f.path());
@@ -255,6 +256,10 @@ std::string AppCore::gamesJson() {
     if (updated < consoleSeen) continue;
     consoleSeen = updated;
     consoleName = j.value("name", "");
+    consoleCanCreate = false;
+    if (j.contains("caps") && j["caps"].is_array()) {
+      for (const auto& c : j["caps"]) consoleCanCreate |= c.is_string() && c == "create";
+    }
     onConsole.clear();
     if (j.contains("saves") && j["saves"].is_array()) {
       for (const auto& k : j["saves"]) {
@@ -339,6 +344,7 @@ std::string AppCore::gamesJson() {
   return json{{"console", consoleName}, {"consoleSeen", consoleSeen},
               {"emulator", emu ? emu->displayName() : "Astris"},
               {"mac", mac->displayName()}, {"emulatorOpen", emulatorRunning_()},
+              {"consoleCanCreate", consoleCanCreate},
               {"consolePresent", consolePresent_.load()}, {"keepBackups", config.keepBackups},
               {"games", games}}.dump();
 }

@@ -78,7 +78,7 @@ namespace {
 
 using namespace WarpPoint;
 
-constexpr const char* kVersion = "1.2.0";
+constexpr const char* kVersion = "1.3.0";
 
 // Small socket buffers: a background program can't afford the app's defaults.
 const SocketInitConfig kSocketConfig = {
@@ -275,6 +275,9 @@ int main(int, char**) {
   if (haveTitles) {
     cfg.titles = &titles;
     cfg.identity.caps.push_back("titles");
+    // The game's control data (ns) is what sizes a new save: a game played only on the
+    // Mac can get its save made here.
+    cfg.identity.caps.push_back("create");
   }
   if (haveUsers) {
     cfg.users = &users;

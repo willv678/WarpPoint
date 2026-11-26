@@ -72,7 +72,8 @@ struct AutoSyncConfig {
 // The library's records (see above). Exposed for tests and the CLI.
 void saveConsoleList(const std::filesystem::path& dataDir, const std::string& deviceId,
                      const std::string& name, const std::vector<UnitRef>& saves,
-                     const std::vector<proto::ConsoleUser>& users = {});
+                     const std::vector<proto::ConsoleUser>& users = {},
+                     const std::vector<std::string>& caps = {});
 void saveLastResults(const std::filesystem::path& dataDir, const std::vector<UnitReport>& reports,
                      const std::string& local, const std::string& console);
 

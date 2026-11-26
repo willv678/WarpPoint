@@ -42,8 +42,10 @@ See the [roadmap](#roadmap).
   single step, on the Switch and in Astris. If the power or the Wi-Fi drops halfway, you still
   have the old save.
 - **Waits for you to finish playing.** A save is never touched while its game is running.
-- **Brings games over.** Pick any game you've played on the Switch, and WarpPoint sets up its save
-  in Astris, even if you've never launched it there.
+- **Brings games over, both ways.** Pick any game you've played on the Switch, and WarpPoint sets up
+  its save in Astris, even if you've never launched it there. A game you've only played on the Mac
+  gets its save made on the Switch (1.3), sized the way the game asks, as long as it's installed
+  there.
 
 ## Install
 
@@ -153,8 +155,8 @@ a sync, when it reads the saves on both sides to see what changed.
 ## Limits
 
 - The Switch has to be awake to sync. A sleeping Switch catches up when it wakes.
-- WarpPoint can't create a save on the Switch yet. A game you've only played on the Mac waits until
-  you've started it once on the Switch, and then you pick which save to keep.
+- To make a save on the Switch for a game you've only played on the Mac, the game has to be
+  installed on the Switch. Until it is, the save waits on the Mac.
 - Adding a new game's save to Astris needs Astris to be closed, because Astris keeps its list of
   saves in memory while it runs. Saves it already has sync with Astris open.
 - Very large saves (tens of MB) may not fit in a single write on the Switch.
@@ -171,7 +173,7 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Sync both ways between the Switch and Astris, on its own (1.0)
 - [x] Menu bar app, library, backups and restore, first-run setup (1.0)
 - [x] Background module and Tesla overlay on the Switch (1.0)
-- [ ] Create a save on the Switch for a game only played on the Mac
+- [x] Create a save on the Switch for a game only played on the Mac (1.3)
 - [ ] Very large saves (TotK-size) written to the Switch in pieces
 - [x] nxnative ports, found and synced like emulator games (1.2)
 - [ ] More emulators

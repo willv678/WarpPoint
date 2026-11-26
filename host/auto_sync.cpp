@@ -54,13 +54,15 @@ json readJson(const std::filesystem::path& file) {
 
 void saveConsoleList(const std::filesystem::path& dataDir, const std::string& deviceId,
                      const std::string& name, const std::vector<UnitRef>& saves,
-                     const std::vector<proto::ConsoleUser>& users) {
+                     const std::vector<proto::ConsoleUser>& users,
+                     const std::vector<std::string>& caps) {
   json keys = json::array();
   for (const auto& r : saves) keys.push_back(r.key);
   json people = json::array();
   for (const auto& u : users) people.push_back({{"id", u.id}, {"name", u.name}});
   writeJson(dataDir / "consoles" / (deviceId + ".json"),
-            {{"name", name}, {"updated", nowUtc()}, {"saves", keys}, {"users", people}});
+            {{"name", name}, {"updated", nowUtc()}, {"saves", keys}, {"users", people},
+             {"caps", caps}});
 }
 
 void saveLastResults(const std::filesystem::path& dataDir, const std::vector<UnitReport>& reports,
@@ -219,7 +221,7 @@ bool AutoSync::runPass(const Peer& console) {
   BackupStore backups(cfg_.dataDir / "backups",
                       cfg_.keepBackupsNow ? cfg_.keepBackupsNow() : cfg_.keepBackups);
   SyncEngine engine(*local, *session->store, state, backups, session->agent.deviceId,
-                    session->can("write"));
+                    session->can("write"), session->can("create"));
   const auto reports = engine.runPass(keys);
   if (!state.save(error)) return fail("could not save sync state: " + error);
 
@@ -248,7 +250,7 @@ bool AutoSync::runPass(const Peer& console) {
     std::vector<proto::ConsoleUser> users;
     if (session->can("users")) session->store->users(users, error);
     saveConsoleList(cfg_.dataDir, session->agent.deviceId, session->agent.name, consoleSaves,
-                    users);
+                    users, session->agent.caps);
     for (const auto& r : consoleSaves) ids.push_back(titleIdOfKey(r.key));
   }
   TitleCache titles(cfg_.dataDir / "titles");

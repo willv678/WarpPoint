@@ -419,7 +419,8 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
     }
   }
   BackupStore backups(dataDir() / "backups", g_config.keepBackups);
-  SyncEngine engine(emu, *s.store, state, backups, s.agent.deviceId, hasCap(s.agent, "write"));
+  SyncEngine engine(emu, *s.store, state, backups, s.agent.deviceId, hasCap(s.agent, "write"),
+                    hasCap(s.agent, "create"));
   const auto reports = engine.runPass(keys);
   std::vector<uint64_t> ids;
   for (const auto& r : reports) ids.push_back(titleIdOf(r.key));

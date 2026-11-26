@@ -104,7 +104,9 @@ struct GameDetail: View {
         }
       }
     } else if game.status == "emulatorOnly" {
-      Text("Not on \(console) yet. Start the game there once, then pick which save to keep on the next sync.")
+      Text(model.library.consoleCanCreate
+           ? "Not on \(console) yet. WarpPoint makes its save there on the next sync, as long as the game is installed on \(console)."
+           : "Not on \(console) yet. Start the game there once, then pick which save to keep on the next sync. (WarpPoint 1.3 on the Switch can make the save itself.)")
         .font(.callout).foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
     } else if game.status == "conflict", let c = model.conflicts.first(where: { $0.key == game.key }) {

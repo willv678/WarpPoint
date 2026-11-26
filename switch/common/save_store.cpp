@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <cstdio>
 #include <set>
 
@@ -291,16 +292,127 @@ bool copyIn(const std::string& from, const std::string& rel, std::string& error)
   return ok;
 }
 
+// The journal of a game save: how much one commit can change. 0 when unknown.
+s64 journalSize(u64 titleId, const AccountUid& uid) {
+  FsSaveDataInfoReader reader;
+  if (R_FAILED(fsOpenSaveDataInfoReader(&reader, FsSaveDataSpaceId_User))) return 0;
+  FsSaveDataInfo info;
+  s64 count = 0;
+  u64 saveId = 0;
+  while (R_SUCCEEDED(fsSaveDataInfoReaderRead(&reader, &info, 1, &count)) && count > 0) {
+    if (info.save_data_type == FsSaveDataType_Account && info.save_data_index == 0 &&
+        info.application_id == titleId && info.uid.uid[0] == uid.uid[0] &&
+        info.uid.uid[1] == uid.uid[1]) {
+      saveId = info.save_data_id;
+      break;
+    }
+  }
+  fsSaveDataInfoReaderClose(&reader);
+  if (!saveId) return 0;
+  FsSaveDataExtraData extra{};
+  if (R_FAILED(fsReadSaveDataFileSystemExtraDataBySaveDataSpaceId(&extra, sizeof(extra),
+                                                                  FsSaveDataSpaceId_User, saveId))) {
+    return 0;
+  }
+  return extra.journal_size;
+}
+
+// Append [offset, offset + len) of from to rel in the mounted save.
+bool appendChunk(FILE* in, const std::string& rel, uint64_t len, bool first, std::string& error) {
+  FILE* out = std::fopen((std::string(kDevice) + ":/" + rel).c_str(), first ? "wb" : "ab");
+  if (!out) {
+    error = "cannot open " + rel + " in the save";
+    return false;
+  }
+  std::vector<uint8_t> buf(kBufferSize);
+  bool ok = true;
+  while (len > 0 && ok) {
+    const size_t want = static_cast<size_t>(std::min<uint64_t>(len, buf.size()));
+    const size_t n = std::fread(buf.data(), 1, want, in);
+    ok = n == want && std::fwrite(buf.data(), 1, n, out) == n;
+    len -= n;
+  }
+  ok = (std::fclose(out) == 0) && ok;
+  if (!ok) error = "write failed for " + rel + " (the save may be too small for it)";
+  return ok;
+}
+
+FsSaveDataAttribute accountSaveAttr(u64 titleId, const AccountUid& uid) {
+  FsSaveDataAttribute attr{};
+  attr.application_id = titleId;
+  attr.uid = uid;
+  attr.save_data_type = FsSaveDataType_Account;
+  return attr;
+}
+
+// Make an empty game save for (titleId, user), the size the game's control data asks
+// for: what the system does the first time the game starts, and what JKSV does to
+// create one. needBytes: what's about to go in; the larger "max" size is used when
+// the normal size is too small for it.
+bool createAccountSave(u64 titleId, const AccountUid& uid, uint64_t needBytes,
+                       std::string& error) {
+  auto data = std::make_unique<NsApplicationControlData>();  // ~150 KB: not on the stack
+  u64 size = 0;
+  if (R_FAILED(nsGetApplicationControlData(NsApplicationControlSource_Storage, titleId,
+                                           data.get(), sizeof(*data), &size)) ||
+      size < sizeof(data->nacp)) {
+    error = "the game isn't installed on the Switch, so its save can't be made there";
+    return false;
+  }
+  const NacpStruct& n = data->nacp;
+  s64 saveSize = static_cast<s64>(n.user_account_save_data_size);
+  s64 journal = static_cast<s64>(n.user_account_save_data_journal_size);
+  if (saveSize <= 0) {
+    error = "this game keeps no per-user save on the Switch";
+    return false;
+  }
+  // Room for the files plus the save file system's own bookkeeping.
+  const uint64_t want = needBytes + needBytes / 8 + 0x100000;
+  if (static_cast<uint64_t>(saveSize) < want && n.user_account_save_data_size_max > 0) {
+    saveSize = static_cast<s64>(std::max<uint64_t>(n.user_account_save_data_size_max, saveSize));
+    journal = static_cast<s64>(std::max<uint64_t>(n.user_account_save_data_journal_size_max, journal));
+  }
+  const FsSaveDataAttribute attr = accountSaveAttr(titleId, uid);
+  FsSaveDataCreationInfo crt{};
+  crt.save_data_size = saveSize;
+  crt.journal_size = journal;
+  crt.available_size = 0x4000;
+  crt.owner_id = n.save_data_owner_id ? n.save_data_owner_id : titleId;
+  crt.save_data_space_id = FsSaveDataSpaceId_User;
+  FsSaveDataMetaInfo meta{};
+  meta.size = 0x40060;
+  meta.type = FsSaveDataMetaType_Thumbnail;
+  const Result rc = fsCreateSaveDataFileSystem(&attr, &crt, &meta);
+  if (R_FAILED(rc)) {
+    error = "the Switch would not create the save (" + resultText(rc) + ")";
+    return false;
+  }
+  return true;
+}
+
+void deleteAccountSave(u64 titleId, const AccountUid& uid) {
+  const FsSaveDataAttribute attr = accountSaveAttr(titleId, uid);
+  fsDeleteSaveDataFileSystemBySaveDataAttribute(FsSaveDataSpaceId_User, &attr);
+}
+
 // Receives a save on the SD card (StagedWriter checks every file), then swaps it
-// into the real save in one commit.
+// into the real save in one commit. With create set, the game has no save on the
+// Switch yet: one is made first, and deleted again if anything after that fails, so
+// a failed write never leaves an empty save behind.
 class SwitchSaveWriter : public StagedWriter {
  public:
+  // marker: an SD file that exists while the save is being written in pieces (see
+  // SaveStore::partialMarker). chunkLimit: force pieces of at most this size (tests).
   SwitchSaveWriter(std::filesystem::path staging, std::string key, std::string expected,
-                   std::function<bool()> inUse)
+                   std::function<bool()> inUse, bool create, std::string marker,
+                   uint64_t chunkLimit)
       : StagedWriter(std::move(staging)),
         key_(std::move(key)),
         expected_(std::move(expected)),
-        inUse_(std::move(inUse)) {}
+        inUse_(std::move(inUse)),
+        create_(create),
+        marker_(std::move(marker)),
+        chunkLimit_(chunkLimit) {}
 
  protected:
   bool install(const std::filesystem::path& staging, const std::string& unitHash,
@@ -309,12 +421,47 @@ class SwitchSaveWriter : public StagedWriter {
       error = "the game was started on the Switch during the sync; nothing was changed";
       return false;
     }
+    if (create_) {
+      u64 titleId = 0;
+      AccountUid uid{};
+      if (!parseKey(key_, titleId, uid)) {
+        error = "not a game save key: " + key_;
+        return false;
+      }
+      uint64_t bytes = 0;
+      for (const auto& f : files) bytes += f.size;
+      if (!createAccountSave(titleId, uid, bytes, error)) return false;
+      const bool ok = fill(staging, unitHash, files, error);
+      if (!ok) deleteAccountSave(titleId, uid);  // unmounted by now: fill's save is gone
+      return ok;
+    }
+    return fill(staging, unitHash, files, error);
+  }
+
+ private:
+  bool fill(const std::filesystem::path& staging, const std::string& unitHash,
+            const std::vector<FileDigest>& files, std::string& error) {
+    // A save bigger than its journal can't change in one commit: write it in pieces.
+    u64 titleId = 0;
+    AccountUid uid{};
+    parseKey(key_, titleId, uid);
+    uint64_t total = 0;
+    for (const auto& f : files) total += f.size;
+    const s64 journal = journalSize(titleId, uid);
+    uint64_t chunk = chunkLimit_;
+    if (!chunk && journal > 0 && total + total / 8 + 0x10000 > static_cast<uint64_t>(journal)) {
+      chunk = static_cast<uint64_t>(journal) / 2;  // half: room for the file system's own changes
+    }
+    if (chunk) return fillInPieces(staging, unitHash, files, chunk, error);
+
     MountedSave save;
     if (!save.open(key_, error, /*writable=*/true)) return false;
     // Compare-and-swap: the save must still be what the Mac saw when it decided.
+    // (A save left half-written by an interrupted write in pieces is replaced whatever
+    // it holds: the Mac was told it had no save.)
     std::string current;
     if (!walkSave(nullptr, current, error)) return false;
-    if (current != expected_) {
+    if (current != expected_ && !fileExistsAt(marker_)) {
       error = "the save changed on the Switch since the Mac looked; sync again";
       return false;
     }
@@ -332,13 +479,75 @@ class SwitchSaveWriter : public StagedWriter {
       error = "the save did not read back correctly; nothing was changed";
       return false;
     }
-    return save.commit(error);
+    if (!save.commit(error)) return false;
+    std::remove(marker_.c_str());
+    return true;
   }
 
- private:
+  // Not atomic, so guarded: a marker on the SD card says the save is being replaced,
+  // and while it's there the save is reported as missing. If the power goes now, the
+  // Mac never takes the half-written save for a real one, and the next sync writes
+  // the whole save again. The Mac backed up the old one before it started.
+  bool fillInPieces(const std::filesystem::path& staging, const std::string& unitHash,
+                    const std::vector<FileDigest>& files, uint64_t chunk, std::string& error) {
+    MountedSave save;
+    if (!save.open(key_, error, /*writable=*/true)) return false;
+    std::string current;
+    if (!walkSave(nullptr, current, error)) return false;
+    if (current != expected_ && !fileExistsAt(marker_)) {
+      error = "the save changed on the Switch since the Mac looked; sync again";
+      return false;
+    }
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(marker_).parent_path(), ec);
+    if (FILE* m = std::fopen(marker_.c_str(), "w")) {
+      std::fputs(unitHash.c_str(), m);
+      std::fclose(m);
+    } else {
+      error = "cannot mark the save as being written";
+      return false;
+    }
+    if (!clearDir("", error) || !save.commit(error)) return false;
+    for (const auto& f : files) {
+      if (!makeParents(f.path, error)) return false;
+      FILE* in = std::fopen((staging / "files" / f.path).string().c_str(), "rb");
+      if (!in) {
+        error = "cannot open staged " + f.path;
+        return false;
+      }
+      uint64_t left = f.size;
+      bool first = true;
+      bool ok = true;
+      do {
+        const uint64_t n = std::min<uint64_t>(left, chunk);
+        ok = appendChunk(in, f.path, n, first, error) && save.commit(error);
+        left -= n;
+        first = false;
+      } while (ok && left > 0);
+      std::fclose(in);
+      if (!ok) return false;  // the marker stays: the save counts as missing until rewritten
+    }
+    std::string written;
+    if (!walkSave(nullptr, written, error)) return false;
+    if (written != unitHash) {
+      error = "the save did not read back correctly; it will be written again on the next sync";
+      return false;
+    }
+    std::remove(marker_.c_str());
+    return true;
+  }
+
+  static bool fileExistsAt(const std::string& p) {
+    struct stat st{};
+    return !p.empty() && stat(p.c_str(), &st) == 0;
+  }
+
   std::string key_;
   std::string expected_;
   std::function<bool()> inUse_;
+  bool create_ = false;
+  std::string marker_;
+  uint64_t chunkLimit_ = 0;
 };
 
 std::string stagingName() {
@@ -354,6 +563,19 @@ SaveStore::SaveStore(std::string stagingRoot, std::function<uint64_t()> runningT
   // Leftovers from a write that was cut off (power, crash). Never part of a save.
   std::error_code ec;
   std::filesystem::remove_all(stagingRoot_, ec);
+}
+
+std::string SaveStore::partialMarker(const std::string& key) const {
+  std::string name = key;
+  std::replace(name.begin(), name.end(), '/', '_');
+  return (std::filesystem::path(stagingRoot_).parent_path() / "partial" / name).string();
+}
+
+uint64_t SaveStore::chunkLimit() const {
+  // A test switch: write every save in small pieces, to exercise that path on hardware.
+  struct stat st{};
+  const auto f = (std::filesystem::path(stagingRoot_).parent_path() / "force-pieces").string();
+  return stat(f.c_str(), &st) == 0 ? 64 * 1024 : 0;
 }
 
 bool SaveStore::inUse(const std::string& key) const {
@@ -392,6 +614,12 @@ std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
       // The game is running: it owns its save. Say so without opening it.
       st.busy = true;
       st.exists = true;
+      out.push_back(st);
+      continue;
+    }
+    struct stat mst{};
+    if (stat(partialMarker(ref.key).c_str(), &mst) == 0) {
+      // Half-written by a write in pieces that was cut off: not a save to copy anywhere.
       out.push_back(st);
       continue;
     }
@@ -435,19 +663,32 @@ std::unique_ptr<UnitWriter> SaveStore::write(const UnitRef& ref, const std::stri
   {
     MountedSave save;
     if (!save.open(ref.key, error)) {
-      error = "no save for this game on the Switch yet (start the game once on the "
-              "Switch, then sync again), or it is in use: " + error;
+      // No save at all (not just one that won't open): make one, if the Mac expects none.
+      std::vector<UnitRef> all;
+      std::string ignored;
+      const bool exists = !list(all, ignored) || std::any_of(all.begin(), all.end(),
+                              [&](const UnitRef& r) { return r.key == ref.key; });
+      if (!exists && expectedHash.empty()) {
+        return std::make_unique<SwitchSaveWriter>(
+            std::filesystem::path(stagingRoot_) / stagingName(), ref.key, "",
+            [this, key = ref.key] { return inUse(key); }, /*create=*/true,
+            partialMarker(ref.key), chunkLimit());
+      }
+      error = "the save on the Switch can't be opened (is it in use?): " + error;
       return nullptr;
     }
     if (!walkSave(nullptr, current, error)) return nullptr;
   }
+  struct stat mst{};
+  if (stat(partialMarker(ref.key).c_str(), &mst) == 0) current = "";  // reported as missing
   if (current != expectedHash) {
     error = "the save changed on the Switch since the Mac looked; sync again";
     return nullptr;
   }
   return std::make_unique<SwitchSaveWriter>(std::filesystem::path(stagingRoot_) / stagingName(),
                                             ref.key, expectedHash,
-                                            [this, key = ref.key] { return inUse(key); });
+                                            [this, key = ref.key] { return inUse(key); },
+                                            /*create=*/false, partialMarker(ref.key), chunkLimit());
 }
 
 }  // namespace WarpPoint

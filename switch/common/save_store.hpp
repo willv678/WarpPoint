@@ -32,6 +32,11 @@ class SaveStore : public UnitStore {
 
  private:
   bool inUse(const std::string& key) const;
+  // An SD file that exists while a save is being written in pieces (a save bigger than
+  // its journal): <staging root>/../partial/<key with / as _>.
+  std::string partialMarker(const std::string& key) const;
+  // Force pieces of this size (64 KB) when <staging root>/../force-pieces exists; else 0.
+  uint64_t chunkLimit() const;
 
   std::string stagingRoot_;
   std::function<uint64_t()> runningTitle_;

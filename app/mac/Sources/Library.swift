@@ -56,6 +56,8 @@ struct Library: Codable {
   /// Everything on this Mac: "Astris", "Astris and nxnative", "nxnative".
   var mac: String = "Astris"
   var emulatorOpen: Bool = false
+  /// The console's WarpPoint (1.3+) can make a save for a game it has none for.
+  var consoleCanCreate: Bool = false
   var consolePresent: Bool = false
   var keepBackups: Int = 4
   var games: [Game] = []

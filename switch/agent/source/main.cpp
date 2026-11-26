@@ -20,7 +20,7 @@ using WarpPoint::currentIp;
 using WarpPoint::deviceName;
 using WarpPoint::loadOrCreateDeviceId;
 using WarpPoint::networkConnected;
-constexpr const char* kVersion = "1.2.0";
+constexpr const char* kVersion = "1.3.0";
 
 // True when started with nxlink: log lines also go back to the Mac's terminal.
 bool g_nxlink = false;
@@ -112,6 +112,9 @@ int main(int, char**) {
   if (haveTitles) {
     cfg.titles = &titles;
     cfg.identity.caps.push_back("titles");
+    // The game's control data (ns) is what sizes a new save: a game played only on the
+    // Mac can get its save made here.
+    cfg.identity.caps.push_back("create");
   }
   WarpPoint::SwitchUsers users;
   if (haveUsers) {
