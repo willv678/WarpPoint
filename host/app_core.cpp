@@ -1182,4 +1182,24 @@ std::string AppCore::switchUpdateJson() {
   return switchInfo_.empty() ? "{}" : switchInfo_;
 }
 
+// ---- One-time tips ----
+
+bool AppCore::tipSeen(const std::string& id) {
+  Config c;
+  std::string e;
+  loadConfig(dataDir_ / "config.json", c, e);
+  return c.seenTips.count(id) > 0;
+}
+
+bool AppCore::setTipSeen(const std::string& id, std::string& error) {
+  if (id.empty()) {
+    error = "no tip named";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    c.seenTips.insert(id);
+    return true;
+  }, false, error);
+}
+
 }  // namespace WarpPoint

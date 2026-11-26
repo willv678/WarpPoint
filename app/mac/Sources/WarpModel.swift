@@ -671,6 +671,21 @@ final class WarpModel: ObservableObject {
     reloadStoreOffline()
     refreshPlugins()
   }
+
+  // MARK: - One-time tips and setup's Extras step
+
+  /// The page the Plugins window should show next (a plugin id), set before opening it.
+  @Published var pluginsPage: String?
+  /// The setup window is on screen (no tips while it is).
+  @Published var setupOpen = false
+
+  /// Whether a one-time tip ("plugins") was shown, kept in config.json's "seenTips".
+  func tipSeen(_ id: String) -> Bool { warp_core_tip_seen(core, id) }
+
+  @discardableResult
+  func setTipSeen(_ id: String) -> String? {
+    call { warp_core_set_tip_seen(core, id, &$0) }
+  }
 }
 
 /// What the last sync learned about updating the Switch side (warp_core_switch_update).

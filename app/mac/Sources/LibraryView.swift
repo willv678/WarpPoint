@@ -10,6 +10,7 @@ struct LibraryView: View {
   @State private var selection: String?
   @State private var adding = false
   @State private var stopping: Game?
+  @State private var pluginsTip = false  // the one-time pointer to Plugins
 
   /// The games being synced: everything in the emulator, plus anything in conflict.
   private var myGames: [Game] {
@@ -77,6 +78,7 @@ struct LibraryView: View {
           Label("Plugins", systemImage: "puzzlepiece.extension")
         }
         .help("Lens, Album, Tap, Mods and the other plugins: what they do, and on or off")
+        .popover(isPresented: $pluginsTip, arrowEdge: .bottom) { pluginsTipCard }
       }
       ToolbarItem(placement: .primaryAction) {
         Button {
@@ -117,8 +119,51 @@ struct LibraryView: View {
          let g = model.library.games.first(where: { $0.titleId == id }) {
         selection = g.key
       }
+      offerPluginsTip()
     }
     .onDisappear { model.windowClosed() }
+  }
+
+  // MARK: - The one-time Plugins tip
+
+  /// The first Library open after setup points at Plugins, once ever (config.json's
+  /// "seenTips"). Not while setup is open or a conflict or Switch update banner shows:
+  /// then a later open gets it.
+  private func offerPluginsTip() {
+    Task { @MainActor in
+      try? await Task.sleep(for: .milliseconds(800))  // setup's window closes first
+      guard !model.setupOpen, !model.setup.needsSetup, conflicts.isEmpty,
+            !model.switchUpdate.available, !model.tipSeen("plugins") else { return }
+      pluginsTip = true
+      model.setTipSeen("plugins")  // shown counts as seen, however it's dismissed
+    }
+  }
+
+  private var pluginsTipCard: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top, spacing: 10) {
+        PluginIcon(symbol: "puzzlepiece.extension", on: true)
+        Text("Crash reports, screenshots, live game info, mods and more are plugins. See what each one does, and turn them on or off, here.")
+          .fixedSize(horizontal: false, vertical: true)
+        Button {
+          pluginsTip = false
+        } label: {
+          Image(systemName: "xmark").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Close")
+      }
+      HStack {
+        Spacer()
+        Button("Show Plugins") {
+          pluginsTip = false
+          openWindow(id: "plugins")
+        }
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(14)
+    .frame(width: 320)
   }
 
   /// Width the details card covers on the right (card + its margins).

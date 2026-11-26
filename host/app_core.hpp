@@ -138,6 +138,11 @@ class AppCore {
   // [] when Game Data is off.
   std::string gameDataWantedJson();
 
+  // One-time tips (config.json's "seenTips"): whether the app has shown one, and
+  // recording that it has. id: a short name such as "plugins".
+  bool tipSeen(const std::string& id);
+  bool setTipSeen(const std::string& id, std::string& error);
+
  private:
   std::mutex updateMutex_;
   std::string switchPackageDir_;

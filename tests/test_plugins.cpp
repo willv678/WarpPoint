@@ -345,3 +345,34 @@ TEST_CASE("plugins: docs/PLUGINS.md covers every plugin in the catalog") {
     CHECK_MESSAGE(doc.find(p.summary) != std::string::npos, p.name << ": summary differs from plugins.cpp");
   }
 }
+
+TEST_CASE("tips: seenTips round-trips through config.json, and through AppCore") {
+  TempDir dir;
+  std::string error;
+  Config c;
+  CHECK(c.seenTips.empty());
+  REQUIRE(saveConfig(dir / "config.json", c, error));
+  CHECK_FALSE(json::parse(readFile(dir / "config.json")).contains("seenTips"));  // only when set
+
+  c.seenTips = {"plugins", "other"};
+  REQUIRE(saveConfig(dir / "config.json", c, error));
+  CHECK(json::parse(readFile(dir / "config.json"))["seenTips"] == json({"other", "plugins"}));
+  Config back;
+  REQUIRE(loadConfig(dir / "config.json", back, error));
+  CHECK(back.seenTips == std::set<std::string>{"other", "plugins"});
+
+  // A user who finished setup before tips existed: links, no seenTips. Sees it once.
+  TempDir data;
+  writeFile(data / "config.json",
+            R"({"format": 1, "users": {"00000000000000000000000000000001": "00000000000000000000000000000002"}})");
+  AppCore core(data.path(), [] { return false; });
+  CHECK_FALSE(core.tipSeen("plugins"));
+  REQUIRE(core.setTipSeen("plugins", error));
+  CHECK(core.tipSeen("plugins"));
+  CHECK_FALSE(core.tipSeen("other"));
+  CHECK_FALSE(core.setTipSeen("", error));
+  Config after;
+  REQUIRE(loadConfig(data / "config.json", after, error));
+  CHECK(after.users.size() == 1);  // the rest of the settings are kept
+  CHECK(after.seenTips == std::set<std::string>{"plugins"});
+}

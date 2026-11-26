@@ -68,7 +68,9 @@ overlay menu for the overlay)
 
 Back on the Mac, a setup window walks you through the rest. It finds Astris and any nxnative
 apps, waits for the Switch, and asks which Astris profile goes with which Switch user (and whose
-saves the nxnative apps hold). No Astris? nxnative apps alone are enough.
+saves the nxnative apps hold). Its Extras step lists the plugins (crash reports, screenshots,
+live game info, mods and more) with a switch for each; the defaults are fine to keep. No
+Astris? nxnative apps alone are enough.
 
 **Updating the Switch side (1.10).** Each Mac app carries the Switch files that match it. When
 they're newer than what's on your Switch, the Library says so, and the WarpPoint overlay shows

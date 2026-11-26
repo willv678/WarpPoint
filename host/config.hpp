@@ -17,9 +17,10 @@
 //                                                          // saves to the console (a Switch 2)
 //     "appFolders": ["/Volumes/Games/Apps"]               // besides /Applications, ~/Applications
 //   },
-//   "plugins": { "lens": false, "mods": true }          // on/off per plugin (see plugins.hpp);
+//   "plugins": { "lens": false, "mods": true },         // on/off per plugin (see plugins.hpp);
 //                                                       // Album, Split and Presence keep
 //                                                       // their own "enabled" below
+//   "seenTips": ["plugins"]                             // one-time tips already shown
 // }
 #pragma once
 #include <cstddef>
@@ -68,6 +69,10 @@ struct Config {
   // Plugins turned on or off by hand (plugin id -> on). A plugin not named here has its
   // default (see PluginCatalog). Album, Split and Presence use their own flags above.
   std::map<std::string, bool> plugins;
+
+  // One-time tips the app has shown ("plugins": the Library's pointer to the Plugins
+  // window). Kept here, not in the app's defaults, so a reinstall doesn't show them again.
+  std::set<std::string> seenTips;
 
   // The console user whose saves the nxnative apps hold ("" = nobody yet).
   std::string nxnativeUser() const {

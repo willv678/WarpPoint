@@ -53,16 +53,25 @@ struct PluginsView: View {
         if s == "store" { selection = Self.storeTag }
         else if model.plugins.contains(where: { $0.id == s }) { selection = s }
       }
+      showRequestedPage()
       // Live status lines (Presence, Split) and "needs" change while the window is open.
       timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
         MainActor.assumeIsolated { model.refreshPlugins() }
       }
     }
+    // Setup's "Set Up…" buttons ask for a plugin's page, open or not.
+    .onChange(of: model.pluginsPage) { showRequestedPage() }
     .onDisappear {
       timer?.invalidate()
       timer = nil
       model.windowClosed()
     }
+  }
+
+  private func showRequestedPage() {
+    guard let page = model.pluginsPage else { return }
+    model.pluginsPage = nil
+    if model.plugins.contains(where: { $0.id == page }) { selection = page }
   }
 
   private var storeSubtitle: String {

@@ -84,6 +84,9 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     for (const auto& [id, on] : pl.items()) {
       if (on.is_boolean()) out.plugins[id] = on.get<bool>();
     }
+    for (const auto& t : j.value("seenTips", json::array())) {
+      if (t.is_string()) out.seenTips.insert(t.get<std::string>());
+    }
   } catch (const json::exception& e) {
     error = file.string() + " is malformed: " + e.what();
     return false;
@@ -132,6 +135,7 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
     if (!c.presence.showMac) j["presence"]["showMac"] = false;
   }
   if (!c.plugins.empty()) j["plugins"] = c.plugins;
+  if (!c.seenTips.empty()) j["seenTips"] = c.seenTips;
 
   std::error_code ec;
   fs::create_directories(file.parent_path(), ec);
