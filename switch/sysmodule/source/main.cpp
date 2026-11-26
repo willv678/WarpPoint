@@ -15,6 +15,7 @@
 #include "save_store.hpp"
 #include "switch_env.hpp"
 #include "switch_album.hpp"
+#include "mod_store.hpp"
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
 #include "switch_titles.hpp"
@@ -273,9 +274,13 @@ int main(int, char**) {
   SwitchUsers users;
   if (haveTitles) g_titles = &titles;
   AgentConfig cfg;
-  cfg.store = &store;
+  // Warp Mods: each game's mod layer, as "mods/<title id>" units.
+  static ModStore mods("sdmc:/atmosphere/contents", path("mods-staging"),
+                       [havePm](uint64_t id) { return havePm && runningApplication() == id; });
+  static SwitchUnits units(store, mods);
+  cfg.store = &units;
   logLine("reading the console's id and name");
-  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write"}};
+  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write", "mods"}};
   logLine("this console is \"" + cfg.identity.name + "\"");
   if (haveTitles) {
     cfg.titles = &titles;

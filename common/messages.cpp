@@ -117,6 +117,7 @@ bool decode(const std::vector<uint8_t>& p, std::vector<TapEntry>& plan) {
   const uint32_t n = r.u32();
   if (n > kMaxTapEntries) return false;
   plan.clear();
+  uint64_t total = 0;
   for (uint32_t i = 0; i < n && r.ok(); ++i) {
     TapEntry e;
     const uint8_t region = r.u8();
@@ -128,6 +129,8 @@ bool decode(const std::vector<uint8_t>& p, std::vector<TapEntry>& plan) {
     for (uint8_t h = 0; h < hops; ++h) e.hops.push_back(static_cast<int64_t>(r.u64()));
     e.length = r.u32();
     if (e.length == 0 || e.length > kMaxTapLength) return false;
+    total += e.length;
+    if (total > kMaxTapTotal) return false;
     plan.push_back(std::move(e));
   }
   return r.done();

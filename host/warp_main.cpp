@@ -83,6 +83,7 @@ int usage() {
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
                "       warp album                          (Warp Album: copy new captures now)\n"
                "       warp tap                            (Warp Tap: the running game's live numbers)\n"
+               "       warp tap-dump FILE SIZE REGION OFFSET [HOP...]  (for profile authors)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -690,7 +691,8 @@ int main(int argc, char** argv) {
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3) ||
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
-                     cmd == "reports" || cmd == "album" || cmd == "tap";
+                     cmd == "reports" || cmd == "album" || cmd == "tap" ||
+                     (cmd == "tap-dump" && args.size() >= 5);
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -733,6 +735,47 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "tap-dump") {
+    // Read SIZE bytes at the end of a pointer chain into FILE, 4 KB per entry, 64 a request.
+    // REGION is main, heap, alias or aslr; OFFSET and HOPs as in a profile.
+    const uint64_t size = std::strtoull(args[2].c_str(), nullptr, 0);
+    proto::TapEntry base;
+    base.region = args[3] == "heap" ? proto::TapRegion::Heap
+                  : args[3] == "alias" ? proto::TapRegion::Alias
+                  : args[3] == "aslr" ? proto::TapRegion::Aslr : proto::TapRegion::Main;
+    base.offset = std::strtoull(args[4].c_str(), nullptr, 0);
+    for (size_t i = 5; i < args.size(); ++i) {
+      base.hops.push_back(static_cast<int64_t>(std::strtoull(args[i].c_str(), nullptr, 0)));
+    }
+    std::vector<uint8_t> out;
+    std::string e;
+    for (uint64_t at = 0; at < size && rc == 0;) {
+      std::vector<proto::TapEntry> plan;
+      for (; plan.size() < proto::kMaxTapTotal / proto::kMaxTapLength && at < size;
+           at += proto::kMaxTapLength) {
+        proto::TapEntry t = base;
+        const uint64_t add = at;
+        if (t.hops.empty()) t.offset += add;
+        else t.hops.back() += static_cast<int64_t>(add);
+        t.length = static_cast<uint32_t>(std::min<uint64_t>(proto::kMaxTapLength, size - at));
+        plan.push_back(t);
+      }
+      proto::TapReply reply;
+      if (!session->store->tap(plan, reply, e)) {
+        std::fprintf(stderr, "%s\n", e.c_str());
+        rc = 1;
+        break;
+      }
+      for (size_t i = 0; i < reply.results.size(); ++i) {
+        auto bytes = reply.results[i].bytes;
+        bytes.resize(plan[i].length, 0);  // unreadable parts as zeros
+        out.insert(out.end(), bytes.begin(), bytes.end());
+      }
+    }
+    std::ofstream(args[1], std::ios::binary).write(reinterpret_cast<const char*>(out.data()),
+                                                   static_cast<std::streamsize>(out.size()));
+    std::printf("%zu bytes into %s\n", out.size(), args[1].c_str());
+  }
   if (cmd == "tap") {
     if (!hasCap(session->agent, "tap")) {
       std::fprintf(stderr, "This Switch's WarpPoint has no Tap (update it to 1.4).\n");

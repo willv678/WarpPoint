@@ -4,6 +4,7 @@
 #include "save_store.hpp"
 #include "switch_env.hpp"
 #include "switch_album.hpp"
+#include "mod_store.hpp"
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
 #include "switch_titles.hpp"
@@ -108,10 +109,15 @@ int main(int, char**) {
     }
   }
 
+  // Warp Mods: each game's mod layer, as "mods/<title id>" units.
+  WarpPoint::ModStore mods("sdmc:/atmosphere/contents", std::string(kDataDir) + "/mods-staging",
+                           [havePm](uint64_t id) { return havePm && WarpPoint::runningApplication() == id; });
+  WarpPoint::SwitchUnits units(store, mods);
+
   WarpPoint::AgentConfig cfg;
   WarpPoint::SwitchTitles titles;
-  cfg.store = &store;
-  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write"}};
+  cfg.store = &units;
+  cfg.identity = {loadOrCreateDeviceId(), deviceName(), {"list", "read", "write", "mods"}};
   if (haveTitles) {
     cfg.titles = &titles;
     cfg.identity.caps.push_back("titles");

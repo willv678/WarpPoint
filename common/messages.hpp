@@ -159,6 +159,8 @@ struct TapReply {
 constexpr size_t kMaxTapEntries = 64;
 constexpr size_t kMaxTapHops = 8;
 constexpr uint32_t kMaxTapLength = 4096;
+// All entries of one request together: the reply is built in the Switch module's 1 MB heap.
+constexpr uint32_t kMaxTapTotal = 64 * 1024;
 
 // Warp Album: a screenshot or video in the console's album on the SD card, named by its
 // path under Nintendo/Album ("2026/11/26/2026112602451200-<32 hex>.jpg").
