@@ -1,12 +1,17 @@
 #include "labs.hpp"
 
+#include "nxnative_store.hpp"
+
 #include <nlohmann/json.hpp>
 
+#include <cctype>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <set>
 #include <thread>
+#include <vector>
 
 #include <netdb.h>
 #include <spawn.h>
@@ -229,6 +234,47 @@ bool BotbaseInput::click(const std::string& button, std::string& error) {
   return true;
 }
 
+// The game's tested settings that the app's settings window would apply. Skipping the window
+// (DM_LAUNCHER=0) leaves the launcher only the saved choices, and the host falls back to its
+// own defaults for the rest: for Xenoblade that meant no MetalFX upscaling and no DM_NVN_CUT,
+// about 10 ms more GPU time a frame and no locked 60. So each default in
+// Resources/dm/launcher.json is added unless something the launcher ranks higher sets it: the
+// launch environment, the player's env.txt, the bundle's env.txt, or a saved choice.
+std::vector<std::string> launcherDefaults(const NxNativeApp& app) {
+  std::set<std::string> taken;
+  for (const fs::path& f : {app.dataDir / "env.txt", app.app / "Contents/Resources/dm/env.txt"}) {
+    std::ifstream in(f);
+    std::string line;
+    while (std::getline(in, line)) {
+      const auto eq = line.find('=');
+      if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+      std::string key = line.substr(0, eq);
+      while (!key.empty() && std::isspace(static_cast<unsigned char>(key.back()))) key.pop_back();
+      taken.insert(key);
+    }
+  }
+  std::vector<std::string> out;
+  std::ifstream in(app.app / "Contents/Resources/dm/launcher.json");
+  const json doc = json::parse(in, nullptr, false);
+  if (doc.is_discarded() || !doc.contains("settings") || !doc["settings"].is_array()) return out;
+  for (const auto& s : doc["settings"]) {
+    if (!s.is_object() || !s.contains("env") || !s.contains("default")) continue;
+    if (!s["env"].is_string()) continue;
+    const std::string var = s["env"];
+    if (var.rfind("DM_", 0) != 0 || std::getenv(var.c_str()) || taken.count(var)) continue;
+    if (!appPreference(app, "launcher." + var).empty()) continue;  // the saved choice wins
+    const json& d = s["default"];
+    std::string value;
+    if (d.is_string()) value = d.get<std::string>();
+    else if (d.is_number_integer()) value = std::to_string(d.get<long long>());
+    else if (d.is_number()) value = d.dump();
+    else if (d.is_boolean()) value = d.get<bool>() ? "1" : "0";
+    else continue;
+    out.push_back(var + "=" + value);
+  }
+  return out;
+}
+
 bool launchForLabs(const NxNativeApp& app, const fs::path& ctlFile, std::string& error) {
   if (appBundleRunning(app.app)) {
     error = app.name + " is already running; quit it first so it can start with a control file";
@@ -238,9 +284,10 @@ bool launchForLabs(const NxNativeApp& app, const fs::path& ctlFile, std::string&
   fs::create_directories(ctlFile.parent_path(), ec);
   std::ofstream(ctlFile, std::ios::trunc).flush();
   // The app's own launcher, with DM_CTL added to the environment; the saved settings
-  // still apply.
+  // still apply, and the window's tested defaults are added (launcherDefaults).
   std::vector<std::string> env;
   for (char** e = environ; *e; ++e) env.emplace_back(*e);
+  for (auto& d : launcherDefaults(app)) env.push_back(std::move(d));
   env.push_back("DM_CTL=" + ctlFile.string());
   env.push_back("DM_LAUNCHER=0");  // straight into the game: the settings window waits for a click
   std::vector<char*> envp;

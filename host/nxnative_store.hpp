@@ -143,4 +143,8 @@ bool streamApp(const NxNativeApp& app, UnitSink* sink, std::string& hash, std::s
 bool streamNxNativeSave(const std::filesystem::path& dir, uint64_t convertTitleId, UnitSink* sink,
                         std::string& hash, std::string& refused, std::string& error);
 
+// A string from the app's preferences (its bundle ID's domain), such as a saved launcher
+// choice ("launcher.DM_UPSCALER"); empty when unset.
+std::string appPreference(const NxNativeApp& app, const std::string& key);
+
 }  // namespace WarpPoint

@@ -694,4 +694,8 @@ std::unique_ptr<UnitWriter> NxNativeStore::write(const UnitRef& ref,
   return std::make_unique<NxNativeWriter>(*this, *a, staging, expectedHash);
 }
 
+std::string appPreference(const NxNativeApp& app, const std::string& key) {
+  return preferenceString(app.bundleId, key.c_str());
+}
+
 }  // namespace WarpPoint
