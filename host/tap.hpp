@@ -10,8 +10,10 @@
 //   {"titleId": "010055d009f78000", "name": "...", "builds": ["89048449ba238c8c"],
 //    "fields": [{"id": "gold", "label": "Gold", "group": "Monastery", "type": "u32",
 //                "region": "main", "offset": "0x1B12190", "hops": ["0x24274"]}]}
-// Types: u8 u16 u32 u64 i8 i16 i32 f32. "when": a note shown when a pointer on the way
-// is null ("in battle").
+// Types: u8 u16 u32 u64 i8 i16 i32 f32, and text: utf8 / utf16 with "length" (characters
+// at most; up to the first NUL). "when": a note shown when a pointer on the way is null
+// ("in battle"). "lexicon": true marks a text field as the game's current line of
+// dialogue, for the Lexicon window.
 #pragma once
 #include "messages.hpp"
 
@@ -26,6 +28,7 @@ class RemoteStore;
 
 struct TapField {
   std::string id, label, group, type, when;
+  bool lexicon = false;
   proto::TapEntry entry;
 };
 

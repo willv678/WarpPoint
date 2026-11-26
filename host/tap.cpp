@@ -67,6 +67,7 @@ std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& 
     t.group = f.value("group", "");
     t.type = f.value("type", "u32");
     t.when = f.value("when", "");
+    t.lexicon = f.value("lexicon", false);
     const std::string region = f.value("region", "main");
     t.entry.region = region == "heap"    ? proto::TapRegion::Heap
                      : region == "alias" ? proto::TapRegion::Alias
@@ -77,6 +78,11 @@ std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& 
       t.entry.hops.push_back(static_cast<int64_t>(num(h)));
     }
     t.entry.length = static_cast<uint32_t>(sizeOf(t.type));
+    if (t.type == "utf8" || t.type == "utf16") {  // text: "length" characters at most
+      const uint64_t chars = f.value("length", uint64_t{256});
+      t.entry.length = static_cast<uint32_t>(std::min<uint64_t>(chars * (t.type == "utf16" ? 2 : 1),
+                                                                 proto::kMaxTapLength));
+    }
     if (t.id.empty() || !t.entry.length || t.entry.hops.size() > proto::kMaxTapHops) {
       error = "bad field " + t.id;
       return std::nullopt;
@@ -107,7 +113,56 @@ std::vector<TapProfile> tapProfiles(const fs::path& dataDir) {
   return out;
 }
 
+namespace {
+
+void appendUtf8(std::string& out, uint32_t cp) {
+  if (cp < 0x80) {
+    out += static_cast<char>(cp);
+  } else if (cp < 0x800) {
+    out += static_cast<char>(0xC0 | (cp >> 6));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else if (cp < 0x10000) {
+    out += static_cast<char>(0xE0 | (cp >> 12));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  } else {
+    out += static_cast<char>(0xF0 | (cp >> 18));
+    out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+    out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+    out += static_cast<char>(0x80 | (cp & 0x3F));
+  }
+}
+
+// Text up to the first NUL, as UTF-8; anything that isn't valid text becomes U+FFFD.
+std::string decodeText(const std::vector<uint8_t>& b, bool utf16) {
+  std::string out;
+  if (!utf16) {
+    for (size_t i = 0; i < b.size() && b[i]; ++i) out += static_cast<char>(b[i]);
+    return out;
+  }
+  for (size_t i = 0; i + 1 < b.size(); i += 2) {
+    uint32_t u = b[i] | (b[i + 1] << 8);
+    if (!u) break;
+    if (u >= 0xD800 && u < 0xDC00 && i + 3 < b.size()) {
+      const uint32_t lo = b[i + 2] | (b[i + 3] << 8);
+      if (lo >= 0xDC00 && lo < 0xE000) {
+        u = 0x10000 + ((u - 0xD800) << 10) + (lo - 0xDC00);
+        i += 2;
+      } else {
+        u = 0xFFFD;
+      }
+    } else if (u >= 0xD800 && u < 0xE000) {
+      u = 0xFFFD;
+    }
+    appendUtf8(out, u);
+  }
+  return out;
+}
+
+}  // namespace
+
 std::string tapValue(const TapField& f, const std::vector<uint8_t>& b) {
+  if (f.type == "utf8" || f.type == "utf16") return decodeText(b, f.type == "utf16");
   if (b.size() != sizeOf(f.type)) return "";
   uint64_t v = 0;
   for (size_t i = b.size(); i-- > 0;) v = (v << 8) | b[i];
@@ -146,10 +201,12 @@ std::string tapSnapshot(RemoteStore& console, const std::vector<TapProfile>& pro
   std::snprintf(tid, sizeof(tid), "%016llx", static_cast<unsigned long long>(probe.titleId));
   out["titleId"] = tid;
   out["buildId"] = probe.buildId;
-  const auto it = std::find_if(profiles.begin(), profiles.end(), [&](const TapProfile& p) {
+  // The last match: a profile in <data>/tap overrides the built-in one for that build.
+  const auto rit = std::find_if(profiles.rbegin(), profiles.rend(), [&](const TapProfile& p) {
     return p.titleId == probe.titleId &&
            std::find(p.builds.begin(), p.builds.end(), lower(probe.buildId)) != p.builds.end();
   });
+  const auto it = rit == profiles.rend() ? profiles.end() : std::prev(rit.base());
   if (it == profiles.end()) {
     const bool sameGame = std::any_of(profiles.begin(), profiles.end(),
                                       [&](const TapProfile& p) { return p.titleId == probe.titleId; });
@@ -169,7 +226,8 @@ std::string tapSnapshot(RemoteStore& console, const std::vector<TapProfile>& pro
   for (size_t i = 0; i < it->fields.size(); ++i) {
     const auto& f = it->fields[i];
     const auto& r = reply.results[i];
-    json v = {{"id", f.id}, {"label", f.label}, {"group", f.group}, {"value", nullptr}, {"note", ""}};
+    json v = {{"id", f.id}, {"label", f.label}, {"group", f.group}, {"value", nullptr}, {"note", ""},
+              {"lexicon", f.lexicon}, {"text", f.type == "utf8" || f.type == "utf16"}};
     if (r.status == proto::TapStatus::Ok) v["value"] = tapValue(f, r.bytes);
     else if (r.status == proto::TapStatus::NullPointer) v["note"] = f.when.empty() ? "not now" : f.when;
     else v["note"] = "unreadable";

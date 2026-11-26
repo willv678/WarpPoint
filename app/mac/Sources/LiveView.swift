@@ -8,6 +8,18 @@ struct TapSnapshot: Decodable {
     let group: String
     let value: String?
     let note: String
+    var lexicon: Bool = false
+
+    private enum CodingKeys: String, CodingKey { case id, label, group, value, note, lexicon }
+    init(from d: Decoder) throws {
+      let c = try d.container(keyedBy: CodingKeys.self)
+      id = try c.decode(String.self, forKey: .id)
+      label = (try? c.decode(String.self, forKey: .label)) ?? id
+      group = (try? c.decode(String.self, forKey: .group)) ?? ""
+      value = try? c.decode(String.self, forKey: .value)
+      note = (try? c.decode(String.self, forKey: .note)) ?? ""
+      lexicon = (try? c.decode(Bool.self, forKey: .lexicon)) ?? false
+    }
   }
   var game: String = ""
   var titleId: String = ""

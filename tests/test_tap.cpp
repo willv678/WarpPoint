@@ -141,3 +141,48 @@ TEST_CASE("tap: a look at the running game over the link") {
   CHECK(snap["status"] == "No game is running on the Switch.");
   runtime.stop();
 }
+
+TEST_CASE("tap: text fields (Lexicon) decode UTF-8 and UTF-16 up to the first NUL") {
+  TapField f;
+  f.type = "utf8";
+  CHECK(tapValue(f, {'H', 'i', 0, 'x'}) == "Hi");
+  f.type = "utf16";
+  // "Hé" + U+1F600 (a surrogate pair) + NUL
+  CHECK(tapValue(f, {'H', 0, 0xE9, 0, 0x3D, 0xD8, 0x00, 0xDE, 0, 0, 'x', 0}) == "H\xC3\xA9\xF0\x9F\x98\x80");
+  CHECK(tapValue(f, {0x00, 0xD8, 'a', 0}) == "\xEF\xBF\xBD" "a");  // a lone surrogate
+  std::string error;
+  const auto p = parseTapProfile(R"({"titleId":"0100000000000001","builds":["aa"],
+      "fields":[{"id":"line","type":"utf16","length":100,"lexicon":true}]})", error);
+  REQUIRE(p);
+  CHECK(p->fields[0].entry.length == 200);
+  CHECK(p->fields[0].lexicon);
+}
+
+TEST_CASE("tap: a profile in the data folder overrides the built-in one") {
+  FakeGame game;
+  MemoryStore store;
+  AgentConfig cfg;
+  cfg.store = &store;
+  cfg.tap = &game;
+  cfg.identity = {"switch-1", "Test Switch", {"tap"}};
+  cfg.tcpPort = 0;
+  cfg.discoveryPort = 0;
+  cfg.hostDiscoveryPort = 9;
+  AgentRuntime runtime;
+  std::string error;
+  REQUIRE(runtime.start(cfg, error));
+  auto stream = net::TcpStream::connect("127.0.0.1", runtime.tcpPort(), 2000, error);
+  REQUIRE(stream);
+  stream->setTimeout(5000);
+  RemoteStore remote(*stream);
+  proto::Hello agent;
+  REQUIRE(remote.handshake({proto::kProtocolVersion, "mac-1", "Mac", {}}, agent, error));
+  TempDir data;
+  writeFile(data / "tap/mine.json", R"({"titleId":"010055d009f78000","name":"Mine","builds":["89048449ba238c8c"],
+      "fields":[{"id":"g","label":"G","type":"u32","offset":"0x1B12190","hops":["0x24274"]}]})");
+  const auto snap = nlohmann::json::parse(tapSnapshot(remote, tapProfiles(data.path()), ""));
+  CHECK(snap["game"] == "Mine");
+  CHECK(snap["fields"].size() == 1);
+  CHECK(snap["fields"][0]["value"] == "17,223");
+  runtime.stop();
+}

@@ -118,6 +118,10 @@ struct MenuView: View {
         openWindow(id: "library")
         NSApp.activate()  // a menu bar app's window should come to the front
       }
+      MenuButton("Lexicon…") {
+        openWindow(id: "lexicon")
+        NSApp.activate()
+      }
       MenuButton("Live Game Info…") {
         openWindow(id: "live")
         NSApp.activate()

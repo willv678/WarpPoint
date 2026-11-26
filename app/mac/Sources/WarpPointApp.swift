@@ -23,6 +23,11 @@ struct WarpPointApp: App {
       SettingsView(model: model)
     }
 
+    Window("Lexicon", id: "lexicon") {
+      LexiconView(model: model)
+    }
+    .defaultSize(width: 620, height: 460)
+
     Window("Live", id: "live") {
       LiveView(model: model)
     }
@@ -53,7 +58,7 @@ struct MenuBarLabel: View {
           openWindow(id: "setup")
           NSApp.activate()
         } else if let w = ProcessInfo.processInfo.environment["WARP_OPEN_WINDOW"],
-                  ["library", "setup", "reports", "live"].contains(w) {
+                  ["library", "setup", "reports", "live", "lexicon"].contains(w) {
           // For screenshots and checks: open a window at launch without the menu.
           openWindow(id: w)
           NSApp.activate()
