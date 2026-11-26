@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.2.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.3.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.2.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.3.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -139,6 +139,27 @@ checked in-game on both sides) and Xenoblade Chronicles: Definitive Edition, who
 Edition app on the Mac shares the Switch 1 game's save. `warp nxnative` lists the apps WarpPoint
 found and the save each one maps to, and `warp restore` puts any backup back on either side.
 
+## More than saves (1.3)
+
+The link WarpPoint keeps between the Switch and the Mac carries a few more things. Each is
+its own capability on the Switch side, so an older Switch module just doesn't offer it.
+
+- **Warp Lens: crash reports.** When a game or app crashes on the Switch, Atmosphère writes a
+  report to the SD card. WarpPoint brings new ones to the Mac after the next sync, says in plain
+  words what happened ("Xenoblade Chronicles crashed (2168-0002). It read or wrote memory it
+  shouldn't have…"), and keeps the report and the screenshot of the crash. **Crash Reports…** in
+  the menu lists them; a notification says when there's a new one. Error reports that are only
+  Wi-Fi noise are skipped. `warp reports` does the same from a terminal.
+- **Warp Album: screenshots and videos.** New captures from the Switch's album land in
+  `~/Pictures/WarpPoint/<Game>/` after each sync, named by game and time. The first time, the
+  last 30 days come over. Change the folder or turn it off in Settings. Nothing on the Switch is
+  changed. `warp album` copies new ones now.
+- **Warp Presence: Discord.** Discord shows the game you're playing on the Switch. Discord needs
+  an app of your own for this: make one at
+  [discord.com/developers/applications](https://discord.com/developers/applications) (call it
+  "Nintendo Switch"), paste its Application ID into Settings › Discord, and turn it on. The menu
+  shows what's playing on the Switch either way. `warp presence-test ID` checks the ID.
+
 ## How light is it?
 
 Light enough to forget about.
@@ -159,7 +180,9 @@ a sync, when it reads the saves on both sides to see what changed.
   installed on the Switch. Until it is, the save waits on the Mac.
 - Adding a new game's save to Astris needs Astris to be closed, because Astris keeps its list of
   saves in memory while it runs. Saves it already has sync with Astris open.
-- Very large saves (tens of MB) may not fit in a single write on the Switch.
+- A save bigger than its own journal is written to the Switch in pieces. If the power goes in the
+  middle, WarpPoint counts that save as missing on the Switch and writes it again on the next
+  sync; the old one is in the Mac's backups.
 - Mac only, and Ryujinx-family emulators and nxnative apps only, for now.
 - An nxnative app's main player is synced. Extra local players (nxnative's `save_userN` folders)
   are left alone.
@@ -174,7 +197,10 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Menu bar app, library, backups and restore, first-run setup (1.0)
 - [x] Background module and Tesla overlay on the Switch (1.0)
 - [x] Create a save on the Switch for a game only played on the Mac (1.3)
-- [ ] Very large saves (TotK-size) written to the Switch in pieces
+- [x] Very large saves written to the Switch in pieces (1.3)
+- [x] Warp Lens: crash reports from the Switch, on the Mac, explained (1.3)
+- [x] Warp Album: Switch screenshots and videos into a Mac folder (1.3)
+- [x] Warp Presence: what's playing on the Switch, in Discord (1.3)
 - [x] nxnative ports, found and synced like emulator games (1.2)
 - [ ] More emulators
 - [ ] Windows and Linux
@@ -233,8 +259,8 @@ app/mac/build.sh                                      # build-release/WarpPoint.
 ```
 
 `build/host/warp` is a command line for the same engine. Try `warp list`, `warp sync downwell`,
-`warp watch`, `warp resolve "three houses" switch`, `warp nxnative` or `warp backups xenoblade`, or
-run `warp` on its own to see the rest.
+`warp watch`, `warp resolve "three houses" switch`, `warp nxnative`, `warp backups xenoblade`,
+`warp reports` or `warp album`, or run `warp` on its own to see the rest.
 
 ## Thanks
 
