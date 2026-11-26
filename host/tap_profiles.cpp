@@ -8,6 +8,8 @@ extern const char* const kBuiltinTapProfiles[] = {
     // gold read 17,223 as the Armory showed. The unit under the battle cursor (from the
     // cheat file's "Highlight" codes): level at +0x4A and HP at +0xDE, checked on two
     // units in the Ch. 8 battle (Byleth Lv 21 HP 43, Linhardt Lv 17 HP 33).
+    // Dialogue: the message window's text buffer, found with WarpPoint Labs in the
+    // nxnative build of the same game (the line on screen, UTF-8, '\n' between rows).
     R"({
       "titleId": "010055d009f78000",
       "name": "Fire Emblem: Three Houses",
@@ -20,7 +22,9 @@ extern const char* const kBuiltinTapProfiles[] = {
         {"id": "unitLevel", "label": "Level", "group": "Unit under the cursor", "type": "u8",
          "region": "main", "offset": "0x1ACA288", "hops": ["0x21068", "0x4A"], "when": "in battle"},
         {"id": "unitHp", "label": "HP", "group": "Unit under the cursor", "type": "u8",
-         "region": "main", "offset": "0x1ACA288", "hops": ["0x21068", "0xDE"], "when": "in battle"}
+         "region": "main", "offset": "0x1ACA288", "hops": ["0x21068", "0xDE"], "when": "in battle"},
+        {"id": "line", "label": "Line", "group": "Dialogue", "type": "utf8", "length": 400,
+         "region": "main", "offset": "0x1B4E108", "hops": ["0x1B48"], "lexicon": true}
       ]
     })",
     nullptr,

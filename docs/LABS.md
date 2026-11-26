@@ -40,13 +40,24 @@ How the Mac side works: nxnative runs the game natively, so a game address is a 
 address. `lab-launch` starts the app with `DM_CTL` set to a control file under
 `~/Library/Application Support/WarpPoint/labs/`. Reads are `memdump` lines in that
 file, and presses are button lines. The app's log names where the main module was
-loaded. Only `main`-relative fields can be read there; `heap` and `alias` ones show as
-unreadable.
+loaded, and where the heap and alias regions are. `main`, `heap` and `alias` fields can be
+read there; `aslr` can't.
 
 Tested on FE3H 1.2.0, Switch 1 against the nxnative app:
 - Gold and renown agreed out of battle.
 - A five-check cursor walk agreed at every check.
 - Moving only the Mac's cursor was reported as "Level: 19 on the Switch, 17 on this Mac".
+
+## Finding Tap fields on the Mac port
+
+Reading the Mac port is much faster than reading the Switch, and a pointer chain from
+`main` is the same on both, because it's the same game code. FE3H's dialogue line was
+found this way:
+1. Show a line on screen in the Mac app.
+2. `memdump` the heap and search for the text.
+3. One copy sat in a small struct that changed with each line.
+4. Search `main` for a pointer to that struct: `[main+0x1B4E108]+0x1B48`.
+5. Check the chain on the Switch with `warp tap`, which read the same line.
 
 ## Not built
 

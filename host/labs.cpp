@@ -44,6 +44,19 @@ uint64_t NxNativeTap::mainBase() const {
   return base;
 }
 
+uint64_t NxNativeTap::regionBase(const char* name) const {
+  std::ifstream in(log_);
+  std::string line;
+  const std::string key = std::string(" ") + name + " 0x";
+  uint64_t base = 0;
+  while (std::getline(in, line)) {
+    if (line.find("] guest AS ") == std::string::npos) continue;
+    const auto at = line.find(key);
+    if (at != std::string::npos) base = std::strtoull(line.c_str() + at + key.size(), nullptr, 16);
+  }
+  return base;
+}
+
 bool NxNativeTap::ready(std::string& why) const {
   if (!appBundleRunning(app_.app)) {
     why = app_.name + " isn't running (start it with `warp lab-launch`)";
@@ -104,11 +117,15 @@ bool NxNativeTap::read(const std::vector<proto::TapEntry>& plan, proto::TapReply
   for (size_t i = 0; i < plan.size(); ++i) {
     const auto& e = plan[i];
     auto& r = reply.results[i];
-    if (e.region != proto::TapRegion::Main) {
-      r.status = proto::TapStatus::ReadFailed;  // only main's place is known on the Mac
+    uint64_t start = 0;
+    if (e.region == proto::TapRegion::Main) start = base;
+    else if (e.region == proto::TapRegion::Heap) start = regionBase("heap");
+    else if (e.region == proto::TapRegion::Alias) start = regionBase("alias");
+    if (!start) {
+      r.status = proto::TapStatus::ReadFailed;  // aslr: no such place on the Mac
       continue;
     }
-    uint64_t a = base + e.offset;
+    uint64_t a = start + e.offset;
     r.status = proto::TapStatus::Ok;
     for (const int64_t hop : e.hops) {
       std::vector<uint8_t> p;

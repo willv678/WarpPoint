@@ -57,9 +57,11 @@ from another version.
    adds `BBBB`. `58001000 0000CCCC` then loads `[that+CCCC]`. Together those make the
    chain.
 2. Check the value on the console: `warp tap` with your profile in the `tap` folder.
-3. Look around a struct: `warp tap-dump out.bin 0x2000 main 0x1ACA288 0x21068 0x0`
+3. Faster, if the game has an nxnative port: search the Mac app's memory with Labs
+   (docs/LABS.md), then check the chain on the Switch.
+4. Look around a struct: `warp tap-dump out.bin 0x2000 main 0x1ACA288 0x21068 0x0`
    writes 8 KB from the start of the struct, to compare against what the game shows.
-4. Check a field on two different cases (two units, two saves) before trusting it.
+5. Check a field on two different cases (two units, two saves) before trusting it.
 
 ## Limits
 

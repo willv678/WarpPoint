@@ -5,7 +5,7 @@
 // game address is a Mac address; the app's control file (DM_CTL, which WarpPoint sets
 // when it starts the app with `warp lab-launch`) takes "memdump <address> <bytes>
 // <file>" lines, and the app's log names where the main module is ("main: base 0x...").
-// Only the main region is known there (heap/alias read as failed).
+// The log also names the heap and alias regions ("guest AS ... heap 0x... alias 0x...").
 //
 // Divergence runs one profile against the Switch and the Mac app and lists the fields
 // that differ: the same save, two machines, which numbers disagree.
@@ -37,6 +37,7 @@ class NxNativeTap {
  private:
   bool dump(uint64_t address, uint32_t length, std::vector<uint8_t>& out, std::string& error);
   uint64_t mainBase() const;
+  uint64_t regionBase(const char* name) const;  // "heap" / "alias" from the guest AS line
 
   NxNativeApp app_;
   std::filesystem::path ctl_, log_, scratch_;
