@@ -606,6 +606,33 @@ bool SaveStore::list(std::vector<UnitRef>& out, std::string& error) {
   return true;
 }
 
+uint64_t SaveStore::commitId(const std::string& key) const {
+  u64 titleId = 0;
+  AccountUid uid{};
+  if (!parseKey(key, titleId, uid)) return 0;
+  FsSaveDataInfoReader reader;
+  if (R_FAILED(fsOpenSaveDataInfoReader(&reader, FsSaveDataSpaceId_User))) return 0;
+  FsSaveDataInfo info;
+  s64 count = 0;
+  u64 saveId = 0;
+  while (R_SUCCEEDED(fsSaveDataInfoReaderRead(&reader, &info, 1, &count)) && count > 0) {
+    if (info.save_data_type == FsSaveDataType_Account && info.save_data_index == 0 &&
+        info.application_id == titleId && info.uid.uid[0] == uid.uid[0] && info.uid.uid[1] == uid.uid[1]) {
+      saveId = info.save_data_id;
+      break;
+    }
+  }
+  fsSaveDataInfoReaderClose(&reader);
+  if (!saveId) return 0;
+  FsSaveDataExtraData extra{};
+  if (R_FAILED(fsReadSaveDataFileSystemExtraDataBySaveDataSpaceId(&extra, sizeof(extra),
+                                                                  FsSaveDataSpaceId_User, saveId))) {
+    return 0;
+  }
+  // The commit id changes with every commit; the timestamp guards a counter that repeats.
+  return extra.commit_id ^ (static_cast<uint64_t>(extra.timestamp) << 1);
+}
+
 std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
   std::vector<UnitStatus> out;
   for (const auto& ref : refs) {
@@ -623,6 +650,17 @@ std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
       out.push_back(st);
       continue;
     }
+    // Unchanged since it was last hashed: answer without opening it.
+    const uint64_t commit = commitId(ref.key);
+    if (commit) {
+      const auto c = cache_.find(ref.key);
+      if (c != cache_.end() && c->second.commit == commit) {
+        st.hash = c->second.hash;
+        st.exists = !st.hash.empty();
+        out.push_back(st);
+        continue;
+      }
+    }
     MountedSave save;
     std::string error;
     if (!save.open(ref.key, error)) {
@@ -639,6 +677,7 @@ std::vector<UnitStatus> SaveStore::status(const std::vector<UnitRef>& refs) {
     }
     if (!walkSave(nullptr, st.hash, st.error)) st.hash.clear();
     st.exists = !st.hash.empty();  // a save with no files counts as no save
+    if (commit && st.error.empty()) cache_[ref.key] = {commit, st.hash};
     out.push_back(st);
   }
   return out;

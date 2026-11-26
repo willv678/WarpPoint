@@ -76,6 +76,8 @@ bool warp_core_set_link(WarpCore* core, const char* consoleUser, const char* emu
 /* Warp Presence: show the Switch's game in Discord (setup's "presence": {"enabled",
  * "discordAppId","status"}); events {"kind":"playing","console","titleId","name","icon",
  * "presence"} say what's running there. */
+/* Warp Split: LiveSplit auto-splitting (setup's "split": {"enabled","host","port","status"}). */
+bool warp_core_set_split(WarpCore* core, bool enabled, const char* host, int port, char** error);
 /* Warp Album: setup's "album": {"enabled","folder"}; events {"kind":"album","console",
  * "name","titleId","icon","image","message"} say what was copied. */
 bool warp_core_set_album(WarpCore* core, bool enabled, const char* folder, char** error);

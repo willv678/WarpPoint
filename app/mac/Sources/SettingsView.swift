@@ -68,6 +68,7 @@ struct SettingsView: View {
           .font(.caption).foregroundStyle(.secondary)
       }
       DiscordSettings(setup: setup, set: { error = model.setPresence(enabled: $0, appId: $1) })
+      SplitSettings(setup: setup, set: { error = model.setSplit(enabled: $0, host: $1, port: $2) })
       Section("General") {
         Toggle("Open WarpPoint when you log in", isOn: $model.openAtLogin)
       }
@@ -182,6 +183,36 @@ struct DiscordSettings: View {
       Text("Discord")
     } footer: {
       Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Nothing leaves this Mac except to the Discord app.")
+        .font(.caption).foregroundStyle(.secondary)
+    }
+  }
+}
+
+/// Warp Split: LiveSplit auto-splitting from the game's Tap profile.
+struct SplitSettings: View {
+  let setup: Setup
+  let set: (Bool, String, Int) -> Void
+  @State private var host = "127.0.0.1"
+  @State private var port = "16834"
+
+  var body: some View {
+    Section {
+      Toggle("Auto-split runs on the Switch", isOn: Binding(
+        get: { setup.split.enabled }, set: { set($0, host, Int(port) ?? 16834) }))
+      HStack {
+        TextField("LiveSplit computer", text: $host)
+        TextField("Port", text: $port).frame(width: 70)
+      }
+      .onSubmit { set(setup.split.enabled, host, Int(port) ?? 16834) }
+      .onAppear {
+        host = setup.split.host
+        port = String(setup.split.port)
+      }
+      LabeledContent("Status") { Text(setup.split.status).foregroundStyle(.secondary) }
+    } header: {
+      Text("LiveSplit")
+    } footer: {
+      Text("In LiveSplit, turn on Control › Start TCP Server. WarpPoint starts, splits and pauses the timer by the rules in the running game's Tap profile (its \"splits\").")
         .font(.caption).foregroundStyle(.secondary)
     }
   }

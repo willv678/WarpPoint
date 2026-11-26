@@ -54,6 +54,7 @@ std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& 
     return std::nullopt;
   }
   TapProfile p;
+  p.json = text;
   p.titleId = std::strtoull(j.value("titleId", "").c_str(), nullptr, 16);
   p.name = j.value("name", "");
   for (const auto& b : j.value("builds", json::array())) {

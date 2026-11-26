@@ -72,6 +72,10 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     const json al = j.value("album", json::object());
     out.album.enabled = al.value("enabled", true);
     out.album.folder = al.value("folder", "");
+    const json sp = j.value("split", json::object());
+    out.split.enabled = sp.value("enabled", false);
+    out.split.host = sp.value("host", "127.0.0.1");
+    out.split.port = sp.value("port", uint16_t{16834});
     const json pr = j.value("presence", json::object());
     out.presence.enabled = pr.value("enabled", false);
     out.presence.discordAppId = pr.value("discordAppId", "");
@@ -114,6 +118,9 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
   if (!c.album.enabled || !c.album.folder.empty()) {
     j["album"] = {{"enabled", c.album.enabled}};
     if (!c.album.folder.empty()) j["album"]["folder"] = c.album.folder.string();
+  }
+  if (c.split.enabled || c.split.host != "127.0.0.1" || c.split.port != 16834) {
+    j["split"] = {{"enabled", c.split.enabled}, {"host", c.split.host}, {"port", c.split.port}};
   }
   if (c.presence.enabled || !c.presence.discordAppId.empty()) {
     j["presence"] = {{"enabled", c.presence.enabled}, {"discordAppId", c.presence.discordAppId}};

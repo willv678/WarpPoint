@@ -6,6 +6,7 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "lens.hpp"
+#include "split.hpp"
 #include "mods.hpp"
 #include "tap.hpp"
 #include "net.hpp"
@@ -135,6 +136,8 @@ bool AppCore::start(std::string& error) {
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
   cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
   cfg.afterPass = [this](Session& s) { return applyMods(s); };
+  splitStop_ = false;
+  splitThread_ = std::thread([this] { splitLoop(); });
   cfg.albumFolder = [dataDir]() -> std::optional<std::filesystem::path> {
     Config c;
     std::string e;
@@ -568,6 +571,76 @@ std::vector<AutoSyncEvent> AppCore::applyMods(Session& s) {
   return events;
 }
 
+bool AppCore::setSplit(bool enabled, const std::string& host, uint16_t port, std::string& error) {
+  if (host.empty() || port == 0) {
+    error = "LiveSplit needs a host and a port";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    c.split = {enabled, host, port};
+    return true;
+  }, false, error);
+}
+
+std::string AppCore::splitStatus() {
+  std::lock_guard<std::mutex> lock(playingMutex_);
+  return splitStatus_;
+}
+
+void AppCore::splitLoop() {
+  // Once a second while Split is on and a console is around: look at the game, run the
+  // profile's rules, send what they say to LiveSplit.
+  SplitEngine engine;
+  uint64_t rulesFor = ~0ull;
+  LiveSplitClient liveSplit;
+  auto status = [&](const std::string& s) {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    splitStatus_ = s;
+  };
+  while (!splitStop_) {
+    for (int i = 0; i < 10 && !splitStop_; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    Config c;
+    std::string e;
+    loadConfig(dataDir_ / "config.json", c, e);
+    if (!c.split.enabled) {
+      status("Off");
+      engine = SplitEngine();
+      rulesFor = ~0ull;
+      continue;
+    }
+    if (!consolePresent_) {
+      status("Waiting for the Switch");
+      continue;
+    }
+    const json snap = json::parse(tapJson(), nullptr, false);
+    if (!snap.is_object()) continue;
+    const uint64_t tid = std::strtoull(snap.value("titleId", "").c_str(), nullptr, 16);
+    const auto profiles = tapProfiles(dataDir_);
+    if (tid && tid != rulesFor) {  // a new game: its profile's rules, if any
+      std::vector<SplitRule> rules;
+      for (const auto& p : profiles) {
+        if (p.titleId == tid) rules = parseSplitRules(p.json);
+      }
+      engine.setRules(rules);
+      rulesFor = tid;
+    }
+    std::map<std::string, std::string> fields;
+    for (const auto& f : snap.value("fields", json::array())) {
+      if (f["value"].is_string()) fields[f.value("id", "")] = f["value"].get<std::string>();
+    }
+    const auto cmds = engine.step(tid, fields);
+    if (cmds.empty()) {
+      status(tid ? "Watching " + snap.value("game", std::string("the game")) : "No game running");
+      continue;
+    }
+    if (liveSplit.send(c.split.host, c.split.port, cmds, e)) {
+      status("Sent " + cmds.back() + " to LiveSplit");
+    } else {
+      status(e);
+    }
+  }
+}
+
 std::string AppCore::reportsJson() {
   TitleCache titles(dataDir_ / "titles");
   json out = json::array();
@@ -732,6 +805,8 @@ std::string AppCore::setupJson() {
               {"album", {{"enabled", config.album.enabled},
                          {"folder", (config.album.folder.empty() ? Album::defaultFolder()
                                                                   : config.album.folder).string()}}},
+              {"split", {{"enabled", config.split.enabled}, {"host", config.split.host},
+                         {"port", config.split.port}, {"status", splitStatus()}}},
               {"presence", {{"enabled", config.presence.enabled},
                             {"discordAppId", config.presence.discordAppId},
                             {"status", [this] {

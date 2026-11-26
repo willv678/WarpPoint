@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
 
 namespace WarpPoint {
@@ -32,6 +33,15 @@ class SaveStore : public UnitStore {
 
  private:
   bool inUse(const std::string& key) const;
+  // The save's commit id from its metadata, read without opening the save (0 if unknown).
+  uint64_t commitId(const std::string& key) const;
+  // Hashes by key, valid while the commit id is the same: a save is only opened (which a
+  // game starting at that moment can't share) when it actually changed.
+  struct Cached {
+    uint64_t commit = 0;
+    std::string hash;
+  };
+  std::map<std::string, Cached> cache_;
   // An SD file that exists while a save is being written in pieces (a save bigger than
   // its journal): <staging root>/../partial/<key with / as _>.
   std::string partialMarker(const std::string& key) const;

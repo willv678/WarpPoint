@@ -10,6 +10,7 @@ add_library(warp_host_core STATIC
   lens.cpp
   mods.cpp
   presence.cpp
+  split.cpp
   tap.cpp
   tap_profiles.cpp
   mac_store.cpp

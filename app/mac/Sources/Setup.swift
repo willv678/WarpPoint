@@ -40,6 +40,13 @@ struct Setup: Codable {
   var emulator = Emulator()
   var presence = PresenceSettings()
   var album = AlbumSettings()
+  struct SplitSettings: Codable {
+    var enabled: Bool = false
+    var host: String = "127.0.0.1"
+    var port: Int = 16834
+    var status: String = "Off"
+  }
+  var split = SplitSettings()
   var nxnative = NxNative()
   var console: String = ""
   var consolePresent: Bool = false

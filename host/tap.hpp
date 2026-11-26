@@ -34,6 +34,7 @@ struct TapProfile {
   std::string name;
   std::vector<std::string> builds;  // 16 hex, lower case
   std::vector<TapField> fields;
+  std::string json;  // the profile as written (Warp Split reads its "splits")
 };
 
 // Parse one profile (nullopt + error for a bad one).

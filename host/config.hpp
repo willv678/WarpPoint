@@ -50,6 +50,12 @@ struct Config {
     std::filesystem::path folder;  // "" = ~/Pictures/WarpPoint
   } album;
 
+  struct Split {  // Warp Split: LiveSplit auto-splitting from Tap (1.4)
+    bool enabled = false;
+    std::string host = "127.0.0.1";
+    uint16_t port = 16834;
+  } split;
+
   struct Presence {  // Warp Presence: the Switch's game in Discord (1.3)
     bool enabled = false;
     std::string discordAppId;

@@ -153,6 +153,11 @@ final class WarpModel: ObservableObject {
     return call { warp_core_set_emulator_path(core, path, &$0) }
   }
 
+  func setSplit(enabled: Bool, host: String, port: Int) -> String? {
+    defer { refreshSetup() }
+    return call { warp_core_set_split(core, enabled, host, Int32(port), &$0) }
+  }
+
   func setAlbum(enabled: Bool, folder: String) -> String? {
     defer { refreshSetup() }
     return call { warp_core_set_album(core, enabled, folder, &$0) }

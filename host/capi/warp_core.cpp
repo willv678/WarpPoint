@@ -94,6 +94,13 @@ bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
   return false;
 }
 
+bool warp_core_set_split(WarpCore* core, bool enabled, const char* host, int port, char** error) {
+  std::string e;
+  if (core->core.setSplit(enabled, host ? host : "", static_cast<uint16_t>(port), e)) return true;
+  setError(error, e);
+  return false;
+}
+
 bool warp_core_set_album(WarpCore* core, bool enabled, const char* folder, char** error) {
   std::string e;
   if (core->core.setAlbum(enabled, folder ? folder : "", e)) return true;

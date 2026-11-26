@@ -13,6 +13,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace WarpPoint {
 
@@ -24,7 +25,11 @@ class AppCore {
   ~AppCore() { stop(); }
 
   bool start(std::string& error);
-  void stop() { sync_.stop(); }
+  void stop() {
+    splitStop_ = true;
+    if (splitThread_.joinable()) splitThread_.join();
+    sync_.stop();
+  }
   void syncNow() { sync_.syncNow(); }
 
   // The next event as JSON, oldest first; nullopt when there are none.
@@ -44,6 +49,9 @@ class AppCore {
   // Warp Tap: one look at the game running on the console (see tapSnapshot in tap.hpp).
   // Connects for just this look, so syncing is never held up for long.
   std::string tapJson();
+  // Warp Split: LiveSplit auto-splitting (a thread polls Tap once a second while it's on).
+  bool setSplit(bool enabled, const std::string& host, uint16_t port, std::string& error);
+  std::string splitStatus();
 
   // Warp Lens: every crash report kept from the console, newest first:
   // [{"name","time","programId","program","errorCode","what","where","explanation",
@@ -115,6 +123,10 @@ class AppCore {
   std::function<bool()> emulatorRunning_;
   std::atomic<bool> consolePresent_{false};
   void playing(const std::string& console, uint64_t titleId);
+  void splitLoop();
+  std::thread splitThread_;
+  std::atomic<bool> splitStop_{false};
+  std::string splitStatus_ = "Off";  // guarded by playingMutex_
   Presence presence_;          // used on AutoSync's thread only
   std::mutex playingMutex_;    // guards the two below (read by the UI)
   uint64_t playingTitle_ = 0;
