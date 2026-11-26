@@ -122,9 +122,16 @@ save. Nothing to set up beyond picking, once, which Switch user the apps' saves 
   in the library and leaves nxnative's `.sync` / `.dmsync` files alone. The app sends WarpPoint's
   save to iCloud on its next start, since only the local copy changed.
 
-Tested on a Switch 1 with Fire Emblem: Three Houses (a mid-battle bookmark carried both ways) and
-Xenoblade Chronicles: Definitive Edition, whose Switch 2 Edition app on the Mac shares the Switch
-1 game's save. `warp nxnative` lists the apps WarpPoint found and the save each one maps to.
+- **Switch 2 Editions go one way.** A Switch 2 Edition app upgrades the save it loads, and the
+  Switch 1 version of the game crashes on the result. So WarpPoint brings your Switch save into a
+  Switch 2 Edition app, but keeps the app's newer saves on the Mac ("Newer save kept on this
+  Mac") instead of sending them to a Switch 1. If your console can read them, turn on **Send its
+  saves to** your console in the game's details.
+
+Tested on a Switch 1 with Fire Emblem: Three Houses (a mid-battle bookmark carried both ways,
+checked in-game on both sides) and Xenoblade Chronicles: Definitive Edition, whose Switch 2
+Edition app on the Mac shares the Switch 1 game's save. `warp nxnative` lists the apps WarpPoint
+found and the save each one maps to, and `warp restore` puts any backup back on either side.
 
 ## How light is it?
 
@@ -150,9 +157,10 @@ a sync, when it reads the saves on both sides to see what changed.
 - Mac only, and Ryujinx-family emulators and nxnative apps only, for now.
 - An nxnative app's main player is synced. Extra local players (nxnative's `save_userN` folders)
   are left alone.
-- A Switch 2 Edition can upgrade a save when it loads it. A save played in the Switch 2 Edition
-  app only goes back to a console that has the same edition's data (see the note in
-  [docs/NXNATIVE_SUPPORT.md](docs/NXNATIVE_SUPPORT.md)).
+- A Switch 2 Edition app upgrades the save as it loads it, and the Switch 1 version of the game
+  crashes on the upgraded save (tested with Xenoblade Chronicles DE). So saves made in a Switch 2
+  Edition app stay on the Mac and are never sent to a Switch 1. Your Switch's saves still come to
+  the Mac. Details in [docs/NXNATIVE_SUPPORT.md](docs/NXNATIVE_SUPPORT.md).
 
 ## Roadmap
 
@@ -219,7 +227,8 @@ app/mac/build.sh                                      # build-release/WarpPoint.
 ```
 
 `build/host/warp` is a command line for the same engine. Try `warp list`, `warp sync downwell`,
-`warp watch` or `warp resolve "three houses" switch`, or run `warp` on its own to see the rest.
+`warp watch`, `warp resolve "three houses" switch`, `warp nxnative` or `warp backups xenoblade`, or
+run `warp` on its own to see the rest.
 
 ## Thanks
 

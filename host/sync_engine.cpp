@@ -83,6 +83,14 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
     r.message = "not on the Switch yet: start the game there once";
     return r;
   }
+  if (r.action == SyncAction::Push) {
+    if (const std::string why = local_.sendBlocked(key); !why.empty()) {
+      r.skipped = true;
+      r.held = true;
+      r.message = why;
+      return r;
+    }
+  }
   if (mac.busy || sw.busy) {
     r.skipped = true;
     r.message = mac.busy ? "the game is running in " + r.local + "; close it to sync"

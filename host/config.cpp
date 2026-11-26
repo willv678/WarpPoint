@@ -53,6 +53,11 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     const json saveIds = nx.value("saveIds", json::object());
     const json keep = nx.value("keepInEmulator", json::array());
     const json folders = nx.value("appFolders", json::array());
+    const json sendUp = nx.value("sendUpgraded", json::array());
+    for (const auto& t : sendUp) {
+      uint64_t id = 0;
+      if (t.is_string() && tid(t.get<std::string>(), id)) out.nxnative.sendUpgraded.insert(id);
+    }
     for (const auto& [app, save] : saveIds.items()) {
       uint64_t a = 0, s = 0;
       if (save.is_string() && tid(app, a) && tid(save.get<std::string>(), s)) out.nxnative.saveIds[a] = s;
@@ -96,6 +101,7 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
     if (!n.user.empty()) nx["user"] = n.user;
     for (const auto& [a, s] : n.saveIds) nx["saveIds"][hex(a)] = hex(s);
     for (const auto& t : n.keepInEmulator) nx["keepInEmulator"].push_back(hex(t));
+    for (const auto& t : n.sendUpgraded) nx["sendUpgraded"].push_back(hex(t));
     for (const auto& f : n.appFolders) nx["appFolders"].push_back(f.string());
     if (!nx.empty()) j["nxnative"] = nx;
   }

@@ -473,3 +473,48 @@ TEST_CASE("state: 1.2 writes format 2 (older apps refuse it) and still reads for
   StateStore future(data / "state.json");
   CHECK_FALSE(future.load(error));
 }
+
+TEST_CASE("sync: a Switch 2 Edition app's saves stay on the Mac unless the console can read them") {
+  FakeMac mac;
+  TempDir data;
+  MemoryStore console;
+  console.writable = true;
+  console.saves[kXenoKey] = {{"bfsgame00.sav", "switch, chapter 6"}};
+  writeFile(mac.save(kXenoApp) / "bfsgame00.sav", "switch, chapter 6");
+  StateStore state(data / "state.json");
+  BackupStore backups(data / "backups");
+
+  MacStore local(nullptr, mac.store());
+  SyncEngine engine(local, console, state, backups, "sw", true);
+  CHECK(engine.runPass({kXenoKey})[0].action == SyncAction::None);  // agreed
+
+  // Played further in the Switch 2 Edition on the Mac: kept there, not an error.
+  writeFile(mac.save(kXenoApp) / "bfsgame00.sav", "mac, chapter 8 (upgraded)");
+  auto r = engine.runPass({kXenoKey});
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK(r[0].held);
+  CHECK(r[0].skipped);
+  CHECK(r[0].message.find("Switch 2 Edition") != std::string::npos);
+  CHECK(console.saves[kXenoKey]["bfsgame00.sav"] == "switch, chapter 6");
+
+  // The console's saves still come to the Mac (the Switch 2 Edition reads them).
+  console.saves[kXenoKey] = {{"bfsgame00.sav", "switch, chapter 7"}};
+  r = engine.runPass({kXenoKey});
+  CHECK(r[0].action == SyncAction::Conflict);  // both changed: the player picks
+  REQUIRE(state.resolve("sw", kXenoKey, false));
+  r = engine.runPass({kXenoKey});
+  CHECK(r[0].action == SyncAction::Pull);
+  CHECK(readFile(mac.save(kXenoApp) / "bfsgame00.sav") == "switch, chapter 7");
+
+  // A console that can read them (a Switch 2): allowed in the settings.
+  writeFile(mac.save(kXenoApp) / "bfsgame00.sav", "mac, chapter 9");
+  MacStore allowed(nullptr, mac.store(), {}, {kXenoSave});
+  SyncEngine engine2(allowed, console, state, backups, "sw", true);
+  r = engine2.runPass({kXenoKey});
+  CHECK(r[0].action == SyncAction::Push);
+  CHECK_FALSE(r[0].held);
+  CHECK(console.saves[kXenoKey]["bfsgame00.sav"] == "mac, chapter 9");
+
+  // A Switch 1 game's app (one id for both) is never held.
+  CHECK(local.sendBlocked(kFe3hKey).empty());
+}

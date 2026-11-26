@@ -69,6 +69,9 @@ bool warp_core_set_nxnative_user(WarpCore* core, const char* consoleUser, char**
 bool warp_core_set_nxnative_enabled(WarpCore* core, bool enabled, char** error);
 /* Sync this game (console save title id) with the emulator instead of its nxnative app. */
 bool warp_core_set_keep_in_emulator(WarpCore* core, const char* titleId, bool keep, char** error);
+/* Send a Switch 2 Edition app's saves to the console (only for a console that can read
+ * them: the Switch 1 version of a game crashes on them). titleId: the console save's. */
+bool warp_core_set_send_upgraded(WarpCore* core, const char* titleId, bool send, char** error);
 /* Override which console save an app uses; "" or NULL saveTitleId = from its control data. */
 bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
                                     const char* saveTitleId, char** error);

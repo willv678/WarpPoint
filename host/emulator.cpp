@@ -23,7 +23,7 @@ std::shared_ptr<NxNativeStore> openNxNative(const Config& config) {
 
 std::shared_ptr<MacStore> openLocal(const Config& config) {
   return std::make_shared<MacStore>(openEmulator(config), openNxNative(config),
-                                    config.nxnative.keepInEmulator);
+                                    config.nxnative.keepInEmulator, config.nxnative.sendUpgraded);
 }
 
 bool emulatorRunning() { return processRunning(kEmulatorProcesses); }

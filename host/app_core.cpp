@@ -144,6 +144,7 @@ void AppCore::push(const AutoSyncEvent& e) {
     j["skipped"] = r.skipped;
     j["message"] = r.message;  // why it was skipped or failed
     j["quiet"] = r.quiet;
+    j["held"] = r.held;
     const std::string local = r.local.empty() ? e.local : r.local;
     j["local"] = local;
     j["text"] = r.skipped ? std::string("skipped")
@@ -224,6 +225,7 @@ json nxAppJson(const NxNativeApp& a, bool running) {
           {"saveIdSource", a.saveIdSource},
           {"savePath", a.saveDir().string()},
           {"cloudFolder", a.cloudFolder},
+          {"upgradesSave", a.upgradesSave()},
           {"running", running},
           {"hasSave", hasSave}};
 }
@@ -313,6 +315,7 @@ std::string AppCore::gamesJson() {
     else if (!here) status = "consoleOnly";
     else if (!g["onConsole"].get<bool>()) status = "emulatorOnly";
     else if (l.empty()) status = "new";
+    else if (l.value("held", false)) status = "held";
     else if (!l.value("ok", true)) status = "problem";
     else status = "synced";
     g["status"] = status;
@@ -323,6 +326,9 @@ std::string AppCore::gamesJson() {
       if (rec == std::nullopt || !rec->found) g["name"] = a->name;  // the app knows its name
     }
     // Astris is a choice for a game an nxnative app has when Astris is set up for its user.
+    if (const auto* a = mac->nxAppAny(key)) {
+      g["sendToConsole"] = !a->upgradesSave() || config.nxnative.sendUpgraded.count(a->saveTitleId) > 0;
+    }
     g["canUseEmulator"] = emu && config.users.count(userOf(key)) > 0 && mac->nxAppAny(key);
     g["emulatorHasSave"] = inEmulatorList.count(key) > 0;
     const auto folder = here ? mac->saveFolder(key) : std::nullopt;
@@ -562,6 +568,19 @@ bool AppCore::setKeepInEmulator(const std::string& titleId, bool keep, std::stri
   return changeConfig([&](Config& c, std::string&) {
     if (keep) c.nxnative.keepInEmulator.insert(id);
     else c.nxnative.keepInEmulator.erase(id);
+    return true;
+  }, true, error);
+}
+
+bool AppCore::setSendUpgraded(const std::string& titleId, bool send, std::string& error) {
+  uint64_t id = 0;
+  if (!parseTitleId(titleId, id)) {
+    error = "not a title id";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    if (send) c.nxnative.sendUpgraded.insert(id);
+    else c.nxnative.sendUpgraded.erase(id);
     return true;
   }, true, error);
 }

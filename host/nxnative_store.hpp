@@ -51,6 +51,12 @@ struct NxNativeApp {
   uint64_t appTitleId = 0;       // DMTitleID: names its folder
   uint64_t saveTitleId = 0;      // the console save's id (SaveDataOwnerId, or override)
   std::string saveIdSource;      // "control data", "setting" or "app id"
+  // Another program owns the save: a Switch 2 Edition (0400FF500E34A001) playing the
+  // Switch 1 game's save (0100FF500E34A000). It upgrades the save as it loads it, and
+  // the Switch 1 version then crashes reading it (Xenoblade Chronicles DE 1.1.2,
+  // tested 2026-11-26). So its saves aren't sent to the console unless the player
+  // says the console can read them (a Switch 2).
+  bool upgradesSave() const { return saveTitleId != appTitleId; }
   std::string cloudFolder;       // nxnative's own cloud sync folder; "" = off
   std::filesystem::path dataDir; // ~/Library/Application Support/nxnative/<APP ID>
   std::filesystem::path saveDir() const { return dataDir / "save"; }

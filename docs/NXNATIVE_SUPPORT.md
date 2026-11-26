@@ -76,7 +76,7 @@ nxnative asks which save to keep, and keeps the other in `save-backups/`.
 
 ## Tested (2026-11-26, Switch 1 on Atmosphère, M2 Pro MacBook Pro)
 
-- **Unit tests** (`tests/test_nxnative.cpp`, 16 cases): discovery, control-data mapping and
+- **Unit tests** (`tests/test_nxnative.cpp`, 18 cases): discovery, control-data mapping and
   overrides, cloud detection, reading `save/` only, case-collision names both ways, a fresh
   install, a swap that leaves the app's other files alone, refusing while the app is open (checked
   again at commit), the combined store's routing, moving a game between places (pull and
@@ -97,8 +97,30 @@ nxnative asks which save to keep, and keeps the other in `save-backups/`.
     logged `save commit #2: …save.work swapped atomically into …save`.
   - The next sync pushed it (`copied Fire Emblem Three Houses (nxnative) → Will's Switch`), and the
     Switch's previous copy was backed up first.
-  - SWITCH_FE3H_RESULT
-- **Xenoblade Chronicles DE:** XENOBLADE_RESULT
+  - On the Switch: the title menu offered the bookmark (turn 2, play time 031:46, up from 031:44).
+    It resumed with Will one tile lower, at the forest's edge, already acted, and the battle menu
+    read **Untapped Units: 6** (7 before Will's move). That's the move made on the Mac.
+  - Then the other way: the Switch's save (with the bookmark now used) came back into the app,
+    over its existing save, with a `before-pull` backup first.
+  - Along the way, a WarpPoint 1.0.1 menu bar app left running beside the 1.2 command line pushed
+    Astris's stale save over the Switch's 51 seconds after 1.2's push. It read a base agreed with
+    the app as Astris's. 1.2 now writes `state.json` as format 2, which older versions refuse.
+- **Xenoblade Chronicles DE (Switch 2 Edition on the Mac, Switch 1 version 1.1.2 on the console):**
+  - Switch → Mac works: Will's Switch 1 save (chapter 6) loads in the Switch 2 Edition app, which
+    upgrades it as it loads it (the files grow by 1,744 bytes).
+  - Mac → Switch does **not**: with the app's newer save pushed, the Switch 1 version crashed as
+    soon as Load Game read it ("The software was closed because an error occurred"). A control run
+    with the Switch's original save loaded normally (Satorl Marsh, chapter 6, Lv 25), so the save
+    is the cause.
+  - So WarpPoint never sends a **Switch 2 Edition** app's saves to the console (an app whose own
+    title ID differs from its save's owner). They're kept on the Mac and shown as **Newer save
+    kept on this Mac**, not as an error. The console's saves still come to the Mac. A game whose
+    console can read them (a Switch 2) can turn **Send its saves to the console** on in its
+    details (`nxnative.sendUpgraded`).
+  - Tested live: with the app's save newer, the sync reports
+    `kept on this Mac: Xenoblade Chronicles is a Switch 2 Edition, and the Switch 1 version can't
+    load its saves`, and the Switch keeps its working save.
+  - The Switch was put back on its own save with the new `warp restore GAME BACKUP switch`.
 
 Note: Fire Emblem erases a bookmark when it's resumed (as on the console). A test run that
 resumes one and is killed leaves a save with no bookmark, which then looks like a real change.

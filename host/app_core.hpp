@@ -61,6 +61,9 @@ class AppCore {
   // Keep a game (console save title id, 16 hex) in the emulator even though an
   // nxnative app has it, or (keep = false) sync it with the app again.
   bool setKeepInEmulator(const std::string& titleId, bool keep, std::string& error);
+  // Let a Switch 2 Edition app's saves go to the console (a Switch 2 can read them;
+  // the Switch 1 version crashes on them), or stop that again.
+  bool setSendUpgraded(const std::string& titleId, bool send, std::string& error);
   // Which console save an app's game uses, when its control data gets it wrong
   // ("" = from the control data again).
   bool setNxNativeSaveId(const std::string& appTitleId, const std::string& saveTitleId,

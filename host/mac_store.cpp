@@ -18,8 +18,18 @@ bool looksLikeEmulator(const RyujinxStore& e) {
 }  // namespace
 
 MacStore::MacStore(std::shared_ptr<RyujinxStore> emulator, std::shared_ptr<NxNativeStore> nx,
-                   std::set<uint64_t> keepInEmulator)
-    : emulator_(std::move(emulator)), nx_(std::move(nx)), keepInEmulator_(std::move(keepInEmulator)) {}
+                   std::set<uint64_t> keepInEmulator, std::set<uint64_t> sendUpgraded)
+    : emulator_(std::move(emulator)),
+      nx_(std::move(nx)),
+      keepInEmulator_(std::move(keepInEmulator)),
+      sendUpgraded_(std::move(sendUpgraded)) {}
+
+std::string MacStore::sendBlocked(const std::string& key) const {
+  const auto* a = nxApp(key);
+  if (!a || !a->upgradesSave() || sendUpgraded_.count(a->saveTitleId)) return "";
+  return "kept on this Mac: " + a->name + " is a Switch 2 Edition, and the Switch 1 version "
+         "can't load its saves";
+}
 
 const NxNativeApp* MacStore::nxAppAny(const std::string& key) const {
   return nx_ ? nx_->appFor(key) : nullptr;

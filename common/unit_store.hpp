@@ -64,6 +64,12 @@ class UnitStore {
     (void)key;
     return "";
   }
+  // Why this side's copy must not be sent to the other side ("" = it may be). A save
+  // made by a game's Switch 2 Edition on the Mac crashes the Switch 1 version.
+  virtual std::string sendBlocked(const std::string& key) const {
+    (void)key;
+    return "";
+  }
 
   // Every save this store has, by key.
   virtual bool list(std::vector<UnitRef>& out, std::string& error) = 0;

@@ -13,6 +13,8 @@
 //     "saveIds": { "<app title id>": "<console save title id>" },  // overrides control.nacp
 //     "keepInEmulator": ["<console save title id>", ...],  // games synced with the emulator
 //                                                          // even though an app has them
+//     "sendUpgraded": ["<console save title id>", ...],    // send a Switch 2 Edition app's
+//                                                          // saves to the console (a Switch 2)
 //     "appFolders": ["/Volumes/Games/Apps"]               // besides /Applications, ~/Applications
 //   }
 // }
@@ -39,6 +41,7 @@ struct Config {
     std::string user;                     // "" = the first linked console user
     std::map<uint64_t, uint64_t> saveIds;  // app title id -> console save title id
     std::set<uint64_t> keepInEmulator;     // console save title ids
+    std::set<uint64_t> sendUpgraded;       // Switch 2 Edition saves the console can read
     std::vector<std::filesystem::path> appFolders;
   } nxnative;
 

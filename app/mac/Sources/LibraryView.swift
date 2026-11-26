@@ -378,6 +378,7 @@ struct StatusBadge: View {
     case "synced": return ("checkmark.circle.fill", .green)
     case "consoleOnly": return ("arrow.down.circle.fill", .blue)
     case "emulatorOnly": return ("laptopcomputer.circle.fill", .gray)
+    case "held": return ("lock.circle.fill", .indigo)
     case "conflict": return ("exclamationmark.circle.fill", .orange)
     case "problem": return ("xmark.circle.fill", .red)
     default: return ("circle.dotted.circle.fill", .gray)
@@ -391,6 +392,7 @@ struct StatusBadge: View {
     case "synced": return "In sync"
     case "consoleOnly": return "Only on \(console)"
     case "emulatorOnly": return "Only in \(place ?? model.library.emulator)"
+    case "held": return "Newer save kept on this Mac"
     case "conflict": return "Changed on both sides: pick one"
     case "problem": return "Didn't sync last time"
     default: return "Not synced yet"

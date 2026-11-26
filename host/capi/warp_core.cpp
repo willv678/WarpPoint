@@ -77,6 +77,13 @@ bool warp_core_set_keep_in_emulator(WarpCore* core, const char* titleId, bool ke
   return false;
 }
 
+bool warp_core_set_send_upgraded(WarpCore* core, const char* titleId, bool send, char** error) {
+  std::string e;
+  if (core->core.setSendUpgraded(titleId ? titleId : "", send, e)) return true;
+  setError(error, e);
+  return false;
+}
+
 bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
                                     const char* saveTitleId, char** error) {
   std::string e;

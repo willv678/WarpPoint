@@ -26,6 +26,9 @@ struct UnitReport {
   // Nothing wrong and nothing to do yet: e.g. a game only on the Mac, whose save the
   // console can't create. UIs leave these out of "recent activity".
   bool quiet = false;
+  // A newer save is kept on this side on purpose (UnitStore::sendBlocked): not a
+  // failure, nothing to retry. message says why.
+  bool held = false;
   // Where on the Mac this save lives ("Astris", "Xenoblade Chronicles (nxnative)").
   std::string local = {};
 };

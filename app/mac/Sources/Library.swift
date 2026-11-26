@@ -10,6 +10,7 @@ struct NxApp: Codable, Hashable {
   let saveIdSource: String  // "control data", "setting" or "app id"
   let savePath: String
   let cloudFolder: String  // nxnative's own iCloud sync; "" = off
+  let upgradesSave: Bool  // a Switch 2 Edition playing the Switch 1 game's save
   let running: Bool
   let hasSave: Bool
 }
@@ -23,7 +24,7 @@ struct Game: Codable, Identifiable, Hashable {
   let icon: String
   let onConsole: Bool
   let inEmulator: Bool
-  let status: String  // conflict, synced, consoleOnly, emulatorOnly, problem, new, ignored
+  let status: String  // conflict, synced, held, consoleOnly, emulatorOnly, problem, new, ignored
   let lastText: String
   let lastAt: String
   let ignored: Bool  // "Stop Syncing": WarpPoint leaves it alone
@@ -37,6 +38,8 @@ struct Game: Codable, Identifiable, Hashable {
   let nxnative: NxApp?
   /// Astris can be chosen instead of the app (it's set up for this user).
   let canUseEmulator: Bool
+  /// The app's saves go to the console (false: a Switch 2 Edition's, kept on the Mac).
+  let sendToConsole: Bool?
   let emulatorHasSave: Bool
   var id: String { key }
 

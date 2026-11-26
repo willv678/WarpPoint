@@ -146,6 +146,18 @@ struct GameDetail: View {
             .font(.caption).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
+        if game.isNative, app.upgradesSave {
+          Toggle("Send its saves to \(console)", isOn: Binding(
+            get: { game.sendToConsole ?? false },
+            set: { model.setSendToConsole(game, $0) }))
+            .toggleStyle(.switch)
+            .controlSize(.small)
+          Text((game.sendToConsole ?? false)
+               ? "Only for a Switch 2: the Switch 1 version of this game crashes on saves the Switch 2 Edition has upgraded."
+               : "This is the Switch 2 Edition. It upgrades the save as it loads it, and the Switch 1 version then crashes reading it. So your newer saves stay on this Mac, and \(console)'s saves still come here.")
+            .font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         if game.isNative, !app.cloudFolder.isEmpty {
           Label {
             Text("nxnative's own cloud saves are on for this game. That's fine: after WarpPoint copies a save in, the app sends it to iCloud the next time it starts. If you also play on an iPhone, let each sync finish before switching.")

@@ -24,8 +24,9 @@ class MacStore : public UnitStore {
   // emulator: may be null (no emulator set up). nx: may be null (nxnative off).
   // keepInEmulator: console save title ids the player keeps in the emulator even
   //   though an nxnative app has them.
+  // sendUpgraded: save title ids whose Switch 2 Edition saves may go to the console.
   MacStore(std::shared_ptr<RyujinxStore> emulator, std::shared_ptr<NxNativeStore> nx,
-           std::set<uint64_t> keepInEmulator = {});
+           std::set<uint64_t> keepInEmulator = {}, std::set<uint64_t> sendUpgraded = {});
 
   // "Astris", "Astris and nxnative", or "nxnative".
   std::string displayName() const override;
@@ -33,6 +34,7 @@ class MacStore : public UnitStore {
   std::string nameFor(const std::string& key) const override;
   // "nxnative" or "emulator".
   std::string sideOf(const std::string& key) const override;
+  std::string sendBlocked(const std::string& key) const override;
 
   bool list(std::vector<UnitRef>& out, std::string& error) override;
   std::vector<UnitStatus> status(const std::vector<UnitRef>& refs) override;
@@ -59,6 +61,7 @@ class MacStore : public UnitStore {
   std::shared_ptr<RyujinxStore> emulator_;
   std::shared_ptr<NxNativeStore> nx_;
   std::set<uint64_t> keepInEmulator_;
+  std::set<uint64_t> sendUpgraded_;
 };
 
 }  // namespace WarpPoint

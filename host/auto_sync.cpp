@@ -71,8 +71,10 @@ void saveLastResults(const std::filesystem::path& dataDir, const std::vector<Uni
   for (const auto& r : reports) {
     const std::string here = r.local.empty() ? local : r.local;
     all[r.key] = {{"action", actionName(r.action)},
-                  {"ok", r.quiet || (r.ok && !r.skipped)},
-                  {"text", r.quiet     ? "only in " + here + ", not on " + console + " yet"
+                  {"ok", r.quiet || r.held || (r.ok && !r.skipped)},
+                  {"held", r.held},
+                  {"text", r.held      ? r.message
+                           : r.quiet   ? "only in " + here + ", not on " + console + " yet"
                            : r.skipped ? "skipped: " + r.message
                            : !r.ok   ? "failed: " + r.message
                                      : describeAction(r.action, here, console)},
@@ -258,7 +260,7 @@ bool AutoSync::runPass(const Peer& console) {
   for (const auto& r : reports) {
     emit({AutoSyncEvent::Kind::Synced, session->agent.name, localName, r, ""});
     if (r.action == SyncAction::Conflict) ++conflicts;
-    else if (r.quiet) continue;
+    else if (r.quiet || r.held) continue;
     else if (!r.ok || r.skipped) ++problems;
     else if (r.action != SyncAction::None) ++copied;
   }

@@ -170,6 +170,15 @@ final class WarpModel: ObservableObject {
     refreshLibrary()
   }
 
+  /// Send a Switch 2 Edition app's saves to the console too (only a Switch 2 reads them).
+  func setSendToConsole(_ game: Game, _ send: Bool) {
+    let saveId = game.nxnative?.saveTitleId ?? game.titleId
+    if let failure = call({ warp_core_set_send_upgraded(core, saveId, send, &$0) }) {
+      libraryMessage = "Couldn't: \(failure)"
+    }
+    refreshLibrary()
+  }
+
   private func call(_ body: (inout UnsafeMutablePointer<CChar>?) -> Bool) -> String? {
     var error: UnsafeMutablePointer<CChar>?
     return body(&error) ? nil : (take(error) ?? "something went wrong")
@@ -270,7 +279,8 @@ final class WarpModel: ObservableObject {
       let action = s("action")
       let ok = e["ok"] as? Bool ?? false
       let skipped = e["skipped"] as? Bool ?? false
-      if e["quiet"] as? Bool ?? false { break }  // e.g. only in Astris: nothing to report
+      // Only in Astris, or a Switch 2 Edition's save kept on the Mac: nothing to report.
+      if e["quiet"] as? Bool ?? false || e["held"] as? Bool ?? false { break }
       // Only what changed or went wrong is worth showing; "in sync" is the quiet norm.
       if (!ok || skipped), libraryMessage?.hasPrefix("Bringing") == true {
         libraryMessage = "\(s("name")): \(s("message"))"

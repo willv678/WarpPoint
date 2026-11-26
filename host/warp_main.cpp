@@ -427,14 +427,16 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
   const auto cache = titleCache();
   int failed = 0;
   for (const auto& r : reports) {
-    const std::string what = r.quiet     ? "only in " + r.local
+    const std::string what = r.held      ? r.message
+                             : r.quiet   ? "only in " + r.local
                              : r.skipped ? "skipped"
                              : !r.ok     ? "FAILED"
                                          : describe(r.action, r.local, s.store->displayName());
     // Name the user only when it isn't the obvious one.
     const std::string who = g_config.users.size() > 1 ? " (" + r.key.substr(r.key.rfind('/') + 1, 8) + ")" : "";
     std::printf("  %s%s%s%s\n", padded(cache.nameOf(titleIdOf(r.key)) + who + ":", 30).c_str(),
-                what.c_str(), r.message.empty() ? "" : ": ", r.message.c_str());
+                what.c_str(), r.message.empty() || r.held ? "" : ": ",
+                r.held ? "" : r.message.c_str());
     if (!r.ok && !r.skipped) ++failed;
   }
   std::printf("%zu saves checked.\n", reports.size());
@@ -616,6 +618,12 @@ int cmdNxNative() {
     if (!a.cloudFolder.empty()) {
       std::printf("    nxnative cloud saves ON (%s): the app sends WarpPoint's save there at its\n"
                   "    next start\n", a.cloudFolder.c_str());
+    }
+    if (a.upgradesSave()) {
+      std::printf(g_config.nxnative.sendUpgraded.count(a.saveTitleId)
+                      ? "    Switch 2 Edition: its saves DO go to the console (settings)\n"
+                      : "    Switch 2 Edition: its saves stay on this Mac (the Switch 1 version\n"
+                        "    can't load them); the console's saves still come here\n");
     }
     if (g_config.nxnative.keepInEmulator.count(a.saveTitleId)) {
       std::printf("    kept in the emulator (settings): this app isn't synced\n");
