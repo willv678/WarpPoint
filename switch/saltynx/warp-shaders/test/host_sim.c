@@ -37,6 +37,8 @@ u32 SaltySDCore_printf(const char* fmt, ...) {
 u32 SaltySD_Init(void) { return 0; }
 u32 SaltySD_Deinit(void) { return 0; }
 u64 SaltySD_GetBID(void) { return 0x1234567890ABCDEFull; }
+void SaltySDCore_getDataForUpdate(u32* n, int32_t* ns, ReplacedSymbol** syms, void*** elfs) { *n = 0; *ns = 0; *syms = 0; *elfs = 0; }
+u32 SaltySD_Memcpy(u64 to, u64 from, u64 size) { memcpy((void*)to, (void*)from, size); return 0; }
 
 u32 wp_svcSleepThread(int64_t ns) { (void)ns; return 0; }
 u32 wp_svcCreateThread(u32* out, void (*entry)(void*), void* arg, void* top, int prio, int cpuid) {

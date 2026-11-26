@@ -23,7 +23,7 @@ LDFLAGS   := -nostdlib -nostartfiles -pie -T plugin.ld \
              -Wl,-z,text -Wl,-z,now -Wl,-z,nopack-relative-relocs -Wl,--build-id=sha1 \
              -Wl,--gc-sections -Wl,--no-undefined-version -Wl,-Map,$(BUILD)/$(TARGET).map
 
-.PHONY: all clean check bisect coexist
+.PHONY: all clean check staged coexist
 
 all: $(TARGET).elf
 
@@ -42,31 +42,8 @@ check: $(TARGET).elf
 	@echo "imports:"; $(READELF) -rW $(TARGET).elf | awk '$$3 ~ /GLOB_DAT|JUMP_SLOT|ABS64/ {print "  " $$5}' | sort -u
 	@$(READELF) -lW $(TARGET).elf | awk '$$1=="LOAD" {f=$$7; if ($$8 ~ /^[RWE]+$$/) f=f $$8; printf "segment %s memsz %s flags %s\n", $$3, $$6, f}'
 
-# One .elf per bisect level (see WP_LEVEL in source/plugin.c): L00 load only, L0..L4.
 BISECT := $(BUILD)/bisect
-bisect: $(SOURCES) $(DEPS) Makefile
-	@mkdir -p $(BISECT)
-	@for lv in -1 0 1 2 3 4; do \
-	    name=L$$lv; [ $$lv = -1 ] && name=L00; \
-	    $(CC) $(CFLAGS) -DWP_LEVEL=$$lv $(subst $(BUILD)/$(TARGET).map,$(BISECT)/$$name.map,$(LDFLAGS)) \
-	        -o $(BISECT)/full-$$name.elf $(SOURCES) -lgcc || exit 1; \
-	    $(STRIP) --strip-debug -o $(BISECT)/warp-shaders-$$name.elf $(BISECT)/full-$$name.elf || exit 1; \
-	    rm -f $(BISECT)/full-$$name.elf; \
-	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
-	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
-	done
-	@# L0 variants: L0a/L0b use NX-FPS's LINKABLE import for the real loader, L0c is L0-quiet
-	@# with the pointer logged at load, L0d avoids exclusive load/store in the hook, L0e stops
-	@# with a breakpoint in the hook so the crash report shows its registers.
-	@for v in "L0-quiet:-DWP_QUIET" "L0a:-DWP_QUIET -DWP_L0A" "L0b:-DWP_QUIET -DWP_L0B" \
-	          "L0c:-DWP_QUIET" "L0d:-DWP_QUIET -DWP_PLAIN_COUNTER" "L0e:-DWP_QUIET -DWP_L0E"; do \
-	    name=$${v%%:*}; flags=$${v#*:}; \
-	    $(CC) $(CFLAGS) -DWP_LEVEL=0 $$flags $(subst $(BUILD)/$(TARGET).map,$(BISECT)/$$name.map,$(LDFLAGS)) \
-	        -o $(BISECT)/warp-shaders-$$name.elf $(SOURCES) -lgcc || exit 1; \
-	    $(STRIP) --strip-debug $(BISECT)/warp-shaders-$$name.elf || exit 1; \
-	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
-	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
-	done
+include staged.mk
 
 # Coexistence probes (source/coexist.c): C1 claims nvnBootstrapLoader with the real address and
 # patches the game's relocations itself; C2 chains onto Core's built-in NX-FPS hook.

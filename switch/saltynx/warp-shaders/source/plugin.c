@@ -2,13 +2,20 @@
 // which shader programs a game draws with and the NVN state each draw used, so the Mac can
 // add matching entries to a Ryujinx-family emulator's shader cache. See docs/SHADERS_SPIKE2.md.
 //
-// How it hooks: like NX-FPS, it replaces the game's import of nvnBootstrapLoader, hands out
-// its own nvnDeviceGetProcAddress, and returns wrappers for the NVN functions below.
+// How it hooks: the game's import of nvnBootstrapLoader is pointed at our wrapper, which hands
+// out our nvnDeviceGetProcAddress, which returns wrappers for the NVN functions below. SaltyNX's
+// ReplaceImport can't be used for that directly: Core's built-in NX-FPS replaces the same import
+// after plugins load, and SaltyNX then adds both deltas to the relocation (docs/SHADERS_SPIKE2.md
+// section 9). So we claim the name with the real address (a zero delta for everyone) and patch
+// the game's relocations ourselves ("C1", confirmed on hardware).
 //
 // Hot-path rules: every wrapper calls the real function first. Draw wrappers do a few compares
 // unless state changed; then one xxHash64 of a 416-byte key and one probe of a fixed table.
-// No allocation, no I/O, no blocking locks. New records go to a fixed ring buffer that a
-// low-priority thread writes to the SD card through SaltyNX's file service.
+// No allocation, no I/O, no locks, and no exclusive load/store (ldxr/stxr) anywhere: shared
+// state is plain loads and stores (plus load-acquire/store-release for ordering), and the rare
+// races they allow cost a duplicate or lost record, never a hang. Each record carries a
+// checksum so the reader skips a torn one. A low-priority thread started at the first present
+// writes the records to the SD card through SaltyNX's file service.
 //
 // Built freestanding (no libnx/newlib) with -mgeneral-regs-only, so wrappers never touch the
 // game's FP/SIMD registers.
@@ -18,17 +25,18 @@
 #include "capture_format.h"
 #include "xxhash64.h"
 
-#define PLUGIN_VERSION 2
+#define PLUGIN_VERSION 3
 
-// Bisect levels (make bisect builds one .elf per level; the default build is level 4):
-//  -1  load only: log from the entry point, hook nothing
-//   0  replace nvnBootstrapLoader with a pass-through wrapper
-//   1  also hand out our nvnDeviceGetProcAddress, which passes every name through
-//   2  also wrap nvnQueuePresentTexture (frame timing) and run the flush thread
-//   3  also wrap nvnProgramSetShaders, nvnCommandBufferBindProgram and the memory pool calls
-//   4  everything (the real plugin)
+// Staged builds (make staged): F1 = level 2, F2 = level 4 (the default).
+//   2  bootstrap hook, our nvnDeviceGetProcAddress, nvnQueuePresentTexture (frame timing) and
+//      the flush thread
+//   3  also nvnProgramSetShaders, nvnCommandBufferBindProgram and the memory pool calls
+//   4  everything
 #ifndef WP_LEVEL
 #define WP_LEVEL 4
+#endif
+#ifndef WP_NAME
+#define WP_NAME "F2"
 #endif
 #define HIDDEN __attribute__((visibility("hidden")))
 #define WEAK   __attribute__((weak))
@@ -52,6 +60,9 @@ extern u32  SaltySDCore_printf(const char* fmt, ...) WEAK;
 extern u32  SaltySD_Init(void) WEAK;
 extern u32  SaltySD_Deinit(void) WEAK;
 extern u64  SaltySD_GetBID(void) WEAK;
+typedef struct { void* address; const char* name; } ReplacedSymbol;
+extern void SaltySDCore_getDataForUpdate(u32* nelfs, int32_t* nsyms, ReplacedSymbol** syms, void*** elfs) WEAK;
+extern u32  SaltySD_Memcpy(u64 to, u64 from, u64 size) WEAK;
 
 // ---- syscalls (crt0.s) -------------------------------------------------------------------------
 typedef struct { u64 addr, size; u32 type, attr, perm, ipc, dev, pad; } MemInfo;
@@ -118,7 +129,7 @@ HIDDEN void wp_relocate(u8* base, u8* mod0) {
 
 // ---- state ------------------------------------------------------------------------------------
 static WpscStats g_stats;
-#define STAT_ADD(f, n) __atomic_fetch_add(&g_stats.f, (n), __ATOMIC_RELAXED)
+#define STAT_ADD(f, n) (g_stats.f += (n))     // plain: a lost increment only skews a counter
 
 static u64 g_title_id, g_build_id;
 static int g_passthrough;
@@ -128,22 +139,28 @@ static char g_path[80];
 #define RING_SIZE (768 * 1024)
 static u8 g_ring[RING_SIZE] __attribute__((aligned(16)));
 static u64 g_wpos, g_rpos;          // monotonically increasing byte positions
-static int g_ring_lock;
+static volatile int g_ring_busy;           // plain flag: narrows, but doesn't close, the race
+
+// FNV-1a over the record body, so the reader can drop a record two threads wrote at once.
+static u32 fnv1a(u32 h, const void* p, u32 n) {
+    const u8* b = p;
+    for (u32 i = 0; i < n; i++) { h ^= b[i]; h *= 16777619u; }
+    return h;
+}
 
 static int ring_push(u32 type, const void* a, u32 alen, const void* b, u32 blen, const void* c, u32 clen) {
     u32 size = (u32)((sizeof(WpscRecHeader) + alen + blen + clen + 7) & ~7u);
     if (size > RING_SIZE / 2) { STAT_ADD(drops_full, 1); return 0; }
-    int spins = 0;
-    while (__atomic_exchange_n(&g_ring_lock, 1, __ATOMIC_ACQUIRE)) {
-        if (++spins > 200) { STAT_ADD(drops_busy, 1); return 0; }
-    }
+    if (g_ring_busy) { STAT_ADD(drops_busy, 1); return 0; }
+    g_ring_busy = 1;
     u64 w = g_wpos, r = __atomic_load_n(&g_rpos, __ATOMIC_ACQUIRE);
     if (w + size - r > RING_SIZE) {
-        __atomic_store_n(&g_ring_lock, 0, __ATOMIC_RELEASE);
+        g_ring_busy = 0;
         STAT_ADD(drops_full, 1);
         return 0;
     }
-    WpscRecHeader h = { type, size };
+    u32 check = fnv1a(fnv1a(fnv1a(2166136261u, a, alen), b, blen), c, clen);
+    WpscRecHeader h = { WPSC_REC_MAGIC, (u16)type, 0, size, check };
     const u8* parts[4] = { (const u8*)&h, a, b, c };
     u32 lens[4] = { sizeof h, alen, blen, clen };
     u64 pos = w;
@@ -157,25 +174,21 @@ static int ring_push(u32 type, const void* a, u32 alen, const void* b, u32 blen,
     }
     while (pos < w + size) { g_ring[pos % RING_SIZE] = 0; pos++; }
     __atomic_store_n(&g_wpos, w + size, __ATOMIC_RELEASE);
-    __atomic_store_n(&g_ring_lock, 0, __ATOMIC_RELEASE);
+    g_ring_busy = 0;
     return 1;
 }
 
-// Dedupe: open addressing over 64-bit keys, insert by CAS. 0 means empty.
+// Dedupe: open addressing over 64-bit keys, plain stores. 0 means empty. Two threads racing on
+// one slot can lose a key, which only means that key is recorded again later.
 #define SEEN_SIZE 16384
 static u64 g_seen[SEEN_SIZE];
 static int seen_insert(u64 key) {          // 1 = new, 0 = already seen (or table full)
     if (!key) key = 1;
     u32 i = (u32)(key ^ (key >> 32)) & (SEEN_SIZE - 1);
     for (int probe = 0; probe < 32; probe++, i = (i + 1) & (SEEN_SIZE - 1)) {
-        u64 k = __atomic_load_n(&g_seen[i], __ATOMIC_RELAXED);
+        u64 k = g_seen[i];
         if (k == key) return 0;
-        if (k == 0) {
-            u64 expected = 0;
-            if (__atomic_compare_exchange_n(&g_seen[i], &expected, key, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
-                return 1;
-            if (expected == key) return 0;
-        }
+        if (k == 0) { g_seen[i] = key; return 1; }
     }
     STAT_ADD(table_full, 1);
     return 0;
@@ -214,17 +227,16 @@ static CmdState g_cmd[MAX_CMDS];
 
 static CmdState* cmd_state(const void* cmd) {
     for (int i = 0; i < MAX_CMDS; i++) {
-        const void* p = __atomic_load_n(&g_cmd_ptr[i], __ATOMIC_ACQUIRE);
+        const void* p = g_cmd_ptr[i];
         if (p == cmd) return &g_cmd[i];
         if (!p) {
-            const void* expected = 0;
-            if (__atomic_compare_exchange_n(&g_cmd_ptr[i], &expected, cmd, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                CmdState* s = &g_cmd[i];
-                s->key.alpha_func = s->key.a2c = s->key.a2c_dither = 0xFF;
-                s->dirty = 1;
-                return s;
-            }
-            if (expected == cmd) return &g_cmd[i];
+            // Claim with a plain store and read it back; if another thread took the slot in
+            // between, keep looking.
+            CmdState* s = &g_cmd[i];
+            s->key.alpha_func = s->key.a2c = s->key.a2c_dither = 0xFF;
+            s->dirty = 1;
+            __atomic_store_n(&g_cmd_ptr[i], cmd, __ATOMIC_RELEASE);
+            if (__atomic_load_n(&g_cmd_ptr[i], __ATOMIC_ACQUIRE) == cmd) return s;
         }
     }
     STAT_ADD(cmd_full, 1);
@@ -258,32 +270,46 @@ NVN_FUNCS(DECL)
 NVN_GETTERS(DECL)
 
 // ---- logging ----------------------------------------------------------------------------------
-// SaltySDCore_printf talks to the SaltyNX service over Core's session, which Core closes once the
-// game starts. At runtime we open a session around each line (and around each flush), one at a
-// time; a line is dropped rather than wait more than ~2 s for the session.
+// SaltySDCore_printf goes through SaltyNX Core's session with the SaltyNX service, which Core
+// closes once the game starts, and Core keeps that session's handle in one global. At runtime
+// only one thread may ever use it at a time, so without locks:
+//  - until the flush thread exists, the thread that first called nvnBootstrapLoader (the
+//    "owner") logs right away, opening a session around each line;
+//  - every other line, and every line after the flush thread starts, is queued, and the flush
+//    thread prints the queue inside its own session.
 static int g_in_main;
-static int g_session_lock;
-static int session_lock(void) {
-    for (int i = 0; i < 2000; i++) {
-        if (!__atomic_exchange_n(&g_session_lock, 1, __ATOMIC_ACQUIRE)) return 1;
-        wp_svcSleepThread(1000 * 1000);
-    }
-    return 0;
-}
-static void session_unlock(void) { __atomic_store_n(&g_session_lock, 0, __ATOMIC_RELEASE); }
+static volatile int g_thread_live;
+static u64 g_owner_tls;
+static inline u64 tls_id(void) { u64 v; __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(v)); return v; }
+
+#define LOGQ 48
+typedef struct { const char* fmt; u64 a, b; volatile u32 used; u32 pad; } LogMsg;
+static LogMsg g_logq[LOGQ];
 
 static void wp_log(const char* fmt, u64 a, u64 b) {
     if (!SaltySDCore_printf) return;
-    if (g_in_main) { SaltySDCore_printf(fmt, WP_LEVEL, a, b); return; }
-#ifdef WP_QUIET   // no runtime logging: rules out the logging sessions themselves
-    return;
-#endif
-    if (!SaltySD_Init || !SaltySD_Deinit || !session_lock()) return;
-    if (SaltySD_Init() == 0) {
-        SaltySDCore_printf(fmt, WP_LEVEL, a, b);
-        SaltySD_Deinit();
+    if (g_in_main) { SaltySDCore_printf(fmt, (u64)WP_NAME, a, b); return; }
+    if (!g_thread_live && g_owner_tls && tls_id() == g_owner_tls && SaltySD_Init && SaltySD_Deinit) {
+        if (SaltySD_Init() == 0) {
+            SaltySDCore_printf(fmt, (u64)WP_NAME, a, b);
+            SaltySD_Deinit();
+        }
+        return;
     }
-    session_unlock();
+    for (int i = 0; i < LOGQ; i++) {
+        if (g_logq[i].used) continue;
+        g_logq[i].fmt = fmt; g_logq[i].a = a; g_logq[i].b = b;
+        __atomic_store_n(&g_logq[i].used, 1, __ATOMIC_RELEASE);
+        return;
+    }
+}
+
+static void drain_log(void) {               // flush thread only, inside its session
+    for (int i = 0; i < LOGQ; i++) {
+        if (!__atomic_load_n(&g_logq[i].used, __ATOMIC_ACQUIRE)) continue;
+        SaltySDCore_printf(g_logq[i].fmt, (u64)WP_NAME, g_logq[i].a, g_logq[i].b);
+        __atomic_store_n(&g_logq[i].used, 0, __ATOMIC_RELEASE);
+    }
 }
 
 // One line the first time each wrapper runs, so the log shows how far the game got.
@@ -291,9 +317,9 @@ static void wp_log(const char* fmt, u64 a, u64 b) {
 enum { NVN_FUNCS(ENUMID) ID_COUNT };
 static u8 g_first[ID_COUNT];
 static __attribute__((noinline)) void first_call_slow(int id, const char* name) {
-    u8 expected = 0;
-    if (__atomic_compare_exchange_n(&g_first[id], &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
-        wp_log("WarpShaders L%d: first call %s\n", (u64)name, 0);
+    if (g_first[id]) return;
+    g_first[id] = 1;
+    wp_log("WarpShaders %s: first call %s\n", (u64)name, 0);
 }
 #define CALL(n, ...) ((__builtin_expect(!g_first[ID_##n], 0) ? first_call_slow(ID_##n, #n) : (void)0), \
                       (o_##n ? o_##n(__VA_ARGS__) : 0))
@@ -350,10 +376,8 @@ static ProgEntry* prog_slot(const void* prog, int create) {
         if (p == prog) return &g_progs[i];
         if (!p) {
             if (!create) return 0;
-            const void* expected = 0;
-            if (__atomic_compare_exchange_n(&g_progs[i].prog, &expected, prog, 0, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
-                return &g_progs[i];
-            if (expected == prog) return &g_progs[i];
+            __atomic_store_n(&g_progs[i].prog, prog, __ATOMIC_RELEASE);
+            if (__atomic_load_n(&g_progs[i].prog, __ATOMIC_ACQUIRE) == prog) return &g_progs[i];
         }
     }
     if (create) STAT_ADD(prog_full, 1);
@@ -584,9 +608,10 @@ static u64 hk_nvnMemoryPoolInitialize(A8) {
     PoolEntry* p = 0;
     for (u32 i = 0; i < n && i < MAX_POOLS; i++) if (g_pools[i].pool == (const void*)a0) { p = &g_pools[i]; break; }
     if (!p) {
-        u32 i = __atomic_fetch_add(&g_pool_count, 1, __ATOMIC_ACQ_REL);
+        u32 i = g_pool_count;
         if (i >= MAX_POOLS) return r;
         p = &g_pools[i];
+        g_pool_count = i + 1;                        // memory pools are made at load time
     }
     __atomic_store_n(&p->valid, 0, __ATOMIC_RELEASE);
     p->pool = (const void*)a0; p->gpu = gpu; p->size = size; p->cpu = cpu;
@@ -659,8 +684,8 @@ static u64 wrap(const char* name, u64 addr) {
     for (size_t i = 0; i < sizeof g_hooks / sizeof g_hooks[0]; i++) {
         if (str_eq(name, g_hooks[i].name)) {
             if (hook_level(name) > WP_LEVEL) return addr;
-            if (!__atomic_exchange_n(&g_wrapped_once, 1, __ATOMIC_ACQ_REL))
-                wp_log("WarpShaders L%d: first wrapper handed out: %s\n", (u64)name, 0);
+            if (!g_wrapped_once && (g_wrapped_once = 1))
+                wp_log("WarpShaders %s: first wrapper handed out: %s\n", (u64)name, 0);
             __atomic_store_n(g_hooks[i].orig, (Fn)addr, __ATOMIC_RELEASE);
             return (u64)g_hooks[i].hook;
         }
@@ -671,69 +696,33 @@ static u64 wrap(const char* name, u64 addr) {
 static int g_getters_done;
 static int g_gpa_calls;
 static u64 hk_gpa(const void* device, const char* name) {
-    int n = __atomic_fetch_add(&g_gpa_calls, 1, __ATOMIC_RELAXED);
-    if (n == 0) wp_log("WarpShaders L%d: first nvnDeviceGetProcAddress(%s), device %p\n", (u64)name, (u64)device);
+    int n = g_gpa_calls++;
+    if (n == 0) wp_log("WarpShaders %s: first nvnDeviceGetProcAddress(%s), device %p\n", (u64)name, (u64)device);
     u64 addr = real_gpa ? real_gpa(device, name) : 0;
-    if (n == 0) wp_log("WarpShaders L%d: real nvnDeviceGetProcAddress returned %p for %s\n", addr, (u64)name);
+    if (n == 0) wp_log("WarpShaders %s: real nvnDeviceGetProcAddress returned %p for %s\n", addr, (u64)name);
     if (WP_LEVEL >= 3 && !__atomic_load_n(&g_getters_done, __ATOMIC_ACQUIRE) && real_gpa) {
         for (size_t i = 0; i < sizeof g_getters / sizeof g_getters[0]; i++)
             if (!*g_getters[i].orig) *g_getters[i].orig = (Fn)real_gpa(device, g_getters[i].name);
         __atomic_store_n(&g_getters_done, 1, __ATOMIC_RELEASE);
-        wp_log("WarpShaders L%d: getters resolved (pool map %p, texture target %p)\n",
+        wp_log("WarpShaders %s: getters resolved (pool map %p, texture target %p)\n",
                (u64)o_nvnMemoryPoolMap, (u64)o_nvnTextureGetTarget);
     }
     return wrap(name, addr);
 }
 
-static int g_boot_calls __attribute__((unused));
-#ifdef WP_L0E
-#define WP_L0A
-#endif
-#if defined(WP_L0A) || defined(WP_L0B)
-// NX-FPS's pattern: the real loader is a LINKABLE (weak) import that SaltyNX resolves when it
-// links the plugin; our own import is never redirected, because ReplaceImport only patches the
-// game's modules.
-extern u64 nvnBootstrapLoader(const char* name) WEAK;
-static u64 (*g_linkable_bootstrap)(const char*);
-#endif
-#if defined(WP_L0E)
-// Diagnostic: stop with a breakpoint on the first call, so the crash report's registers show
-// that the hook was reached (pc in the plugin, x30 = caller), the name (x0), the two real-loader
-// pointers as the hook sees them (x1, x2), and whether our .bss (x3) and .data (x4) still hold
-// what we put there.
-static u64 g_bss_marker;
-static volatile u64 g_data_marker = 0x5753484452444154ull;   // "TADRDHSW"
+static int g_boot_calls;
 static u64 hk_bootstrap(const char* name) {
-    register u64 r0 __asm__("x0") = (u64)name;
-    register u64 r1 __asm__("x1") = (u64)real_bootstrap;
-    register u64 r2 __asm__("x2") = (u64)g_linkable_bootstrap;
-    register u64 r3 __asm__("x3") = *(volatile u64*)&g_bss_marker;
-    register u64 r4 __asm__("x4") = g_data_marker;
-    __asm__ volatile("brk #0x57" :: "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4) : "memory");
-    return nvnBootstrapLoader(name);
-}
-#elif defined(WP_L0A)
-static u64 hk_bootstrap(const char* name) { return nvnBootstrapLoader(name); }
-#elif defined(WP_L0B)
-static u64 hk_bootstrap(const char* name) { return g_linkable_bootstrap(name); }
-#else
-static u64 hk_bootstrap(const char* name) {
-#ifdef WP_PLAIN_COUNTER   // L0d: no exclusive load/store (ldxr/stxr) on plugin memory
     int n = g_boot_calls++;
-#else
-    int n = __atomic_fetch_add(&g_boot_calls, 1, __ATOMIC_RELAXED);
-#endif
-    if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
+    if (!g_owner_tls) g_owner_tls = tls_id();
+    if (n < 16) wp_log("WarpShaders %s: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
     u64 addr = real_bootstrap ? real_bootstrap(name) : 0;
-    if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d returned %p\n", (u64)n + 1, addr);
-    if (WP_LEVEL < 1) return addr;
+    if (n < 16) wp_log("WarpShaders %s: nvnBootstrapLoader call %d returned %p\n", (u64)n + 1, addr);
     if (name && str_eq(name, "nvnDeviceGetProcAddress")) {
         if (addr) real_gpa = (u64 (*)(const void*, const char*))addr;
         return addr ? (u64)hk_gpa : 0;
     }
     return wrap(name, addr);
 }
-#endif
 
 // ---- flush thread -----------------------------------------------------------------------------
 static u8 g_stack[0x10000] __attribute__((aligned(0x1000)));
@@ -752,14 +741,13 @@ static int write_all(void* f, const void* p, u64 n) {
 
 static void flush(void) {
     if (!SaltySD_Init || !SaltySD_Deinit || !SaltySDCore_fopen) return;
-    if (!session_lock()) { STAT_ADD(flush_fail, 1); return; }
     u32 rc = SaltySD_Init();
     if (rc != 0) {
-        session_unlock();
         STAT_ADD(flush_fail, 1);
-        if (g_stats.flush_fail == 1) wp_log("WarpShaders L%d: flush could not connect to SaltyNX (0x%x)\n", rc, 0);
+        if (g_stats.flush_fail == 1) wp_log("WarpShaders %s: flush could not connect to SaltyNX (0x%x)\n", rc, 0);
         return;
     }
+    drain_log();
     int ok = 0;
     int is_new = 0;
     if (!g_session_written) {
@@ -776,8 +764,9 @@ static void flush(void) {
             ok = write_all(f, &fh, sizeof fh);
         }
         if (ok && !g_session_written) {
-            struct { WpscRecHeader h; WpscSession s; } rec = { { WPSC_REC_SESSION, sizeof rec },
+            struct { WpscRecHeader h; WpscSession s; } rec = { { WPSC_REC_MAGIC, WPSC_REC_SESSION, 0, sizeof rec, 0 },
                 { g_title_id, g_build_id, PLUGIN_VERSION, (u32)g_passthrough, wp_ticks() } };
+            rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
             ok = write_all(f, &rec, sizeof rec);
             if (ok) g_session_written = 1;
         }
@@ -791,18 +780,19 @@ static void flush(void) {
         }
         if (ok) {
             struct { WpscRecHeader h; WpscStats s; } rec;
-            rec.h.type = WPSC_REC_STATS; rec.h.size = sizeof rec;
             g_stats.ticks = wp_ticks();
             memcpy(&rec.s, &g_stats, sizeof g_stats);
+            rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_STATS; rec.h.reserved = 0; rec.h.size = sizeof rec;
+            rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
             ok = write_all(f, &rec, sizeof rec);
         }
         SaltySDCore_fclose(f);
     }
     if (g_stats.flush_ok + g_stats.flush_fail == 0 && SaltySDCore_printf)
-        SaltySDCore_printf("WarpShaders L%d: first flush %s, %d bytes so far\n", WP_LEVEL,
+        SaltySDCore_printf("WarpShaders %s: first flush %s, %d bytes so far\n", WP_NAME,
                            ok ? "ok" : (f ? "write failed" : "fopen failed"), (int)g_stats.bytes_written);
+    drain_log();
     SaltySD_Deinit();
-    session_unlock();
     if (ok) STAT_ADD(flush_ok, 1); else STAT_ADD(flush_fail, 1);
 }
 
@@ -813,8 +803,11 @@ static void flush_thread(void* arg) {
     for (u32 tick = 0;; tick++) {
         wp_svcSleepThread(500ll * 1000 * 1000);
         u64 pending = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE) - g_rpos;
+        int logs = 0;
+        for (int i = 0; i < LOGQ; i++) logs |= g_logq[i].used;
         int due = (tick - last) >= 20;                 // at least every 10 s while things change
-        if (pending >= RING_SIZE / 2 || (due && (pending || g_stats.frames != last_frames)) || !g_session_written) {
+        if (pending >= RING_SIZE / 2 || (due && (pending || g_stats.frames != last_frames)) || !g_session_written ||
+            (logs && (tick - last) >= 2)) {
             flush();
             last = tick;
             last_frames = g_stats.frames;
@@ -824,16 +817,21 @@ static void flush_thread(void* arg) {
 
 // Started from the game's first present, long after SaltyNX Core has closed its own session
 // with the SaltyNX service (the flush opens a fresh one each time). Never blocks the caller.
+// Lowest priority the game allows, and it only ever sleeps between flushes (no polling).
 static int g_thread_started;
 static void start_flush_thread(void) {
-    int expected = 0;
-    if (!__atomic_compare_exchange_n(&g_thread_started, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return;
-    u32 th = 0, prio = 0x3B;
+    if (g_thread_started) return;
+    g_thread_started = 1;
+    static const u32 prios[] = { 0x3F, 0x3B, 0x2C };
+    u32 th = 0, prio = 0, rc = 1;
     void* top = g_stack + sizeof g_stack;
-    u32 rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2);
-    if (rc != 0) { prio = 0x2C; rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2); }
-    if (rc == 0) rc = wp_svcStartThread(th);
-    wp_log("WarpShaders L%d: flush thread start rc 0x%x, priority 0x%x\n", rc, prio);
+    for (int i = 0; i < 3 && rc != 0; i++) { prio = prios[i]; rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2); }
+    if (rc == 0) {
+        wp_log("WarpShaders %s: flush thread created, priority 0x%x (first flush in 5 s)\n", prio, 0);
+        g_thread_live = 1;                         // from here on, only the flush thread talks to SaltyNX
+        rc = wp_svcStartThread(th);
+    }
+    if (rc != 0) wp_log("WarpShaders %s: flush thread failed, rc 0x%x\n", rc, 0);
 }
 
 // ---- entry ------------------------------------------------------------------------------------
@@ -843,29 +841,52 @@ static int file_exists(const char* path) {
     return f != 0;
 }
 
-// Every level keeps the full plugin's memory footprint, so a bisect step only changes hooks.
-static void keep_memory(void) {
-    ((volatile u8*)g_ring)[0] = 0;
-    ((volatile u64*)g_seen)[0] = 0;
-    ((volatile u8*)g_progs)[0] = 0;
-    ((volatile u8*)g_tex_target)[0] = 0;
-    ((volatile u8*)g_pools)[0] = 0;
-    ((volatile u8*)g_cmd)[0] = 0;
-    ((volatile u8*)g_stack)[0] = 0;
+// Adds `delta` to the addend of every non-RELATIVE relocation against `name` in the game's own
+// (builtin) modules, through SaltyNX's Memcpy. Walks them exactly like
+// SaltySDCore_ReplaceModuleImport: DT_RELA, with DT_RELASZ + DT_PLTRELSZ entries. Must run while
+// Core's session is open (plugin entry). Returns the number of relocations patched.
+typedef struct { int64_t tag; u64 val; } DynE;
+typedef struct { u32 name; u8 info, other; u16 shndx; u64 value, size; } Sym;
+static int patch_imports(const char* name, int64_t delta) {
+    if (!SaltySDCore_getDataForUpdate || !SaltySD_Memcpy) return -1;
+    u32 nelfs = 0; int32_t nsyms = 0; ReplacedSymbol* syms = 0; void** elfs = 0;
+    SaltySDCore_getDataForUpdate(&nelfs, &nsyms, &syms, &elfs);
+    int patched = 0;
+    for (u32 e = 0; e < nelfs; e++) {
+        u8* base = elfs[e];
+        u8* mod0 = base + *(u32*)(base + 4);
+        const DynE* dyn = (const DynE*)(mod0 + *(int32_t*)(mod0 + 4));
+        const Sym* symtab = 0; const char* strtab = 0; const Rela* rela = 0; u64 count = 0;
+        for (; dyn->tag; dyn++) {
+            if (dyn->tag == 6) symtab = (const Sym*)(base + dyn->val);
+            else if (dyn->tag == 5) strtab = (const char*)(base + dyn->val);
+            else if (dyn->tag == 7) rela = (const Rela*)(base + dyn->val);
+            else if (dyn->tag == 8 || dyn->tag == 2) count += dyn->val / sizeof(Rela);
+        }
+        if (!symtab || !strtab || !rela) continue;
+        u64 numsyms = (u64)((const u8*)strtab - (const u8*)symtab) / sizeof(Sym);
+        for (u64 i = 0; i < count; i++) {
+            if ((u32)rela[i].info == 1027) continue;
+            u32 sidx = (u32)(rela[i].info >> 32);
+            if (sidx >= numsyms || !str_eq(strtab + symtab[sidx].name, name)) continue;
+            Rela r = rela[i];
+            r.addend += delta;
+            if (SaltySD_Memcpy((u64)&rela[i], (u64)&r, sizeof r) == 0) patched++;
+        }
+    }
+    return patched;
 }
 
 HIDDEN void wp_plugin_main(void) {
-    keep_memory();
     g_in_main = 1;
-    wp_log("WarpShaders L%d: plugin v%d entry\n", PLUGIN_VERSION, 0);
-    if (!SaltySDCore_ReplaceImport || !SaltySDCore_FindSymbolBuiltin) { g_in_main = 0; return; }
-    if (file_exists("sdmc:/config/warppoint/shaders/off.flag")) {
-        wp_log("WarpShaders L%d: off.flag set, not hooking\n", 0, 0);
+    wp_log("WarpShaders %s: plugin v%d entry\n", PLUGIN_VERSION, 0);
+    if (!SaltySDCore_ReplaceImport || !SaltySDCore_FindSymbolBuiltin || !SaltySDCore_getDataForUpdate || !SaltySD_Memcpy) {
+        wp_log("WarpShaders %s: SaltyNX lacks a function this plugin needs, not hooking\n", 0, 0);
         g_in_main = 0;
         return;
     }
-    if (WP_LEVEL < 0) {
-        wp_log("WarpShaders L%d: load-only build, not hooking\n", 0, 0);
+    if (file_exists("sdmc:/config/warppoint/shaders/off.flag")) {
+        wp_log("WarpShaders %s: off.flag set, not hooking\n", 0, 0);
         g_in_main = 0;
         return;
     }
@@ -883,29 +904,17 @@ HIDDEN void wp_plugin_main(void) {
     if (SaltySD_GetBID) g_build_id = SaltySD_GetBID();
 
     real_bootstrap = (u64 (*)(const char*))SaltySDCore_FindSymbolBuiltin("nvnBootstrapLoader");
-#if defined(WP_L0A) || defined(WP_L0B)
-    g_linkable_bootstrap = nvnBootstrapLoader;
-#ifdef WP_L0E
-    g_bss_marker = 0x5753484452425353ull;                      // "SSBRDHSW"
-#endif
-    wp_log("WarpShaders L%d: LINKABLE nvnBootstrapLoader %p, FindSymbolBuiltin %p\n",
-           (u64)g_linkable_bootstrap, (u64)real_bootstrap);
-    if (!g_linkable_bootstrap) {
-        wp_log("WarpShaders L%d: LINKABLE import not resolved, not hooking\n", 0, 0);
-        g_in_main = 0;
-        return;
-    }
-#else
-    wp_log("WarpShaders L%d: FindSymbolBuiltin nvnBootstrapLoader %p (hook %p)\n",
-           (u64)real_bootstrap, (u64)hk_bootstrap);
-#endif
     if (!real_bootstrap) {
-        wp_log("WarpShaders L%d: no nvnBootstrapLoader, not an NVN game\n", 0, 0);
+        wp_log("WarpShaders %s: no nvnBootstrapLoader, not an NVN game\n", 0, 0);
         g_in_main = 0;
         return;
     }
-    SaltySDCore_ReplaceImport("nvnBootstrapLoader", (void*)hk_bootstrap);
-    wp_log("WarpShaders L%d: hooked nvnBootstrapLoader (real %p), output %s\n", (u64)real_bootstrap, (u64)g_path);
-    if (g_passthrough) wp_log("WarpShaders L%d: passthrough.flag set: no capture\n", 0, 0);
+    // Claim the name with the real address: our delta and every later caller's (NX-FPS) is 0.
+    SaltySDCore_ReplaceImport("nvnBootstrapLoader", (void*)real_bootstrap);
+    int n = patch_imports("nvnBootstrapLoader", (int64_t)((u64)hk_bootstrap - (u64)real_bootstrap));
+    wp_log("WarpShaders %s: claimed nvnBootstrapLoader with real %p, patched %d slots to our hook\n",
+           (u64)real_bootstrap, (u64)n);
+    wp_log("WarpShaders %s: output %s\n", (u64)g_path, 0);
+    if (g_passthrough) wp_log("WarpShaders %s: passthrough.flag set: no capture\n", 0, 0);
     g_in_main = 0;
 }

@@ -106,9 +106,12 @@ for that program. The program itself still compiles at boot.
   devkitA64.
 - **`make check`** verifies the ELF has only the relocations SaltyNX's loader handles.
 
-**Hooking** follows NX-FPS:
-- `SaltySDCore_ReplaceImport("nvnBootstrapLoader")` hands out a wrapped
-  `nvnDeviceGetProcAddress`, which returns wrappers for:
+**Hooking:**
+- The game's `nvnBootstrapLoader` import points at our wrapper. The plugin installs it with C1's
+  method (§9): it claims the name in SaltyNX with the real address, then patches the game's
+  relocations itself. Plain `SaltySDCore_ReplaceImport` hangs the game, because SaltyNX
+  double-patches the import.
+- The wrapper hands out our `nvnDeviceGetProcAddress`, which returns wrappers for:
   - **Programs:** `nvnProgramSetShaders`, `nvnCommandBufferBindProgram`.
   - **State:** `BindVertexAttribState`, `BindBlendState`, `BindColorState`,
     `BindMultisampleState`, `BindTexture`, `BindTextures`, `SetRenderTargets`.
@@ -127,9 +130,14 @@ for that program. The program itself still compiles at boot.
 - A draw with nothing changed costs two byte compares.
 - A changed draw costs one xxHash64 of the 416-byte key and one probe of a 16K-slot
   open-addressing table.
-- A new key is copied into a 768 KiB ring buffer under a bounded try-lock: a contended or full
-  ring drops the record and counts it, never waits.
-- No allocation or I/O.
+- A new key is copied into a 768 KiB ring buffer. A busy or full ring drops the record and
+  counts it, never waits.
+- No allocation, I/O, locks or exclusive load/store (`ldxr`/`stxr`; `make staged` refuses a
+  build that has any).
+  - Shared state uses plain loads and stores, with load-acquire/store-release where order
+    matters.
+  - A race costs a duplicate or lost record, never a hang.
+  - Every record carries a checksum, so the reader skips one that two threads wrote at once.
 - The plugin builds with `-mgeneral-regs-only`, so it never touches the game's FP/SIMD
   registers.
 
@@ -139,8 +147,11 @@ matches Spike 1 and SaltyNX's own NVN shader: marker `0x12345678`, a 0x30-byte h
 code Ryujinx stores.
 
 **Output:**
-- A thread started at the game's first present (priority 0x3B, its own 64 KiB stack) flushes
-  every 10 s, or sooner when the ring is half full.
+- A thread started at the game's first present flushes every 10 s, or sooner when the ring is
+  half full.
+  - It runs at the lowest priority the game allows (0x3F, else 0x3B, else 0x2C) on its own
+    64 KiB stack.
+  - It only sleeps between flushes, never polls.
 - Each flush opens a short session with SaltyNX's file service (`SaltySD_Init`, `fopen`/`fwrite`,
   `SaltySD_Deinit`). SaltyNX Core closes its own session after boot, and the service only writes
   for the running game's process.
@@ -150,17 +161,34 @@ code Ryujinx stores.
 - `passthrough.flag` keeps the hooks but captures nothing: frame timing only, as an overhead
   baseline.
 
-**Known cost: SaltyNX Core's own FPS counter for this title.** SaltyNX lets the first plugin
-that replaces `nvnBootstrapLoader` keep it. Plugins load before Core's NX-FPS, so while this
-plugin is installed for FE3H, the Status Monitor FPS readout and FPSLocker's NVN features don't
-work in FE3H. Other games are unaffected. That's why the plugin times frames itself.
+**Logging:** these lines go to `saltynx_core.log` (needs `sdmc:/SaltySD/flags/log.flag`):
+- A load line.
+- A line for each of the first 16 `nvnBootstrapLoader` calls.
+- The first `nvnDeviceGetProcAddress` call.
+- The first call of every wrapper.
+- The flush thread start and the first flush.
 
-## 4. Capture format (version 1)
+At runtime only one thread at a time may use SaltyNX's service:
+- Before the flush thread exists, the thread that first called `nvnBootstrapLoader` logs right
+  away. That costs about 10-20 ms per line, once each.
+- Everything else is queued, and the flush thread prints it.
+
+**Known cost: SaltyNX Core's own FPS counter for this title.** C1 claims `nvnBootstrapLoader`
+with the real address, so Core's built-in NX-FPS never installs its NVN hook. While this plugin
+is installed for FE3H, the Status Monitor FPS readout and FPSLocker's NVN features don't work in
+FE3H. Other games are unaffected. That's why the plugin times frames itself.
+
+## 4. Capture format (version 2)
 
 One file per title: `sdmc:/config/warppoint/shaders/<TitleID>.bin`. It is little-endian and
-append-only. It starts with a 16-byte header (`"WPSHCAP1"`, u32 version 1, u32 header size 16),
-then records. Each record is a `{u32 type, u32 size}` header and a body. `size` includes the
-header and is a multiple of 8.
+append-only.
+- **File header:** 16 bytes (`"WPSHCAP2"`, u32 version 2, u32 header size 16), then records.
+- **Record header:** 16 bytes: u32 magic `"WPRC"`, u16 type, u16 reserved, u32 size, u32
+  checksum. `size` includes the header and is a multiple of 8.
+- **Checksum:** 32-bit FNV-1a of the body before its zero padding.
+- **Reading past damage:** a reader that meets a bad magic or checksum steps forward 8 bytes at a
+  time to the next good record. The plugin takes no locks, so two threads can rarely write over
+  each other.
 
 | Type | Record | Body |
 | --- | --- | --- |
@@ -170,8 +198,8 @@ header and is a multiple of 8.
 | 4 | DISPATCH | compute shader hash u64, 32 texture targets |
 | 5 | STATS | counters: frames, draws, changed draws, ticks in the hook, new records, drops, table-full, command buffers, unmapped and unterminated code, flushes, bytes; a frame-time histogram (<17, <21, <25, <34, <50, <67, <100, >=100 ms) and the longest frame |
 
-Each session starts with SESSION. A reader skips unknown types by size and stops at a
-truncated tail. The plugin doesn't remember earlier sessions, so each session writes again the
+Each session starts with SESSION. A reader skips unknown types by size, skips records with a
+bad checksum, and stops at a truncated tail. The plugin doesn't remember earlier sessions, so each session writes again the
 shaders it sees. The Mac side merges them, and the dedupe is per session. Captures are tied to
 one build: `inject` warns when a file spans builds.
 
@@ -223,8 +251,8 @@ Prerequisites:
 - FE3H 1.2.0 is installed.
 - Astris has been closed the whole time.
 
-1. **Install, FE3H only.** Copy `switch/saltynx/warp-shaders/warp-shaders.elf` to
-   `sdmc:/SaltySD/plugins/010055D009F78000/warp-shaders.elf`. SaltyNX loads plugins from
+1. **Install, FE3H only.** Copy `switch/saltynx/warp-shaders/build/staged/warp-shaders-F2.elf`
+   (or F1 first, to stage it) to `sdmc:/SaltySD/plugins/010055D009F78000/warp-shaders.elf`. SaltyNX loads plugins from
    `SaltySD/plugins/` (every game) and `SaltySD/plugins/<TitleID>/` (that game only); use the
    per-title folder. Optional: create `sdmc:/SaltySD/flags/log.flag` for SaltyNX's log
    (`sdmc:/SaltySD/saltynx_core.log` should then show `WarpShaders: hooked nvnBootstrapLoader`).
@@ -263,6 +291,7 @@ Prerequisites:
       - The noted stutter spots play without the hitch the first time on the Mac.
    4. To undo, copy `~/wp-shader-backup` back.
 6. **Remove the plugin:** delete `sdmc:/SaltySD/plugins/010055D009F78000/warp-shaders.elf`.
+   Note: while it's installed, SaltyNX's FPS counter doesn't work in FE3H (§3).
    That's all. `sdmc:/config/warppoint/shaders/` only holds captures and the flags, and can be
    deleted too. Or, to keep the file but disable it, create
    `sdmc:/config/warppoint/shaders/off.flag`.
@@ -295,7 +324,7 @@ log shows the plugin loaded, its imports resolved, and both import slots for
   import name and reuses it for later requests, and plugins load before Core's NX-FPS. So
   NX-FPS's own loader is never installed, and its `nvnBootstrapLoader_0` is the real function.
   It can't re-enter our hook or loop.
-- **Bisect builds:** `make bisect` builds one `.elf` per step into `build/bisect/`. `WP_LEVEL` in
+- **Bisect builds** (in git history at `86ce798`; `make bisect` there) built one `.elf` per step into `build/bisect/`. `WP_LEVEL` in
   `plugin.c` describes each one.
 
 | Build | What it does |
@@ -359,3 +388,20 @@ Coexistence builds (`make coexist`, source `source/coexist.c`):
     hook calls NX-FPS's. That keeps the FPS counter.
   - It races Core's shutdown: if it's late it patches nothing, and the game runs with NX-FPS
     alone.
+
+**Hardware result (2026-11-26):**
+- **C1 boots FE3H to the title.** Its log line was `claimed nvnBootstrapLoader with real 0x530fba8b80,
+  patched 2 slots to hook 0x2d3cf3050`. That confirms the double-patch diagnosis.
+- **C2 hung at the logo without patching anything.** Its helper thread was created during
+  SaltyNX's init, at priority 0x2B, polling every 20 us. It probably starved the game's boot
+  or tied up Core's session.
+- **What the plugin does now:**
+  - It uses C1.
+  - It starts its only thread at the first present, at the lowest priority the game allows,
+    and the thread only sleeps between flushes.
+  - It uses no exclusive load/store anywhere.
+
+**Staged builds** (`make staged`, output in `build/staged/`):
+- `warp-shaders-F1.elf`: C1, our `nvnDeviceGetProcAddress`, the present hook and the flush
+  thread. Frame timing only; writes the `.bin`.
+- `warp-shaders-F2.elf`: the full plugin.

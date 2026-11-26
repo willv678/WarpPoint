@@ -266,21 +266,41 @@ def parse_draw(b):
     return d
 
 
+REC_MAGIC = 0x43525057          # "WPRC"
+
+
+def fnv1a(data):
+    h = 2166136261
+    for x in data:
+        h = ((h ^ x) * 16777619) & 0xFFFFFFFF
+    return h
+
+
 def load_capture(path):
     b = open(path, "rb").read()
-    if b[:8] != b"WPSHCAP1":
-        sys.exit(f"{path}: not a Warp Shaders capture")
+    if b[:8] != b"WPSHCAP2":
+        sys.exit(f"{path}: not a version 2 Warp Shaders capture")
     ver, hsize = struct.unpack_from("<II", b, 8)
-    if ver != 1:
+    if ver != 2:
         sys.exit(f"{path}: capture version {ver} is not supported")
     c = Capture()
+    c.skipped_bytes = 0
     p = hsize
-    while p + 8 <= len(b):
-        t, size = struct.unpack_from("<II", b, p)
-        if size < 8 or size % 8 or p + size > len(b):
-            c.truncated = True
-            break
-        body = b[p + 8:p + size]
+    while p + 16 <= len(b):
+        m, t, _, size, check = struct.unpack_from("<IHHII", b, p)
+        good = m == REC_MAGIC and size >= 16 and size % 8 == 0 and p + size <= len(b)
+        if good:
+            payload = b[p + 16:p + size]
+            # The checksum covers the body without the zero padding to 8 bytes.
+            good = any(fnv1a(payload[:len(payload) - pad]) == check for pad in range(8) if pad <= len(payload))
+        if not good:
+            if m == REC_MAGIC and p + size > len(b) and size % 8 == 0:
+                c.truncated = True
+                break
+            c.skipped_bytes += 8               # torn record: scan forward to the next good one
+            p += 8
+            continue
+        body = b[p + 16:p + size]
         if t == REC_SESSION:
             tid, bid, pver, flags, tick = struct.unpack_from("<QQIIQ", body)
             c.sessions.append({"title_id": tid, "build_id": bid, "plugin_version": pver, "flags": flags})
@@ -545,7 +565,8 @@ def cmd_capture(args):
               f"{' (pass-through)' if s['flags'] & 1 else ''}")
     full = sum((s["flags"] & 3) == 3 for s in cap.shaders.values())
     print(f"{len(cap.shaders)} shaders ({full} complete), {len(cap.draws)} draw states, "
-          f"{len(cap.dispatches)} dispatch states{', truncated tail' if cap.truncated else ''}")
+          f"{len(cap.dispatches)} dispatch states{', truncated tail' if cap.truncated else ''}"
+          f"{f', {cap.skipped_bytes} bytes of torn records skipped' if cap.skipped_bytes else ''}")
     if cap.stats:
         st = cap.stats[-1]
         print("last stats:", ", ".join(f"{k} {v}" for k, v in st.items() if v and not k.startswith("frame_hist")))

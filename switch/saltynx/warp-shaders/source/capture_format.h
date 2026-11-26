@@ -1,15 +1,18 @@
-// Warp Shaders capture format, version 1. Shared by the plugin (writer) and documented in
+// Warp Shaders capture format, version 2. Shared by the plugin (writer) and documented in
 // docs/SHADERS_SPIKE2.md; tools/shader_spike2.py is the reader. All fields little-endian.
 //
 // File: sdmc:/config/warppoint/shaders/<TitleID>.bin
 //   FileHeader, then records. Each plugin session appends a SESSION record followed by
 //   SHADER / DRAW / DISPATCH records and a STATS record per flush. A reader skips unknown
-//   record types by size and stops at a truncated tail.
+//   record types by size. Records carry a magic and an FNV-1a checksum of the body: the plugin
+//   uses no locks, so two threads can, rarely, write over each other's record; a reader that
+//   finds a bad magic or checksum scans forward (8-byte steps) to the next good record.
 #pragma once
 #include <stdint.h>
 
-#define WPSC_MAGIC        "WPSHCAP1"
-#define WPSC_VERSION      1
+#define WPSC_MAGIC        "WPSHCAP2"
+#define WPSC_VERSION      2
+#define WPSC_REC_MAGIC    0x43525057u   // "WPRC"
 
 #define WPSC_REC_SESSION  1
 #define WPSC_REC_SHADER   2
@@ -24,14 +27,17 @@
 #define WPSC_BINDINGS     32
 
 typedef struct {
-    char     magic[8];         // "WPSHCAP1"
-    uint32_t version;          // 1
+    char     magic[8];         // "WPSHCAP2"
+    uint32_t version;          // 2
     uint32_t header_size;      // 16
 } WpscFileHeader;
 
 typedef struct {
-    uint32_t type;
+    uint32_t magic;            // WPSC_REC_MAGIC
+    uint16_t type;
+    uint16_t reserved;
     uint32_t size;             // whole record including this header, multiple of 8
+    uint32_t check;            // FNV-1a (32-bit, offset basis 2166136261) of the body bytes
 } WpscRecHeader;
 
 typedef struct {
