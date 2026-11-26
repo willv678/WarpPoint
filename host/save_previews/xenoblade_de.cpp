@@ -64,6 +64,18 @@ std::string saveTime(uint64_t v) {
   return buf;
 }
 
+// The same time, sortable ("YYYYMMDDHHMMSS"); "" when it isn't a valid time.
+std::string saveTimeKey(uint64_t v) {
+  if (saveTime(v).empty()) return "";
+  const auto bits = [v](int at, int width) {
+    return static_cast<unsigned>((v >> at) & ((uint64_t{1} << width) - 1));
+  };
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%04u%02u%02u%02u%02u%02u", bits(50, 14), bits(46, 4),
+                bits(32, 5), bits(26, 5), bits(20, 6), bits(14, 6));
+  return buf;
+}
+
 // The nxnative app writes an empty picture (all black but a few bytes). Count it as none.
 bool blankPicture(const std::string& rgb) {
   size_t differing = 0;
@@ -127,6 +139,7 @@ bool parseXenobladeDeFolder(const fs::path& folder, SavePreview& out, std::strin
     s.playSeconds = u32(b, kPlayTime);
     s.playTime = hoursMinutes(s.playSeconds);
     s.saved = saveTime(u64(b, kSaveTime));
+    s.savedKey = saveTimeKey(u64(b, kSaveTime));
 
     if (const char* place = mapName(u16(b, kMap), u16(b, kMap + 2))) {
       s.heading = place;

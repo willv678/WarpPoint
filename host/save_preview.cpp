@@ -167,7 +167,8 @@ std::string savePreviewJson(uint64_t titleId, const std::filesystem::path& folde
     for (const auto& [label, value] : s.details) details.push_back({{"label", label}, {"value", value}});
     json slot = {{"index", s.index}, {"slot", s.slot}, {"file", s.file}, {"place", s.place},
                  {"heading", s.heading}, {"player", s.player}, {"playTime", s.playTime},
-                 {"playSeconds", s.playSeconds}, {"saved", s.saved}, {"emblem", s.emblem},
+                 {"playSeconds", s.playSeconds}, {"saved", s.saved}, {"savedKey", s.savedKey},
+                 {"emblem", s.emblem},
                  {"accent", s.accent}, {"tags", s.tags}, {"details", details}};
     if (!s.thumbnail.path.empty()) {
       const auto& t = s.thumbnail;

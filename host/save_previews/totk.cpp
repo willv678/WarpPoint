@@ -103,6 +103,8 @@ bool parseTotkFolder(const fs::path& folder, SavePreview& out, std::string& erro
       char buf[32];
       std::snprintf(buf, sizeof(buf), "%02u/%02u/%04u %02u:%02u", mo, d, y, h, mi);
       s.saved = buf;
+      std::snprintf(buf, sizeof(buf), "%04u%02u%02u%02u%02u", y, mo, d, h, mi);
+      s.savedKey = buf;
       when = ((((uint64_t{y} * 13 + mo) * 32 + d) * 24 + h) * 60) + mi;
     }
 

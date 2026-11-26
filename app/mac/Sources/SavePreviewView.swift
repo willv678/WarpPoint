@@ -13,6 +13,7 @@ struct SavePreviewData: Decodable {
     var playTime = ""
     var playSeconds = 0
     var saved = ""
+    var savedKey = ""  // `saved`, sortable ("202611252225"); "" when the game keeps no time
     var emblem = ""
     var accent = ""
     var tags: [String] = []
@@ -35,7 +36,8 @@ struct SavePreviewData: Decodable {
     }
 
     private enum CodingKeys: String, CodingKey {
-      case index, slot, file, place, heading, player, playTime, playSeconds, saved, emblem, accent,
+      case index, slot, file, place, heading, player, playTime, playSeconds, saved, savedKey, emblem,
+           accent,
            tags, details, thumbnail
     }
     init(from d: Decoder) throws {
@@ -49,6 +51,7 @@ struct SavePreviewData: Decodable {
       playTime = (try? c.decode(String.self, forKey: .playTime)) ?? ""
       playSeconds = (try? c.decode(Int.self, forKey: .playSeconds)) ?? 0
       saved = (try? c.decode(String.self, forKey: .saved)) ?? ""
+      savedKey = (try? c.decode(String.self, forKey: .savedKey)) ?? ""
       emblem = (try? c.decode(String.self, forKey: .emblem)) ?? ""
       accent = (try? c.decode(String.self, forKey: .accent)) ?? ""
       tags = (try? c.decode([String].self, forKey: .tags)) ?? []
@@ -72,11 +75,16 @@ struct SavePreviewData: Decodable {
   }
 }
 
-/// The details panel's "Save Slots" section: one card per save slot, laid out like the
-/// game's own slot list. GameDetail shows it only for games with a preview parser.
+/// The details panel's "Save Slots" section: the newest save as a card (laid out like the
+/// game's own slot list), and the rest behind "N more saves". GameDetail shows it only for
+/// games with a preview parser.
 struct SavePreviewSection: View {
   let preview: SavePreviewData
   let source: String  // where the save was read: "the Mac app's save", "Astris's save"
+  let gameKey: String  // the game's title id, for SlotRecency
+
+  @State private var ordered: [SavePreviewData.Slot] = []
+  @State private var showAll = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -86,10 +94,73 @@ struct SavePreviewSection: View {
           .font(.callout).foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
       } else {
-        ForEach(preview.slots) { SlotCard(slot: $0) }
+        let slots = ordered.isEmpty ? preview.slots : ordered
+        ForEach(showAll ? slots : Array(slots.prefix(1))) { SlotCard(slot: $0) }
+        if slots.count > 1 {
+          Button {
+            withAnimation(.easeInOut(duration: 0.2)) { showAll.toggle() }
+          } label: {
+            Label(showAll ? "Show only the latest" : "\(slots.count - 1) more \(slots.count == 2 ? "save" : "saves")",
+                  systemImage: showAll ? "chevron.up" : "chevron.down")
+              .font(.callout)
+          }
+          .buttonStyle(.borderless)
+        }
         Text("Read from \(source).")
           .font(.caption).foregroundStyle(.tertiary)
       }
+    }
+    .onAppear(perform: reorder)
+    .onChange(of: preview.slots) { _, _ in reorder() }
+    .onChange(of: gameKey) { _, _ in showAll = false }
+  }
+
+  private func reorder() {
+    ordered = SlotRecency.newestFirst(preview.slots, game: gameKey)
+  }
+}
+
+/// Which save slot is newest. Games that keep a save time (Zelda, Xenoblade) say so in
+/// `savedKey`. For the rest (Fire Emblem keeps none, and a sync gives every file the same
+/// date), the app remembers each slot's contents and when it last saw them change, so the
+/// slot you saved in last comes first from the next change on. Until then: the game's order.
+enum SlotRecency {
+  private static func storeKey(_ game: String) -> String { "slotRecency.\(game)" }
+
+  /// What a slot holds, as far as the card can tell; a new save in that slot changes it.
+  private static func fingerprint(_ s: SavePreviewData.Slot) -> String {
+    [s.slot, s.place, s.heading, String(s.playSeconds), s.saved, s.tags.joined(separator: ",")]
+      .joined(separator: "|")
+  }
+
+  /// Records what changed since last time and returns the slots newest first; ties keep
+  /// the game's own order.
+  static func newestFirst(_ slots: [SavePreviewData.Slot], game: String) -> [SavePreviewData.Slot] {
+    let defaults = UserDefaults.standard
+    // index -> [fingerprint, seconds since 1970 it was seen to change (0 = not seen yet)]
+    var seen = (defaults.dictionary(forKey: storeKey(game)) as? [String: [String]]) ?? [:]
+    let now = Date().timeIntervalSince1970
+    for s in slots {
+      let key = String(s.index), fp = fingerprint(s)
+      if let old = seen[key] {
+        if old.first != fp { seen[key] = [fp, String(now)] }
+      } else {
+        seen[key] = [fp, "0"]  // first look: we don't know when it was saved
+      }
+    }
+    if !game.isEmpty { defaults.set(seen, forKey: storeKey(game)) }
+
+    let changed: (SavePreviewData.Slot) -> Double = {
+      Double(seen[String($0.index)]?.last ?? "0") ?? 0
+    }
+    let position = Dictionary(uniqueKeysWithValues: slots.enumerated().map { ($1.index, $0) })
+    return slots.sorted { a, b in
+      if a.savedKey != b.savedKey, !a.savedKey.isEmpty || !b.savedKey.isEmpty {
+        return a.savedKey > b.savedKey  // "" sorts last
+      }
+      let ca = changed(a), cb = changed(b)
+      if ca != cb { return ca > cb }
+      return position[a.index, default: 0] < position[b.index, default: 0]
     }
   }
 }

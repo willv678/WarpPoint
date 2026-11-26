@@ -38,6 +38,7 @@ struct SlotPreview {
   std::string playTime;        // as the game shows it: "031:21"
   uint32_t playSeconds = 0;
   std::string saved;    // when it was saved, as the game shows it: "11/25/2026 22:25"
+  std::string savedKey; // the same, sortable: "202611252225" (the app shows the newest first)
   std::string emblem;   // a faction or team the card is coloured by: "Black Eagles"
   std::string accent;   // red, blue, yellow, purple, green, gray (or "" for none)
   std::vector<std::string> tags;  // short labels: "Cleared"
@@ -65,7 +66,7 @@ const SavePreviewParser* savePreviewParser(uint64_t titleId);
 //   {"supported": false}                          no parser for this game
 //   {"supported": true, "error": "..."}           a parser, but the save didn't read
 //   {"supported": true, "game", "source", "slots": [{"index","slot","file","place","heading",
-//     "player","playTime","playSeconds","saved","emblem","accent","tags",
+//     "player","playTime","playSeconds","saved","savedKey","emblem","accent","tags",
 //     "details": [{"label","value"}],
 //     "thumbnail": {"path","offset","length","format","width","height"} (only when there is one)}]}
 std::string savePreviewJson(uint64_t titleId, const std::filesystem::path& folder);

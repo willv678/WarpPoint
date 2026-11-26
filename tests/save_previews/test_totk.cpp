@@ -75,6 +75,7 @@ TEST_CASE("TotK: hearts, stamina, rupees, play time, save time and picture") {
   CHECK(s.heading == "5 hearts · 1 stamina wheel");
   CHECK(s.playTime == "5:25");
   CHECK(s.saved == "07/19/2026 17:07");
+  CHECK(s.savedKey == "202607191707");
   CHECK(s.details == std::vector<std::pair<std::string, std::string>>{{"Rupees", "605"}});
   CHECK(s.thumbnail.format == "jpeg");
   CHECK(s.thumbnail.offset == 0xA4);
@@ -82,6 +83,7 @@ TEST_CASE("TotK: hearts, stamina, rupees, play time, save time and picture") {
 
   CHECK(p.slots[1].slot == "Manual Save");  // older, so listed second
   CHECK(p.slots[1].saved == "07/04/2026 17:54");
+  CHECK(p.slots[1].savedKey == "202607041754");
 }
 
 TEST_CASE("TotK: unknown versions are refused, odd values left out") {

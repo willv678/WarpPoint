@@ -25,7 +25,8 @@ struct GameDetail: View {
         header
         if preview.supported {
           SavePreviewSection(preview: preview,
-                             source: game.isNative ? "the Mac app's save" : "\(emulator)'s save")
+                             source: game.isNative ? "the Mac app's save" : "\(emulator)'s save",
+                             gameKey: game.titleId)
         }
         if LiveSection.isRunning(game, model) {
           LiveSection(game: game, model: model)

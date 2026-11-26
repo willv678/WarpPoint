@@ -81,6 +81,7 @@ TEST_CASE("Xenoblade DE: the Load screen's values") {
   CHECK(autosave.player == "Shulk");
   CHECK(autosave.playTime == "9:17");
   CHECK(autosave.saved == "06/03/2026 20:03");
+  CHECK(autosave.savedKey.substr(0, 12) == "202606032003");
   CHECK(autosave.thumbnail.format == "rgb");
   CHECK(autosave.thumbnail.width == 320);
   CHECK(autosave.thumbnail.height == 180);
@@ -90,6 +91,8 @@ TEST_CASE("Xenoblade DE: the Load screen's values") {
   CHECK(slot.heading == "Satorl Marsh");
   CHECK(slot.playTime == "9:47");
   CHECK(slot.saved == "11/25/2026 22:25");
+  CHECK(slot.savedKey.substr(0, 12) == "202611252225");
+  CHECK(slot.savedKey > autosave.savedKey);  // the app lists the newest first
   CHECK(slot.thumbnail.path.empty());  // blank picture: none
   using D = std::vector<std::pair<std::string, std::string>>;
   CHECK(slot.details == D{{"Level", "25"}, {"Party", "Shulk, Dunban, Reyn, Sharla"}, {"Gold", "4,523 G"}});
