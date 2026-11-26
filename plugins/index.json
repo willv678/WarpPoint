@@ -5,9 +5,9 @@
       "id": "fe3h-1.2.0",
       "name": "Fire Emblem: Three Houses 1.2.0",
       "kind": "tap-profile",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "willv678",
-      "description": "Gold and renown at the monastery, the level and HP of the unit under the battle cursor, and the line of dialogue on screen for Lexicon. Every field checked on a Switch 1 running 1.2.0. Also built into WarpPoint 1.7.",
+      "description": "Gold and renown at the monastery, the level and HP of the unit under the battle cursor, and the line of dialogue on screen for Lexicon, checked on a Switch 1 running 1.2.0. New in 1.1.0: the scene (battle map, exploring), the chapter and the battle turn, with Discord presence templates (\"In battle · Turn 4\"); found on the Mac port, not yet checked on a Switch. Also built into WarpPoint.",
       "games": [
         {
           "titleId": "010055d009f78000",
@@ -18,7 +18,7 @@
         }
       ],
       "file": "tap/fe3h-1.2.0.json",
-      "sha256": "801cf0c0a90f5ca6057d024aa08982ce622482cf8de2f229d5f46dbb754cc13b",
+      "sha256": "9e95c33619480605959ed55593886079c2e53734e976436224e210ebbb9276a8",
       "preview": {
         "fields": [
           {
@@ -40,6 +40,18 @@
           {
             "group": "Dialogue",
             "label": "Line"
+          },
+          {
+            "group": "Game",
+            "label": "Scene"
+          },
+          {
+            "group": "Game",
+            "label": "Chapter"
+          },
+          {
+            "group": "Battle",
+            "label": "Turn"
           }
         ],
         "lexicon": true,

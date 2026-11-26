@@ -42,6 +42,9 @@ struct SlotPreview {
   std::string accent;   // red, blue, yellow, purple, green, gray (or "" for none)
   std::vector<std::string> tags;  // short labels: "Cleared"
   std::vector<std::pair<std::string, std::string>> details;  // label, value: {"Gold", "4,523 G"}
+  // Not shown on the card: plain values Discord presence can use (rich_presence.hpp),
+  // name, value: {"chapter", "8"}, {"map", "Satorl Marsh"}.
+  std::vector<std::pair<std::string, std::string>> values;
   SlotThumbnail thumbnail;
 };
 

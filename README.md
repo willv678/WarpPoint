@@ -185,6 +185,18 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   processes every 5 seconds. Astris keeps no log, so WarpPoint looks at which game files it has
   open (the id in the file's name or in the NSP's ticket) and whether it's emulating; when
   that doesn't settle it, Discord shows just "Astris" rather than a guess. `warp presence-mac` prints what would show (`warp presence-mac ID` also shows it in Discord for 30 s).
+- **What you're doing (rich presence).** Discord shows where you are in the game, not just its
+  name. For any game with a save preview it comes from the newest slot of the game's save on
+  this Mac: "Ch. 8 · The Flame in the Darkness" and "Black Eagles · 31h" in Fire Emblem: Three
+  Houses, "Satorl Marsh" and "Shulk Lv 25" in Xenoblade. That works for games on this Mac too.
+  For a Switch game whose Tap profile has presence templates, it's live: Fire Emblem shows
+  "Ch. 8 · Black Eagles" and "In battle · Turn 4", "Preparing for battle" or "Exploring". Live
+  reads need Tap on, happen at most every 15 seconds while the game is showing in Discord,
+  and stop when Presence is off or nothing is playing. A Tap read attaches Atmosphère's cheat
+  service to the game, so sys-botbase can't peek that game until it restarts. The game's name
+  moves to the picture's caption. Profiles say what to show: see "Discord presence templates"
+  in [docs/TAP_PROFILES.md](docs/TAP_PROFILES.md). `warp tap` prints the line Discord would
+  show.
 - **Game pictures.** The activity shows the game's icon from
   [tinfoil.media](https://tinfoil.media) (Discord fetches it from there). WarpPoint asks
   tinfoil once per game whether it has a picture, sending only the title id; without one,

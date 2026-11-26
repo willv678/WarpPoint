@@ -72,18 +72,25 @@ std::vector<PluginInfo> makeCatalog() {
   presence.since = "1.3";
   presence.summary = "Shows the game you're playing in Discord, on the Switch or this Mac.";
   presence.what =
-      "Your Discord friends see \"Playing Nintendo Switch\" with the game's name, the way "
-      "they see a game you play on a computer.";
+      "Your Discord friends see \"Playing Nintendo Switch\" with the game's name and what "
+      "you're doing in it, such as the chapter and battle turn in Fire Emblem: Three Houses or "
+      "the area and level in Xenoblade, the way they see a game you play on a computer.";
   presence.how =
       "The Switch says which game is running in the short announcement it sends on your "
-      "Wi-Fi every 2 seconds. WarpPoint passes the game's name to the Discord app on this "
-      "Mac, under a Discord application you make yourself. When nothing is playing on the "
-      "Switch, it shows a game running on this Mac instead: an nxnative port, or a game in "
-      "Astris. The game's picture comes from tinfoil.media, asked once per game with only "
-      "the game's id; nothing else leaves this Mac except to Discord.";
+      "Wi-Fi every 2 seconds, and WarpPoint passes it to the Discord app on this Mac under a "
+      "Discord application you make yourself; when nothing is playing there, it shows a game "
+      "running on this Mac (an nxnative port, or a game in Astris). What you're doing comes "
+      "from the newest slot of the game's save on this Mac and, for a Switch game whose Tap "
+      "profile has presence templates, from a live Tap read at most every 15 seconds while "
+      "it's showing. Those reads attach Atmosphère's cheat service to the game, so "
+      "sys-botbase can't peek that game's memory until it restarts; turn Tap off to stop "
+      "them. The game's picture comes from tinfoil.media, asked once per game with only the "
+      "game's id; nothing else leaves this Mac except to Discord.";
   presence.offNote = "Discord stops showing the game within a few seconds.";
   presence.needs = {{"setting", "discordAppId", "A Discord Application ID (see Settings below)"},
-                    {"app", "discord", "The Discord app running on this Mac"}};
+                    {"app", "discord", "The Discord app running on this Mac"},
+                    {"optional", "tap", "Optional: Tap turned on, for live details from the Switch "
+                                        "(\"In battle · Turn 4\") in games whose profile has them"}};
   presence.games = "any";
   presence.defaultOn = false;
   presence.commands = {"warp presence-test ID", "warp presence-mac [ID]"};
@@ -436,9 +443,11 @@ std::string pluginsJson(const Config& c, const PluginContext& ctx) {
         met = !games.empty();
         blocked = "needsProfile";
         blockedText = n.value == "splits" ? "Needs a profile with splits" : "Needs a game profile";
+      } else if (n.kind == "optional") {  // another plugin that adds to this one; never blocks
+        met = pluginEnabled(c, n.value);
       }
       needs.push_back({{"kind", n.kind}, {"value", n.value}, {"text", n.text}, {"met", met}});
-      if (on && status == "on" && met.is_boolean() && !met.get<bool>()) {
+      if (on && status == "on" && !blocked.empty() && met.is_boolean() && !met.get<bool>()) {
         status = blocked;
         statusText = blockedText;
       }

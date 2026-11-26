@@ -18,6 +18,7 @@ add_executable(warp_tests
   ../switch/common/switch_update.cpp
   test_lens.cpp
   test_presence.cpp
+  test_rich_presence.cpp
   test_album.cpp
   test_tap.cpp
   test_mods.cpp

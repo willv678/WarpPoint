@@ -1055,8 +1055,72 @@ void AppCore::showPresence(const Config& c) {
   Activity a = choosePresence(switchPlaying_, macGame_, c.presence.showMac);
   if (c.presence.enabled && !c.presence.discordAppId.empty()) {
     a.largeImage = gameIcons_.urlFor(a.iconId);
+    a = richPresence(c, a);
   }
   presence_.show(c.presence.enabled, c.presence.discordAppId, a);
+}
+
+// Rich presence: the game's templates over live Tap values (a Switch game) and its save
+// on this Mac. Nothing is read unless a game is showing; the save at most once a minute,
+// Tap at most every 15 s (LivePoll).
+Activity AppCore::richPresence(const Config& c, const Activity& plain) {
+  if (plain.key.empty() || !plain.iconId) return plain;  // nothing, or an emulator alone
+  const auto now = std::chrono::steady_clock::now();
+  const uint64_t saveTitle = plain.iconId;  // a port's picture is its save's game
+  if (saveTitle != saveTitle_ || now - saveAt_ >= std::chrono::minutes(1)) {
+    save_ = macSaveValues(c, saveTitle);
+    saveTitle_ = saveTitle;
+    saveAt_ = now;
+  }
+  std::vector<PresenceRule> rules;
+  const bool onSwitch = plain.key.rfind("switch:", 0) == 0;
+  if (onSwitch) {
+    pollLive(c, switchPlaying_.titleId);
+    if (liveTitle_ == switchPlaying_.titleId) rules = liveRules_;
+  } else {  // the Switch's game stopped: forget its values, look afresh next time
+    templatesTitle_ = liveTitle_ = 0;
+    live_.clear();
+    liveRules_.clear();
+  }
+  for (auto& r : savePresenceRules(saveTitle)) rules.push_back(std::move(r));
+  return richActivity(plain, rules, onSwitch && liveTitle_ == switchPlaying_.titleId ? live_ : PresenceValues{},
+                      save_);
+}
+
+void AppCore::pollLive(const Config& c, uint64_t titleId) {
+  if (titleId != templatesTitle_) {  // a new game: does any profile have templates for it?
+    templates_ = false;
+    for (const auto& p : tapProfiles(dataDir_)) templates_ |= p.titleId == titleId && !p.presence.empty();
+    templatesTitle_ = titleId;
+    live_.clear();
+    liveRules_.clear();
+    liveTitle_ = titleId;
+  }
+  const bool wanted = templates_ && consolePresent_ && pluginEnabled(c, "tap");
+  if (!wanted) {
+    live_.clear();
+    return;
+  }
+  const auto now = std::chrono::steady_clock::now();
+  if (!livePoll_.due(titleId, wanted, now)) return;
+  const json snap = json::parse(tapJson(), nullptr, false);
+  live_.clear();
+  liveRules_.clear();
+  if (!snap.is_object()) {
+    livePoll_.polled(titleId, true, now);
+    return;
+  }
+  const uint64_t running = std::strtoull(snap.value("titleId", "").c_str(), nullptr, 16);
+  const std::string build = snap.value("buildId", "");
+  const bool supported = snap.value("supported", false);
+  // Only a build no profile names stops the polling; a failed look is tried again.
+  livePoll_.polled(titleId, supported || running != titleId || build.empty(), now);
+  if (!supported || running != titleId) return;
+  for (const auto& f : snap.value("fields", json::array())) {
+    if (f.contains("value") && f["value"].is_string()) live_[f.value("id", "")] = f["value"].get<std::string>();
+  }
+  const auto profiles = tapProfiles(dataDir_);
+  if (const TapProfile* p = findTapProfile(profiles, running, build)) liveRules_ = p->presence;
 }
 
 void AppCore::macTick() {

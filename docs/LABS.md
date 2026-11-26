@@ -59,6 +59,13 @@ found this way:
 4. Search `main` for a pointer to that struct: `[main+0x1B4E108]+0x1B48`.
 5. Check the chain on the Switch with `warp tap`, which read the same line.
 
+FE3H's turn, chapter and scene (for Discord presence) were found the same way, by
+comparing whole dumps of `main` between states instead of searching for text: three turns
+of one battle for the turn, and the title screen, battle preparations, a battle and
+exploring (a Cindered Shadows save) for the scene. Loading existing saves to look is
+enough; nothing was saved. The chains are in docs/TAP_PROFILES.md and still need checking
+on a Switch. `warp lab-tap` prints the line Discord would show from the Mac app's values.
+
 ## Not built
 
 - **Tracy**, a profiler for retail games on hardware. It needs NVN hooks inside the game

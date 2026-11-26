@@ -14,6 +14,7 @@ add_library(warp_host_core STATIC
   lens.cpp
   mods.cpp
   presence.cpp
+  rich_presence.cpp
   mac_playing.cpp
   game_icons.cpp
   split.cpp

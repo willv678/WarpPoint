@@ -159,15 +159,15 @@ Activity choosePresence(const SwitchPlaying& sw, const std::optional<MacGame>& m
   if (sw.titleId) {
     return {"switch:" + hex16(sw.titleId), sw.name.empty() ? "a game" : sw.name,
             "on " + (sw.console.empty() ? std::string("Switch") : sw.console), 0, sw.titleId,
-            ""};
+            "", ""};
   }
   if (showMac && mac) {
     if (mac->titleId) {
       return {"mac:" + hex16(mac->titleId), mac->name.empty() ? "a game" : mac->name,
-              mac->where, mac->startedAt, mac->iconId ? mac->iconId : mac->titleId, ""};
+              mac->where, mac->startedAt, mac->iconId ? mac->iconId : mac->titleId, "", ""};
     }
     const std::string app = mac->app.empty() ? "an emulator" : mac->app;
-    return {"emulator:" + app, app, "", mac->startedAt, 0, ""};
+    return {"emulator:" + app, app, "", mac->startedAt, 0, "", ""};
   }
   return {};
 }
@@ -178,7 +178,7 @@ void Presence::update(bool enabled, const std::string& appId, const std::string&
 }
 
 void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
-  const auto now = std::chrono::steady_clock::now();
+  const auto now = now_();
   if (!enabled || appId.empty()) {
     if (ipc_.connected()) {
       std::string e;
@@ -201,6 +201,12 @@ void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
                                     a.largeImage != shown_.largeImage ||
                                     (a.start && a.start != shown_.start)));
   if (!changed && (ipc_.connected() || !playing)) return;
+  // The same game with new text (rich presence): at Discord's rate, the rest waits.
+  if (playing && ipc_.connected() && a.key == shown_.key &&
+      (a.details != shown_.details || a.state != shown_.state) &&
+      now - lastSent_ < std::chrono::seconds(15)) {
+    return;
+  }
   if (!ipc_.connected()) {
     if (!playing) {
       shown_ = {};
@@ -230,7 +236,8 @@ void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
   json activity = {{"details", a.details}, {"timestamps", {{"start", start}}}};
   if (!a.state.empty()) activity["state"] = a.state;
   if (!a.largeImage.empty()) {
-    activity["assets"] = {{"large_image", a.largeImage}, {"large_text", a.details}};
+    activity["assets"] = {{"large_image", a.largeImage},
+                          {"large_text", a.largeText.empty() ? a.details : a.largeText}};
   }
   if (!ipc_.setActivity(activity.dump(), error)) {
     status_ = error;
@@ -239,6 +246,7 @@ void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
   }
   shown_ = a;
   shown_.start = start;
+  lastSent_ = now;
   status_ = "Showing " + a.details + " in Discord";
 }
 

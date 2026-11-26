@@ -137,8 +137,20 @@ bool parseFe3hSystem(const std::string& b, SavePreview& out, std::string& error)
     s.place = place;
 
     s.heading = "Ch. " + std::to_string(chapter);
+    s.values.emplace_back("chapter", std::to_string(chapter));
     if (const char* name = fe3hChapterName(static_cast<int>(house), chapter, partOne)) {
       s.heading += std::string(" · ") + name;
+      s.values.emplace_back("chapterName", name);
+    }
+    if (partOne) {
+      s.values.emplace_back("part", "Part I");
+      if (day >= 1 && day <= 31) {
+        s.values.emplace_back("month", std::to_string((chapter + 2) % 12 + 1));
+        s.values.emplace_back("day", std::to_string(day));
+      }
+    } else if (!wolves) {
+      s.values.emplace_back("part", "Part II");
+      if (h && h->partTwo) s.values.emplace_back("route", h->partTwo);
     }
     s.player = player;
     s.playSeconds = seconds;
@@ -146,6 +158,7 @@ bool parseFe3hSystem(const std::string& b, SavePreview& out, std::string& error)
     if (h) {
       s.emblem = h->name;
       s.accent = h->accent;
+      s.values.emplace_back("house", h->name);
     }
     // Seen only on the cleared-game file, together with day 0xFF.
     if (static_cast<uint8_t>(b[at + 0x59]) != 0) s.tags.push_back("Cleared");

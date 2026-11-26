@@ -7,6 +7,7 @@
 #include "game_icons.hpp"
 #include "mac_playing.hpp"
 #include "presence.hpp"
+#include "rich_presence.hpp"
 
 #include <atomic>
 #include <deque>
@@ -166,6 +167,19 @@ class AppCore {
   // Warp Presence on the Mac: AutoSync's thread only, like presence_.
   void macTick();
   void showPresence(const struct Config& c);
+  // Rich presence (rich_presence.hpp): the activity with what's happening in the game.
+  // AutoSync's thread only, like presence_.
+  Activity richPresence(const struct Config& c, const Activity& plain);
+  void pollLive(const struct Config& c, uint64_t titleId);
+  LivePoll livePoll_;
+  uint64_t liveTitle_ = 0;                 // the Switch game live_ is for
+  PresenceValues live_;                    // its Tap fields, at most 15 s old
+  std::vector<PresenceRule> liveRules_;    // its profile's templates
+  uint64_t templatesTitle_ = 0;            // whether a profile for this game has templates
+  bool templates_ = false;
+  uint64_t saveTitle_ = 0;                 // the game save_ is for (its save's title id)
+  PresenceValues save_;                    // its newest slot's values
+  std::chrono::steady_clock::time_point saveAt_{};
   SwitchPlaying switchPlaying_;
   std::optional<MacGame> macGame_;
   MacGameWatcher macWatcher_;

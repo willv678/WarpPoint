@@ -45,6 +45,7 @@
 #include "game_icons.hpp"
 #include "mac_playing.hpp"
 #include "presence.hpp"
+#include "rich_presence.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
 #include "session.hpp"
@@ -120,6 +121,23 @@ fs::path home() {
 fs::path dataDir() {
   if (const char* d = std::getenv("WARP_DATA_DIR")) return d;
   return home() / "Library" / "Application Support" / "WarpPoint";
+}
+
+// What Discord would show for a Tap snapshot (rich_presence.hpp): the profile's templates
+// over its fields, then the save on this Mac. For `warp tap` and `warp lab-tap`.
+void printRichPresence(const nlohmann::json& snap, const Config& config) {
+  const uint64_t id = std::strtoull(snap.value("titleId", "").c_str(), nullptr, 16);
+  if (!id) return;
+  PresenceValues live;
+  for (const auto& f : snap.value("fields", nlohmann::json::array())) {
+    if (f.contains("value") && f["value"].is_string()) live[f.value("id", "")] = f["value"].get<std::string>();
+  }
+  std::vector<PresenceRule> rules;
+  const auto profiles = tapProfiles(dataDir());
+  if (const TapProfile* p = findTapProfile(profiles, id, snap.value("buildId", ""))) rules = p->presence;
+  for (auto& r : savePresenceRules(id)) rules.push_back(std::move(r));
+  const auto text = pickPresence(rules, live, macSaveValues(config, id), {{"game", snap.value("game", "")}});
+  if (text) std::printf("Discord: %s%s%s\n", text->details.c_str(), text->state.empty() ? "" : " / ", text->state.c_str());
 }
 
 std::optional<Peer> discover(int timeoutMs) {
@@ -821,6 +839,7 @@ int main(int argc, char** argv) {
                                                                          : f.value("note", "");
       std::printf("  %-20s %s\n", f.value("label", "").c_str(), v.c_str());
     }
+    printRichPresence(snap, g_config);
     return 0;
   }
   if (cmd == "label" && args.size() >= 4 && (args[3] == "pin" || args[3] == "unpin")) {
@@ -873,6 +892,7 @@ int main(int argc, char** argv) {
     Activity a = choosePresence({}, g, true);
     GameIcons icons;
     a.largeImage = icons.urlFor(a.iconId);
+    if (a.iconId) a = richActivity(a, savePresenceRules(a.iconId), {}, macSaveValues(c, a.iconId));
     if (a.key.empty()) {
       std::printf("Nothing playing on this Mac.\n");
       return 0;
@@ -1141,6 +1161,7 @@ int main(int argc, char** argv) {
                                                                          : f.value("note", "");
         std::printf("  %-20s %s\n", f.value("label", "").c_str(), v.c_str());
       }
+      printRichPresence(snap, g_config);
     }
   }
   if (cmd == "album") {

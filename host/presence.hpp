@@ -17,6 +17,7 @@
 #pragma once
 #include <cstdint>
 #include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -30,6 +31,7 @@ struct Activity {
   int64_t start = 0;    // elapsed time from (Unix seconds); 0 = from when it first showed
   uint64_t iconId = 0;  // the title id whose picture to show (0 = none)
   std::string largeImage;  // the picture's link (game_icons.hpp); "" = the app's icon
+  std::string largeText;   // the picture's caption; "" = details (rich_presence.hpp sets it)
 };
 
 // The Switch's running game, from its beacon (titleId 0 = none, or no console).
@@ -84,8 +86,12 @@ class Presence {
   // Discord at most every 30 s while something is playing.
   void update(bool enabled, const std::string& appId, const std::string& console,
               uint64_t titleId, const std::string& name);
-  // The same for any activity (choosePresence's). Sends only when it changed.
+  // The same for any activity (choosePresence's). Sends only when it changed. A change
+  // of text alone for the same game waits until 15 s after the last update (Discord's
+  // rate); a later call sends it.
   void show(bool enabled, const std::string& appId, const Activity& activity);
+  // Tests: a clock to use instead of the real one.
+  void setClock(std::function<std::chrono::steady_clock::time_point()> now) { now_ = std::move(now); }
   // "Showing Xenoblade Chronicles in Discord", "Discord isn't open", "Off", ...
   std::string status() const { return status_; }
 
@@ -94,6 +100,10 @@ class Presence {
   std::string appId_;
   Activity shown_;  // what Discord shows now (key "" = nothing)
   std::chrono::steady_clock::time_point nextTry_{};
+  std::chrono::steady_clock::time_point lastSent_{};  // the last activity Discord took
+  std::function<std::chrono::steady_clock::time_point()> now_ = [] {
+    return std::chrono::steady_clock::now();
+  };
   std::string status_ = "Off";
 };
 
