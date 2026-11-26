@@ -65,7 +65,7 @@ TEST_CASE("plugins: the catalog describes every plugin fully, once") {
     CHECK_MESSAGE(sentences >= 2, p.id);
     CHECK_MESSAGE(sentences <= 6, p.id);  // allows a few dots in names like "Documents/x.csv"
     for (const auto& n : p.needs) {
-      if (n.kind == "plugin") CHECK(findPlugin(n.value) != nullptr);
+      if (n.kind == "plugin" || n.kind == "optional") CHECK(findPlugin(n.value) != nullptr);
     }
   }
   for (const char* id : {"lens", "album", "presence", "tap", "mods", "split", "lexicon", "chronicle", "labs"}) {
@@ -150,6 +150,12 @@ TEST_CASE("plugins: status says what's missing") {
   CHECK(pluginById(all, "split")["active"] == true);
   CHECK(pluginById(all, "tap")["active"] == true);
   CHECK(pluginById(all, "lexicon")["active"] == false);
+  // Tap only adds to Presence: off, it's an unmet optional need, not a blocked plugin.
+  c.plugins["tap"] = false;
+  all = pluginsJson(c, ctx);
+  CHECK(pluginById(all, "presence")["status"] == "on");
+  CHECK(pluginById(all, "presence")["needs"][2]["met"] == false);
+  c.plugins.clear();
 
   // A Switch WarpPoint hasn't met yet: can't tell, so it doesn't block.
   ctx.consoleKnown = false;

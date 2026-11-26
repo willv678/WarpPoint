@@ -27,6 +27,7 @@ struct PluginNeed {
   // "setting": something to fill in (value: "discordAppId").
   // "profile": a Tap profile for the game (value: "any", "lexicon" or "splits").
   // "app": something outside WarpPoint WarpPoint can't check (value: a short name).
+  // "optional": another plugin that adds to this one but isn't needed (value: its id).
   std::string kind;
   std::string value;
   std::string text;  // shown as is: "WarpPoint 1.4 or later on the Switch"

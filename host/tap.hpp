@@ -13,12 +13,16 @@
 // Types: u8 u16 u32 u64 i8 i16 i32 f32, and text: utf8 / utf16 with "length" (characters
 // at most; up to the first NUL). "when": a note shown when a pointer on the way is null
 // ("in battle"). "lexicon": true marks a text field as the game's current line of
-// dialogue, for the Lexicon window.
+// dialogue, for the Lexicon window. "none": a value that means "not now" (shown as the
+// "when" note, as a null pointer is). "values": names for numbers ({"7": "Exploring"}).
+// "presence": Discord templates over the fields (rich_presence.hpp).
 #pragma once
 #include "messages.hpp"
+#include "rich_presence.hpp"
 
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -30,6 +34,8 @@ class RemoteStore;
 struct TapField {
   std::string id, label, group, type, when;
   bool lexicon = false;
+  std::string none;                           // this value means "not now" ("-1")
+  std::map<std::string, std::string> values;  // a value's name: {"7", "Exploring"}
   proto::TapEntry entry;
 };
 
@@ -38,8 +44,14 @@ struct TapProfile {
   std::string name;
   std::vector<std::string> builds;  // 16 hex, lower case
   std::vector<TapField> fields;
+  std::vector<PresenceRule> presence;  // Discord templates (rich_presence.hpp); may be empty
   std::string json;  // the profile as written (Warp Split reads its "splits")
 };
+
+// The profile for a running game: the last one naming its title and build (yours in
+// <data>/tap win over the built-in one). nullptr when none does.
+const TapProfile* findTapProfile(const std::vector<TapProfile>& profiles, uint64_t titleId,
+                                 const std::string& buildId);
 
 // Parse one profile (nullopt + error for a bad one).
 std::optional<TapProfile> parseTapProfile(const std::string& json, std::string& error);

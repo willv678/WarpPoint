@@ -65,6 +65,79 @@
         "0x1B48"
       ],
       "lexicon": true
+    },
+    {
+      "id": "scene",
+      "label": "Scene",
+      "group": "Game",
+      "type": "u32",
+      "region": "main",
+      "offset": "0x1A36810",
+      "values": {
+        "6": "Battle map",
+        "7": "Exploring",
+        "9": "Title screen"
+      }
+    },
+    {
+      "id": "chapter",
+      "label": "Chapter",
+      "group": "Game",
+      "type": "u32",
+      "region": "main",
+      "offset": "0x1B12190",
+      "hops": [
+        "0x2427C"
+      ],
+      "none": "0"
+    },
+    {
+      "id": "turn",
+      "label": "Turn",
+      "group": "Battle",
+      "type": "i32",
+      "region": "main",
+      "offset": "0x1AC2A18",
+      "none": "-1",
+      "when": "in battle"
+    }
+  ],
+  "presence": [
+    {
+      "when": [
+        "scene=Battle map",
+        "turn"
+      ],
+      "details": "Ch. {chapter} · {house}",
+      "state": "In battle · Turn {turn}"
+    },
+    {
+      "when": [
+        "scene=Battle map",
+        "turn"
+      ],
+      "details": "Chapter {chapter}",
+      "state": "In battle · Turn {turn}"
+    },
+    {
+      "when": "scene=Battle map",
+      "details": "Ch. {chapter} · {house}",
+      "state": "Preparing for battle"
+    },
+    {
+      "when": "scene=Battle map",
+      "details": "Chapter {chapter}",
+      "state": "Preparing for battle"
+    },
+    {
+      "when": "scene=Exploring",
+      "details": "Ch. {chapter} · {house}",
+      "state": "Exploring"
+    },
+    {
+      "when": "scene=Exploring",
+      "details": "Chapter {chapter}",
+      "state": "Exploring"
     }
   ]
 }

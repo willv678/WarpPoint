@@ -406,3 +406,78 @@ TEST_CASE("presence: the picture goes to Discord with the game's name") {
   CHECK(discord.lastActivity["assets"]["large_image"] == tinfoilIconUrl(kFe3h));
   CHECK(discord.lastActivity["assets"]["large_text"] == "Fire Emblem: Three Houses");
 }
+
+// ---- Rich presence (rich_presence.hpp): Discord's rate, and the Switch before the Mac ----
+
+#include "rich_presence.hpp"
+
+TEST_CASE("presence: new text for the same game waits for Discord's 15 s") {
+  FakeDiscord discord;
+  Presence p;
+  auto now = std::chrono::steady_clock::now();
+  p.setClock([&now] { return now; });
+  Activity a = choosePresence({"Will's Switch", kFe3h, "Fire Emblem: Three Houses"}, std::nullopt, false);
+  a.details = "Ch. 8 · Black Eagles";
+  a.state = "In battle · Turn 1";
+  p.show(true, "1234567890", a);
+  CHECK(discord.lastActivity["state"] == "In battle · Turn 1");
+  const int64_t start = discord.lastActivity["timestamps"]["start"];
+  const int sent = discord.commands;
+
+  now += std::chrono::seconds(5);
+  a.state = "In battle · Turn 2";
+  p.show(true, "1234567890", a);
+  CHECK(discord.commands == sent);  // too soon: held
+  now += std::chrono::seconds(5);
+  p.show(true, "1234567890", a);
+  CHECK(discord.commands == sent);
+  now += std::chrono::seconds(5);   // 15 s after the last update: sent
+  p.show(true, "1234567890", a);
+  CHECK(discord.commands == sent + 1);
+  CHECK(discord.lastActivity["state"] == "In battle · Turn 2");
+  CHECK(discord.lastActivity["timestamps"]["start"] == start);  // the same game's clock
+
+  // Another game isn't held: it shows at once.
+  now += std::chrono::seconds(1);
+  p.show(true, "1234567890", choosePresence({"Will's Switch", kXeno, "Xenoblade"}, std::nullopt, false));
+  CHECK(discord.lastActivity["details"] == "Xenoblade");
+}
+
+TEST_CASE("presence: rich text follows the chosen game, the Switch before the Mac") {
+  // Each game's own save: FE3H's on the Switch, Xenoblade running as a port on the Mac.
+  const PresenceValues fe3hSave = {{"heading", "Ch. 8 · The Flame in the Darkness"},
+                                   {"emblem", "Black Eagles"}, {"hours", "31h"}};
+  const PresenceValues xenoSave = {{"heading", "Satorl Marsh"}, {"map", "Satorl Marsh"},
+                                   {"leader", "Shulk"}, {"level", "25"}, {"hours", "2h"}};
+  auto saveOf = [&](uint64_t id) { return id == kFe3h ? fe3hSave : id == kXeno ? xenoSave : PresenceValues{}; };
+  const MacGame xenoPort{kXeno, "Xenoblade Chronicles: Definitive Edition", "on Mac", "", 1000, kXeno};
+  auto rich = [&](const SwitchPlaying& sw, const std::optional<MacGame>& mac, const PresenceValues& live) {
+    const Activity plain = choosePresence(sw, mac, true);
+    const bool onSwitch = plain.key.rfind("switch:", 0) == 0;
+    return richActivity(plain, savePresenceRules(plain.iconId), onSwitch ? live : PresenceValues{},
+                        saveOf(plain.iconId));
+  };
+
+  // Both playing: the Switch's game, from its save.
+  auto a = rich({"Will's Switch", kFe3h, "Fire Emblem: Three Houses"}, xenoPort, {});
+  CHECK(a.key == "switch:010055d009f78000");
+  CHECK(a.details == "Ch. 8 · The Flame in the Darkness");
+  CHECK(a.state == "Black Eagles · 31h");
+  CHECK(a.largeText == "Fire Emblem: Three Houses · on Will's Switch");
+
+  // The Switch idle: the Mac's port, from the Mac's save, with no live values.
+  a = rich({"Will's Switch", 0, ""}, xenoPort, {{"map", "Colony 9"}});
+  CHECK(a.key == "mac:0100ff500e34a000");
+  CHECK(a.details == "Satorl Marsh");
+  CHECK(a.state == "Shulk Lv 25");
+  CHECK(a.largeText == "Xenoblade Chronicles: Definitive Edition · on Mac");
+
+  // An emulator with no certain game: its name alone, nothing to fill.
+  a = rich({}, MacGame{0, "", "in Astris", "Astris", 5}, {});
+  CHECK(a.details == "Astris");
+  CHECK(a.largeText.empty());
+  // A game with no save preview and no profile: the plain lines.
+  a = rich({"Will's Switch", 0x0100aaaa00000000, "Other Game"}, std::nullopt, {});
+  CHECK(a.details == "Other Game");
+  CHECK(a.state == "on Will's Switch");
+}

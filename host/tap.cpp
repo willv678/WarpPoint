@@ -69,6 +69,15 @@ std::optional<TapProfile> parseTapProfileOrThrow(const std::string& text, std::s
     t.type = f.value("type", "u32");
     t.when = f.value("when", "");
     t.lexicon = f.value("lexicon", false);
+    t.none = f.value("none", "");
+    const json names = f.value("values", json::object());
+    for (const auto& [k, v] : names.items()) {
+      if (!v.is_string()) {
+        error = "field " + t.id + ": a name in \"values\" must be text";
+        return std::nullopt;
+      }
+      t.values[k] = v.get<std::string>();
+    }
     const std::string region = f.value("region", "main");
     t.entry.region = region == "heap"    ? proto::TapRegion::Heap
                      : region == "alias" ? proto::TapRegion::Alias
@@ -94,6 +103,15 @@ std::optional<TapProfile> parseTapProfileOrThrow(const std::string& text, std::s
     error = "a profile needs a titleId, builds and 1-64 fields";
     return std::nullopt;
   }
+  if (j.contains("presence")) {
+    std::string why;
+    auto rules = parsePresenceRules(j["presence"].dump(), why);
+    if (!rules) {
+      error = "presence: " + why;
+      return std::nullopt;
+    }
+    p.presence = std::move(*rules);
+  }
   return p;
 }
 }  // namespace
@@ -107,6 +125,17 @@ std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& 
     error = std::string("a value has the wrong type: ") + e.what();
     return std::nullopt;
   }
+}
+
+const TapProfile* findTapProfile(const std::vector<TapProfile>& profiles, uint64_t titleId,
+                                 const std::string& buildId) {
+  const std::string build = lower(buildId);
+  for (auto it = profiles.rbegin(); it != profiles.rend(); ++it) {
+    if (it->titleId == titleId && std::find(it->builds.begin(), it->builds.end(), build) != it->builds.end()) {
+      return &*it;
+    }
+  }
+  return nullptr;
 }
 
 std::vector<TapProfile> tapProfiles(const fs::path& dataDir) {
@@ -250,8 +279,12 @@ std::string tapSnapshot(const TapReader& read, const std::vector<TapProfile>& pr
     const auto& r = reply.results[i];
     json v = {{"id", f.id}, {"label", f.label}, {"group", f.group}, {"value", nullptr}, {"note", ""},
               {"lexicon", f.lexicon}, {"text", f.type == "utf8" || f.type == "utf16"}};
-    if (r.status == proto::TapStatus::Ok) v["value"] = tapValue(f, r.bytes);
-    else if (r.status == proto::TapStatus::NullPointer) v["note"] = f.when.empty() ? "not now" : f.when;
+    if (r.status == proto::TapStatus::Ok) {
+      const std::string value = tapValue(f, r.bytes);
+      const auto named = f.values.find(value);
+      if (!f.none.empty() && value == f.none) v["note"] = f.when.empty() ? "not now" : f.when;
+      else v["value"] = named == f.values.end() ? value : named->second;
+    } else if (r.status == proto::TapStatus::NullPointer) v["note"] = f.when.empty() ? "not now" : f.when;
     else v["note"] = "unreadable";
     out["fields"].push_back(v);
   }

@@ -20,6 +20,10 @@ While the same game runs on the Switch, a **Live** section under it shows Warp T
 - `warp_core_save_preview(core, titleId, folder)` returns it as JSON. `{"supported": false}`
   means no parser, and the app shows nothing. `{"supported": true, "error": ...}` means a parser
   that couldn't read this save, and the app says so.
+- A slot's `values` (not shown on the card) are plain values for Discord presence, such as
+  FE3H's `chapter` and `house` or Xenoblade's `map`, `leader` and `level`. Presence shows the
+  newest slot of a game's save; see "Discord presence templates" in
+  [TAP_PROFILES.md](TAP_PROFILES.md).
 - `app/mac/Sources/SavePreviewView.swift` draws the cards and the Live section. A slot with a
   picture shows it on the left; one without shows its crest (or a plain mark).
 

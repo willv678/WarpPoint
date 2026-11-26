@@ -128,7 +128,10 @@ bool parseXenobladeDeFolder(const fs::path& folder, SavePreview& out, std::strin
     s.playTime = hoursMinutes(s.playSeconds);
     s.saved = saveTime(u64(b, kSaveTime));
 
-    if (const char* place = mapName(u16(b, kMap), u16(b, kMap + 2))) s.heading = place;
+    if (const char* place = mapName(u16(b, kMap), u16(b, kMap + 2))) {
+      s.heading = place;
+      s.values.emplace_back("map", place);
+    }
 
     // The party, leader first, and the leader's level.
     const size_t party = kParty + shift;
@@ -144,8 +147,10 @@ bool parseXenobladeDeFolder(const fs::path& folder, SavePreview& out, std::strin
       const uint16_t leader = u16(b, party);
       s.player = characterName(leader);
       const uint32_t level = u32(b, kMembers + shift + (leader - 1u) * kMemberSize);
+      s.values.emplace_back("leader", s.player);
       if (level >= 1 && level <= 99) {
         s.details.emplace_back("Level", std::to_string(level));
+        s.values.emplace_back("level", std::to_string(level));
         if (s.heading.empty()) s.heading = "Lv " + std::to_string(level) + " " + s.player;
       }
       s.details.emplace_back("Party", names);

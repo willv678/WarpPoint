@@ -39,7 +39,13 @@ Needs a Discord Application ID of your own (make one at
 discord.com/developers/applications and paste its ID into the plugin's settings) and the
 Discord app running on this Mac. Off by default. The Switch's game comes first; when
 nothing is playing there, a game running on this Mac shows instead (an nxnative port, or a
-game in Astris). `warp presence-test ID`, `warp presence-mac [ID]`.
+game in Astris). Discord also shows what you're doing in the game: from the newest slot of
+its save on this Mac for any game with a save preview ("Ch. 8 · The Flame in the Darkness",
+"Black Eagles · 31h"), and live from Tap for a Switch game whose profile has presence
+templates ("In battle · Turn 4"). Tap is optional: with it off, the save's lines show. A
+live read attaches Atmosphère's cheat service to the game, so sys-botbase can't peek that
+game's memory until it restarts. See "Discord presence templates" in
+[TAP_PROFILES.md](TAP_PROFILES.md). `warp presence-test ID`, `warp presence-mac [ID]`.
 
 ### Tap
 
