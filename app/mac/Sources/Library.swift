@@ -71,6 +71,8 @@ struct Backup: Codable, Identifiable, Hashable {
   let created: String
   let files: UInt64
   let bytes: UInt64
+  var note: String = ""     // Warp Chronicle: the player's label
+  var pinned: Bool = false  // kept forever
 }
 
 enum WarpDates {

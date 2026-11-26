@@ -219,6 +219,11 @@ final class WarpModel: ObservableObject {
     return (try? JSONDecoder().decode([Backup].self, from: data)) ?? []
   }
 
+  /// Warp Chronicle: label a backup or pin it (kept forever).
+  func labelBackup(_ game: Game, _ backup: Backup, note: String, pinned: Bool) -> String? {
+    call { warp_core_label_backup(core, game.key, backup.id, note, pinned, &$0) }
+  }
+
   func restore(_ game: Game, backup: Backup) {
     let core = self.core
     libraryMessage = "Restoring \(game.name)…"

@@ -37,7 +37,7 @@ See the [roadmap](#roadmap).
 - **Asks when it isn't sure.** If a save changed on both sides since they last matched, WarpPoint
   lets you pick which one to keep.
 - **Backs up first.** Before it replaces a save anywhere, it keeps a copy on the Mac. It holds the
-  newest 4 of each save, and any of them can be restored.
+  newest 4 of each save, plus any you pin, and any of them can be restored.
 - **Writes all or nothing.** A new save goes into a scratch copy and becomes the real one in a
   single step, on the Switch and in Astris. If the power or the Wi-Fi drops halfway, you still
   have the old save.
@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.4.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.5.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.4.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.5.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -87,7 +87,8 @@ doing and what it last moved.
 
 - **+ Add Game** lists the games on your Switch that aren't in Astris yet. Pick one to bring its
   save over.
-- Click a game for its status and its backups, and **Restore…** to put an older save back.
+- Click a game for its status and its backups, and **Restore…** to put an older save back. Give a
+  backup a note ("before the final boss") and pin it to keep it forever (1.5).
 - Right-click a game to sync it now, find its save in Finder, or stop syncing it. Nothing gets
   deleted.
 
@@ -228,6 +229,7 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Warp Mods: one mod library for the Switch, Astris and nxnative apps (1.4)
 - [x] Warp Split: LiveSplit auto-splitting from Tap (1.4)
 - [x] Warp Lexicon: the game's text in a Mac window, for Look Up and Anki (1.4)
+- [x] Warp Chronicle: notes on backups, and pinned backups kept forever (1.5)
 - [ ] More Tap profiles: other games, and FE3H's roster, supports and dialogue text
 - [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)
 - [x] nxnative ports, found and synced like emulator games (1.2)

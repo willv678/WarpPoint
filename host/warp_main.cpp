@@ -79,6 +79,7 @@ int usage() {
                "       warp resolve GAME mac|switch\n"
                "       warp backups GAME\n"
                "       warp restore GAME BACKUP_ID mac|switch\n"
+               "       warp label KEY BACKUP_ID pin|unpin [NOTE...]   (* in warp backups = kept forever)\n"
                "       warp watch\n"
                "       warp nxnative                       (the nxnative apps found here)\n"
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
@@ -486,9 +487,10 @@ int cmdBackups(Session&, const std::string& key) {
   const auto list = backups.list(key);
   std::printf("%s: %zu backup%s\n", key.c_str(), list.size(), list.size() == 1 ? "" : "s");
   for (const auto& b : list) {
-    std::printf("  %s  %-6s %-15s %s  %llu files, %llu bytes\n", b.id.c_str(), b.side.c_str(),
-                b.reason.c_str(), b.hash.substr(0, 12).c_str(),
-                static_cast<unsigned long long>(b.files), static_cast<unsigned long long>(b.bytes));
+    std::printf("  %s%s %-6s %-15s %s  %llu files, %llu bytes%s%s\n", b.pinned ? "*" : " ",
+                b.id.c_str(), b.side.c_str(), b.reason.c_str(), b.hash.substr(0, 12).c_str(),
+                static_cast<unsigned long long>(b.files), static_cast<unsigned long long>(b.bytes),
+                b.note.empty() ? "" : "  - ", b.note.c_str());
   }
   return 0;
 }
@@ -683,6 +685,21 @@ int main(int argc, char** argv) {
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();
   if (cmd == "nxnative") return cmdNxNative();
+  if (cmd == "label" && args.size() >= 4 && (args[3] == "pin" || args[3] == "unpin")) {
+    std::string note;
+    for (size_t i = 4; i < args.size(); ++i) note += (note.empty() ? "" : " ") + args[i];
+    BackupStore backups(dataDir() / "backups", g_config.keepBackups);
+    std::string id = args[2], e;
+    for (const auto& b : backups.list(args[1])) {
+      if (b.id.rfind(args[2], 0) == 0) id = b.id;
+    }
+    if (!backups.setLabel(args[1], id, note, args[3] == "pin", e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    std::printf("Labeled %s.\n", id.c_str());
+    return 0;
+  }
   if ((cmd == "mods" && args.size() == 2) || (cmd == "mods-add" && args.size() == 4) ||
       ((cmd == "mods-on" || cmd == "mods-off") && args.size() == 3)) {
     const uint64_t id = std::strtoull(args[1].c_str(), nullptr, 16);

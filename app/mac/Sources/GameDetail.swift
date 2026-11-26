@@ -203,12 +203,25 @@ struct GameDetail: View {
       ForEach(backups) { b in
         HStack(alignment: .top) {
           VStack(alignment: .leading, spacing: 2) {
-            Text(WarpDates.parse(b.created).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? b.created)
-              .font(.callout.weight(.medium))
+            HStack(spacing: 4) {
+              if b.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange).font(.caption) }
+              Text(WarpDates.parse(b.created).map { $0.formatted(date: .abbreviated, time: .shortened) } ?? b.created)
+                .font(.callout.weight(.medium))
+            }
             Text(describe(b)).font(.caption).foregroundStyle(.secondary)
               .fixedSize(horizontal: false, vertical: true)
+            BackupNote(note: b.note) { note in
+              _ = model.labelBackup(game, b, note: note, pinned: b.pinned)
+              loadBackups()
+            }
           }
           Spacer()
+          Button {
+            _ = model.labelBackup(game, b, note: b.note, pinned: !b.pinned)
+            loadBackups()
+          } label: { Image(systemName: b.pinned ? "pin.slash" : "pin") }
+            .buttonStyle(.borderless)
+            .help(b.pinned ? "Let WarpPoint remove it with the older ones" : "Keep this one forever")
           Button("Restore…") { confirmRestore = b }
             .controlSize(.small)
             .disabled(game.isNative ? game.nxnative?.running == true
@@ -230,5 +243,21 @@ struct GameDetail: View {
     }
     let size = ByteCountFormatter.string(fromByteCount: Int64(b.bytes), countStyle: .file)
     return "\(from)'s copy, \(why) · \(size)"
+  }
+}
+
+/// Warp Chronicle: a backup's note, edited in place ("before the Garreg Mach fight").
+private struct BackupNote: View {
+  let note: String
+  let save: (String) -> Void
+  @State private var text = ""
+  var body: some View {
+    TextField("Add a note", text: $text)
+      .textFieldStyle(.plain)
+      .font(.caption)
+      .foregroundStyle(.primary)
+      .onAppear { text = note }
+      .onChange(of: note) { text = note }
+      .onSubmit { if text != note { save(text) } }
   }
 }

@@ -156,6 +156,12 @@ std::vector<BackupInfo> BackupStore::list(const std::string& key) const {
       b.files = j.value("files", uint64_t{0});
       b.bytes = j.value("bytes", uint64_t{0});
       if (b.id != entry.path().filename().string()) continue;
+      std::ifstream lin(entry.path() / "label.json");
+      const json l = json::parse(lin, nullptr, false);
+      if (l.is_object()) {
+        b.note = l.value("note", "");
+        b.pinned = l.value("pinned", false);
+      }
       out.push_back(std::move(b));
     } catch (const json::exception&) {
       continue;
@@ -172,11 +178,43 @@ fs::path BackupStore::filesDir(const std::string& key, const std::string& id) co
 
 void BackupStore::prune(const std::string& key) {
   if (keep_ == 0) return;  // keep everything
-  const auto all = list(key);
   std::error_code ec;
-  for (size_t i = keep_; i < all.size(); ++i) {
-    fs::remove_all(root_ / key / all[i].id, ec);
+  size_t kept = 0;
+  for (const auto& b : list(key)) {  // newest first; pinned ones don't count
+    if (b.pinned) continue;
+    if (++kept > keep_) fs::remove_all(root_ / key / b.id, ec);
   }
+}
+
+bool BackupStore::setLabel(const std::string& key, const std::string& id, const std::string& note,
+                           bool pinned, std::string& error) {
+  const auto all = list(key);
+  if (std::none_of(all.begin(), all.end(), [&](const BackupInfo& b) { return b.id == id; })) {
+    error = "that backup is gone";
+    return false;
+  }
+  if (note.size() > 500) {
+    error = "a note is 500 characters at most";
+    return false;
+  }
+  const fs::path dir = root_ / key / id;
+  const fs::path tmp = dir / "label.json.tmp";
+  {
+    std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+    out << json{{"note", note}, {"pinned", pinned}}.dump() << "\n";
+    if (!out) {
+      error = "cannot write " + tmp.string();
+      return false;
+    }
+  }
+  std::error_code ec;
+  fs::rename(tmp, dir / "label.json", ec);
+  if (ec) {
+    error = ec.message();
+    return false;
+  }
+  if (!pinned) prune(key);  // unpinning may put it past the limit
+  return true;
 }
 
 }  // namespace WarpPoint

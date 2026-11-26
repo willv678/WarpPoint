@@ -63,6 +63,10 @@ char* warp_core_reports(WarpCore* core);
 /* A save's backups, newest first: [{"id","side","reason","created","files","bytes"}]. */
 char* warp_core_backups(WarpCore* core, const char* key);
 
+/* Warp Chronicle: label a backup ("note") and pin it (never pruned). Backups list "note","pinned". */
+bool warp_core_label_backup(WarpCore* core, const char* key, const char* backupId, const char* note,
+                            bool pinned, char** error);
+
 /* Put a backup back into the emulator (current copy backed up first), then sync. */
 bool warp_core_restore(WarpCore* core, const char* key, const char* backupId, char** error);
 

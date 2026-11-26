@@ -669,9 +669,18 @@ std::string AppCore::backupsJson(const std::string& key) {
   json out = json::array();
   for (const auto& b : backups.list(key)) {
     out.push_back({{"id", b.id}, {"side", b.side}, {"reason", b.reason}, {"created", b.created},
-                   {"files", b.files}, {"bytes", b.bytes}});
+                   {"files", b.files}, {"bytes", b.bytes}, {"note", b.note}, {"pinned", b.pinned}});
   }
   return out.dump();
+}
+
+bool AppCore::labelBackup(const std::string& key, const std::string& backupId,
+                          const std::string& note, bool pinned, std::string& error) {
+  Config config;
+  if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  FileLock lock(dataDir_ / "sync.lock");
+  if (!takeLock(lock, error)) return false;
+  return BackupStore(dataDir_ / "backups", config.keepBackups).setLabel(key, backupId, note, pinned, error);
 }
 
 bool AppCore::restore(const std::string& key, const std::string& backupId, std::string& error) {

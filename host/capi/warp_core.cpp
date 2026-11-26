@@ -146,6 +146,16 @@ char* warp_core_tap(WarpCore* core) { return dup(core->core.tapJson()); }
 
 char* warp_core_reports(WarpCore* core) { return dup(core->core.reportsJson()); }
 
+bool warp_core_label_backup(WarpCore* core, const char* key, const char* backupId, const char* note,
+                            bool pinned, char** error) {
+  std::string e;
+  if (core->core.labelBackup(key ? key : "", backupId ? backupId : "", note ? note : "", pinned, e)) {
+    return true;
+  }
+  setError(error, e);
+  return false;
+}
+
 char* warp_core_games(WarpCore* core) { return dup(core->core.gamesJson()); }
 
 char* warp_core_backups(WarpCore* core, const char* key) {

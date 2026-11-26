@@ -4,6 +4,8 @@
 // Layout:
 //   <root>/<unit key>/<backup id>/info.json   which side, when, why, hash, files
 //   <root>/<unit key>/<backup id>/files/...   the save's files
+//   <root>/<unit key>/<backup id>/label.json  Warp Chronicle: the player's note, and
+//                                             whether it's kept forever (pinned)
 //   <root>/.staging/...                       backups still being received
 //
 // Backup ids are UTC timestamps plus the side ("20261116T153012.123Z-switch"),
@@ -30,6 +32,8 @@ struct BackupInfo {
   std::string created;  // UTC, ISO 8601
   uint64_t files = 0;
   uint64_t bytes = 0;
+  std::string note;     // the player's words ("before the Garreg Mach fight")
+  bool pinned = false;  // kept forever: never pruned, not counted against the limit
 };
 
 class BackupStore {
@@ -45,6 +49,10 @@ class BackupStore {
 
   // Backups of one save, newest first.
   std::vector<BackupInfo> list(const std::string& key) const;
+
+  // Warp Chronicle: label a backup, or pin it so it's never pruned.
+  bool setLabel(const std::string& key, const std::string& id, const std::string& note,
+                bool pinned, std::string& error);
 
   // Where a backup's files are, for restoring it.
   std::filesystem::path filesDir(const std::string& key, const std::string& id) const;

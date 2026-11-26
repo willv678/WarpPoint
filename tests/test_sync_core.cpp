@@ -7,6 +7,9 @@
 
 #include "doctest.h"
 
+#include <chrono>
+#include <thread>
+
 #include <map>
 #include <optional>
 #include <string>
@@ -219,4 +222,35 @@ TEST_CASE("backup: bad keys and sides are refused up front") {
   std::string error;
   CHECK_FALSE(store.begin("../outside", "mac", "x", error));
   CHECK_FALSE(store.begin(kKey, "toaster", "x", error));
+}
+
+TEST_CASE("chronicle: a pinned backup is kept forever and a note sticks") {
+  testsupport::TempDir tmp;
+  WarpPoint::BackupStore store(tmp / "backups", 2);
+  const std::string key = "game/0100000000000001/0000000000000000000000000000000a";
+  std::string error;
+  auto add = [&](const std::string& data) {
+    auto w = store.begin(key, "switch", "before-pull", error);
+    REQUIRE(w);
+    const std::string sha = WarpPoint::sha256Hex(data.data(), data.size());
+    REQUIRE(w->beginFile("s.bin", data.size()));
+    REQUIRE(w->writeChunk(reinterpret_cast<const uint8_t*>(data.data()), data.size()));
+    REQUIRE(w->endFile(sha));
+    REQUIRE(w->commit(WarpPoint::computeUnitHash({{"s.bin", data.size(), sha}})));
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));  // ids are timestamps
+  };
+  add("first");
+  const std::string oldest = store.list(key).back().id;
+  REQUIRE(store.setLabel(key, oldest, "before the Garreg Mach fight", true, error));
+  add("second");
+  add("third");
+  add("fourth");
+  const auto all = store.list(key);
+  REQUIRE(all.size() == 3);  // 2 unpinned + the pinned one
+  CHECK(all.back().id == oldest);
+  CHECK(all.back().pinned);
+  CHECK(all.back().note == "before the Garreg Mach fight");
+  REQUIRE(store.setLabel(key, oldest, "", false, error));  // unpinned: pruned now
+  CHECK(store.list(key).size() == 2);
+  CHECK_FALSE(store.setLabel(key, oldest, "x", true, error));  // gone
 }

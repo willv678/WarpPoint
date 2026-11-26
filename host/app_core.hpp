@@ -61,6 +61,10 @@ class AppCore {
   // A save's backups, newest first.
   std::string backupsJson(const std::string& key);
 
+  // Warp Chronicle: a note on a backup, and pinning it so it's kept forever.
+  bool labelBackup(const std::string& key, const std::string& backupId, const std::string& note,
+                   bool pinned, std::string& error);
+
   // Put a backup back into the emulator (the current copy is backed up first). The
   // next sync then carries it to the console.
   bool restore(const std::string& key, const std::string& backupId, std::string& error);
