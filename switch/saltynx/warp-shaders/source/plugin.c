@@ -685,9 +685,44 @@ static u64 hk_gpa(const void* device, const char* name) {
     return wrap(name, addr);
 }
 
-static int g_boot_calls;
+static int g_boot_calls __attribute__((unused));
+#ifdef WP_L0E
+#define WP_L0A
+#endif
+#if defined(WP_L0A) || defined(WP_L0B)
+// NX-FPS's pattern: the real loader is a LINKABLE (weak) import that SaltyNX resolves when it
+// links the plugin; our own import is never redirected, because ReplaceImport only patches the
+// game's modules.
+extern u64 nvnBootstrapLoader(const char* name) WEAK;
+static u64 (*g_linkable_bootstrap)(const char*);
+#endif
+#if defined(WP_L0E)
+// Diagnostic: stop with a breakpoint on the first call, so the crash report's registers show
+// that the hook was reached (pc in the plugin, x30 = caller), the name (x0), the two real-loader
+// pointers as the hook sees them (x1, x2), and whether our .bss (x3) and .data (x4) still hold
+// what we put there.
+static u64 g_bss_marker;
+static volatile u64 g_data_marker = 0x5753484452444154ull;   // "TADRDHSW"
 static u64 hk_bootstrap(const char* name) {
+    register u64 r0 __asm__("x0") = (u64)name;
+    register u64 r1 __asm__("x1") = (u64)real_bootstrap;
+    register u64 r2 __asm__("x2") = (u64)g_linkable_bootstrap;
+    register u64 r3 __asm__("x3") = *(volatile u64*)&g_bss_marker;
+    register u64 r4 __asm__("x4") = g_data_marker;
+    __asm__ volatile("brk #0x57" :: "r"(r0), "r"(r1), "r"(r2), "r"(r3), "r"(r4) : "memory");
+    return nvnBootstrapLoader(name);
+}
+#elif defined(WP_L0A)
+static u64 hk_bootstrap(const char* name) { return nvnBootstrapLoader(name); }
+#elif defined(WP_L0B)
+static u64 hk_bootstrap(const char* name) { return g_linkable_bootstrap(name); }
+#else
+static u64 hk_bootstrap(const char* name) {
+#ifdef WP_PLAIN_COUNTER   // L0d: no exclusive load/store (ldxr/stxr) on plugin memory
+    int n = g_boot_calls++;
+#else
     int n = __atomic_fetch_add(&g_boot_calls, 1, __ATOMIC_RELAXED);
+#endif
     if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
     u64 addr = real_bootstrap ? real_bootstrap(name) : 0;
     if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d returned %p\n", (u64)n + 1, addr);
@@ -698,6 +733,7 @@ static u64 hk_bootstrap(const char* name) {
     }
     return wrap(name, addr);
 }
+#endif
 
 // ---- flush thread -----------------------------------------------------------------------------
 static u8 g_stack[0x10000] __attribute__((aligned(0x1000)));
@@ -847,6 +883,22 @@ HIDDEN void wp_plugin_main(void) {
     if (SaltySD_GetBID) g_build_id = SaltySD_GetBID();
 
     real_bootstrap = (u64 (*)(const char*))SaltySDCore_FindSymbolBuiltin("nvnBootstrapLoader");
+#if defined(WP_L0A) || defined(WP_L0B)
+    g_linkable_bootstrap = nvnBootstrapLoader;
+#ifdef WP_L0E
+    g_bss_marker = 0x5753484452425353ull;                      // "SSBRDHSW"
+#endif
+    wp_log("WarpShaders L%d: LINKABLE nvnBootstrapLoader %p, FindSymbolBuiltin %p\n",
+           (u64)g_linkable_bootstrap, (u64)real_bootstrap);
+    if (!g_linkable_bootstrap) {
+        wp_log("WarpShaders L%d: LINKABLE import not resolved, not hooking\n", 0, 0);
+        g_in_main = 0;
+        return;
+    }
+#else
+    wp_log("WarpShaders L%d: FindSymbolBuiltin nvnBootstrapLoader %p (hook %p)\n",
+           (u64)real_bootstrap, (u64)hk_bootstrap);
+#endif
     if (!real_bootstrap) {
         wp_log("WarpShaders L%d: no nvnBootstrapLoader, not an NVN game\n", 0, 0);
         g_in_main = 0;

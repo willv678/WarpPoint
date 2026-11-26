@@ -54,12 +54,18 @@ bisect: $(SOURCES) $(DEPS) Makefile
 	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
 	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
 	done
-	@$(CC) $(CFLAGS) -DWP_LEVEL=0 -DWP_QUIET $(subst $(BUILD)/$(TARGET).map,$(BISECT)/L0-quiet.map,$(LDFLAGS)) \
-	    -o $(BISECT)/full-L0-quiet.elf $(SOURCES) -lgcc
-	@$(STRIP) --strip-debug -o $(BISECT)/warp-shaders-L0-quiet.elf $(BISECT)/full-L0-quiet.elf
-	@rm -f $(BISECT)/full-L0-quiet.elf
-	@$(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-L0-quiet >/dev/null
-	@echo "$(BISECT)/warp-shaders-L0-quiet.elf"
+	@# L0 variants: L0a/L0b use NX-FPS's LINKABLE import for the real loader, L0c is L0-quiet
+	@# with the pointer logged at load, L0d avoids exclusive load/store in the hook, L0e stops
+	@# with a breakpoint in the hook so the crash report shows its registers.
+	@for v in "L0-quiet:-DWP_QUIET" "L0a:-DWP_QUIET -DWP_L0A" "L0b:-DWP_QUIET -DWP_L0B" \
+	          "L0c:-DWP_QUIET" "L0d:-DWP_QUIET -DWP_PLAIN_COUNTER" "L0e:-DWP_QUIET -DWP_L0E"; do \
+	    name=$${v%%:*}; flags=$${v#*:}; \
+	    $(CC) $(CFLAGS) -DWP_LEVEL=0 $$flags $(subst $(BUILD)/$(TARGET).map,$(BISECT)/$$name.map,$(LDFLAGS)) \
+	        -o $(BISECT)/warp-shaders-$$name.elf $(SOURCES) -lgcc || exit 1; \
+	    $(STRIP) --strip-debug $(BISECT)/warp-shaders-$$name.elf || exit 1; \
+	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
+	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
+	done
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf
