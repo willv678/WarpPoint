@@ -9,6 +9,7 @@ READELF   := $(PREFIX)readelf
 STRIP     := $(PREFIX)strip
 
 TARGET    := warp-shaders
+comma     := ,
 BUILD     := build
 SOURCES   := source/crt0.s source/plugin.c
 DEPS      := source/capture_format.h source/xxhash64.h plugin.ld
@@ -22,7 +23,7 @@ LDFLAGS   := -nostdlib -nostartfiles -pie -T plugin.ld \
              -Wl,-z,text -Wl,-z,now -Wl,-z,nopack-relative-relocs -Wl,--build-id=sha1 \
              -Wl,--gc-sections -Wl,--no-undefined-version -Wl,-Map,$(BUILD)/$(TARGET).map
 
-.PHONY: all clean check bisect
+.PHONY: all clean check bisect coexist
 
 all: $(TARGET).elf
 
@@ -65,6 +66,18 @@ bisect: $(SOURCES) $(DEPS) Makefile
 	    $(STRIP) --strip-debug $(BISECT)/warp-shaders-$$name.elf || exit 1; \
 	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
 	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
+	done
+
+# Coexistence probes (source/coexist.c): C1 claims nvnBootstrapLoader with the real address and
+# patches the game's relocations itself; C2 chains onto Core's built-in NX-FPS hook.
+coexist: source/crt0.s source/coexist.c plugin.ld Makefile
+	@mkdir -p $(BISECT)
+	@for v in C1 C2; do \
+	    $(CC) $(CFLAGS) -DWP_$$v -Wl,-Map,$(BISECT)/$$v.map $(filter-out -Wl$(comma)-Map$(comma)%,$(LDFLAGS)) \
+	        -o $(BISECT)/warp-shaders-$$v.elf source/crt0.s source/coexist.c -lgcc || exit 1; \
+	    $(STRIP) --strip-debug $(BISECT)/warp-shaders-$$v.elf || exit 1; \
+	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$v >/dev/null || exit 1; \
+	    echo "$(BISECT)/warp-shaders-$$v.elf"; \
 	done
 
 clean:

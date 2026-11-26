@@ -86,3 +86,10 @@ wp_svcQueryMemory:
 wp_ticks:
     mrs     x0, cntpct_el0
     ret
+
+// void svcExitThread(void)
+    .global wp_svcExitThread
+    .type wp_svcExitThread, %function
+wp_svcExitThread:
+    svc     0x0A
+    ret

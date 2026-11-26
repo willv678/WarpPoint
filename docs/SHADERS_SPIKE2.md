@@ -313,3 +313,49 @@ log shows the plugin loaded, its imports resolved, and both import slots for
 - **How it logs.** Every build logs through `SaltySDCore_printf` (needs
   `sdmc:/SaltySD/flags/log.flag`), the first time each wrapper runs. After boot, each line opens
   a short SaltyNX session, because Core's own session is closed by then.
+
+## 9. Cause of the hang: SaltyNX patches an import twice
+
+The `brk` build (L0e) never trapped. The game never reached our hook: its import of
+`nvnBootstrapLoader` pointed somewhere else.
+
+`SaltySDCore_ReplaceModuleImport` (`saltysd_core/source/saltysd_dynamic.c`) keeps the first
+address registered for a name. A later call for the same name reuses that address, but still
+adds the delta to the relocation's *current* addend:
+
+```c
+else {
+    newfunc = replaced_symbols[detecteditr].address;          // later call: reuse the first address
+}
+...
+replacement.r_addend = rela->r_addend + (uint64_t)newfunc - SaltySDCore_FindSymbolBuiltin(rel_name);
+SaltySD_Memcpy((u64)rela, (u64)&replacement, sizeof(Elf64_Rela));
+```
+
+Plugins load before Core's built-in NX-FPS, which calls `ReplaceImport("nvnBootstrapLoader", ...)`
+unconditionally (`NX-FPS.cpp`, the `runtime_replace` list). So with our plugin installed, the
+delta is added twice:
+
+- The game's GOT slot becomes `2 x hook - real`.
+- That's not a valid address, so the first `nvnBootstrapLoader` call faults. No crash report
+  appears; presumably the cheat service, which Tap uses, is attached as a debugger and holds the
+  faulted game.
+- The SaltyNX process log shows both writes to the same relocation (`cmd 3 handler, memcpy` twice
+  per slot).
+- ReverseNX has nothing to do with NVN: `ReverseNX.cpp` never mentions it.
+
+Coexistence builds (`make coexist`, source `source/coexist.c`):
+
+- **C1, deterministic:**
+  - It calls `ReplaceImport("nvnBootstrapLoader", real)`. That claims the name with a zero delta,
+    so NX-FPS's later call adds nothing.
+  - It then adds `hook - real` to the game's relocations itself, with `SaltySD_Memcpy`, walking
+    them the same way Core does.
+  - NX-FPS's NVN hook stays off in this game.
+- **C2, chains onto NX-FPS:**
+  - It replaces nothing at load. A helper thread waits until NX-FPS has registered its hook (seen
+    through `SaltySDCore_getDataForUpdate`).
+  - It then adds `hook - nxfps` to the relocations while Core's session is still open, and our
+    hook calls NX-FPS's. That keeps the FPS counter.
+  - It races Core's shutdown: if it's late it patches nothing, and the game runs with NX-FPS
+    alone.
