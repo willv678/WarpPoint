@@ -16,6 +16,7 @@
 #include "switch_env.hpp"
 #include "switch_album.hpp"
 #include "switch_reports.hpp"
+#include "switch_tap.hpp"
 #include "switch_titles.hpp"
 
 #include <switch.h>
@@ -291,6 +292,10 @@ int main(int, char**) {
   static WarpPoint::SwitchAlbum album(R_SUCCEEDED(capsaInitialize()));
   cfg.album = &album;
   cfg.identity.caps.push_back("album");
+  // Warp Tap: read-only live game state (dmnt:cht, opened when first asked).
+  static WarpPoint::SwitchTap tap;
+  cfg.tap = &tap;
+  cfg.identity.caps.push_back("tap");
   // Warp Lens: crash and error reports from the SD card.
   static WarpPoint::SwitchReports reports;
   cfg.reports = &reports;

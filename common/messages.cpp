@@ -99,6 +99,73 @@ bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users) {
   return r.done();
 }
 
+std::vector<uint8_t> encode(const std::vector<TapEntry>& plan) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(plan.size()));
+  for (const auto& e : plan) {
+    w.u8(static_cast<uint8_t>(e.region));
+    w.u64(e.offset);
+    w.u8(static_cast<uint8_t>(e.hops.size()));
+    for (const int64_t h : e.hops) w.u64(static_cast<uint64_t>(h));
+    w.u32(e.length);
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, std::vector<TapEntry>& plan) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxTapEntries) return false;
+  plan.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    TapEntry e;
+    const uint8_t region = r.u8();
+    if (region > 3) return false;
+    e.region = static_cast<TapRegion>(region);
+    e.offset = r.u64();
+    const uint8_t hops = r.u8();
+    if (hops > kMaxTapHops) return false;
+    for (uint8_t h = 0; h < hops; ++h) e.hops.push_back(static_cast<int64_t>(r.u64()));
+    e.length = r.u32();
+    if (e.length == 0 || e.length > kMaxTapLength) return false;
+    plan.push_back(std::move(e));
+  }
+  return r.done();
+}
+
+std::vector<uint8_t> encode(const TapReply& reply) {
+  ByteWriter w;
+  w.u64(reply.titleId);
+  w.str(reply.buildId);
+  w.u32(static_cast<uint32_t>(reply.results.size()));
+  for (const auto& r : reply.results) {
+    w.u8(static_cast<uint8_t>(r.status));
+    w.u32(static_cast<uint32_t>(r.bytes.size()));
+    w.raw(r.bytes.data(), r.bytes.size());
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, TapReply& reply) {
+  ByteReader r(p);
+  reply.titleId = r.u64();
+  reply.buildId = r.str();
+  const uint32_t n = r.u32();
+  if (n > kMaxTapEntries) return false;
+  reply.results.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    TapResult t;
+    const uint8_t st = r.u8();
+    if (st > 3) return false;
+    t.status = static_cast<TapStatus>(st);
+    const uint32_t len = r.u32();
+    if (len > kMaxTapLength) return false;
+    if (!r.bytes(len, t.bytes)) return false;
+    reply.results.push_back(std::move(t));
+  }
+  return r.done();
+}
+
 std::vector<uint8_t> encode(const std::vector<AlbumEntry>& album) {
   ByteWriter w;
   w.u32(static_cast<uint32_t>(album.size()));

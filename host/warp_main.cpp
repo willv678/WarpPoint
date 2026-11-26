@@ -33,6 +33,9 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "lens.hpp"
+#include "tap.hpp"
+
+#include <nlohmann/json.hpp>
 #include "presence.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
@@ -79,6 +82,7 @@ int usage() {
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
                "       warp album                          (Warp Album: copy new captures now)\n"
+               "       warp tap                            (Warp Tap: the running game's live numbers)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -686,7 +690,7 @@ int main(int argc, char** argv) {
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3) ||
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
-                     cmd == "reports" || cmd == "album";
+                     cmd == "reports" || cmd == "album" || cmd == "tap";
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -729,6 +733,21 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "tap") {
+    if (!hasCap(session->agent, "tap")) {
+      std::fprintf(stderr, "This Switch's WarpPoint has no Tap (update it to 1.4).\n");
+      rc = 1;
+    } else {
+      const auto snap = nlohmann::json::parse(tapSnapshot(*session->store, tapProfiles(dataDir()), ""));
+      std::printf("%s %s (build %s)\n", snap.value("game", "").c_str(), snap.value("titleId", "").c_str(),
+                  snap.value("buildId", "").c_str());
+      if (!snap.value("status", "").empty()) std::printf("%s\n", snap.value("status", "").c_str());
+      for (const auto& f : snap["fields"]) {
+        const std::string v = f["value"].is_string() ? f["value"].get<std::string>() : f.value("note", "");
+        std::printf("  %-20s %s\n", f.value("label", "").c_str(), v.c_str());
+      }
+    }
+  }
   if (cmd == "album") {
     if (!hasCap(session->agent, "album")) {
       std::fprintf(stderr, "This Switch's WarpPoint has no album support (update it to 1.3).\n");

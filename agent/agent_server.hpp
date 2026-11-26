@@ -23,6 +23,7 @@ using LogFn = std::function<void(const std::string&)>;
 // Returns true for a clean disconnect. titles may be null (no "titles" cap).
 bool serveSession(Stream& stream, UnitStore& store, const AgentIdentity& identity,
                   const LogFn& log, TitleSource* titles = nullptr, UserSource* users = nullptr,
-                  ReportSource* reports = nullptr, AlbumSource* album = nullptr);
+                  ReportSource* reports = nullptr, AlbumSource* album = nullptr,
+                  TapSource* tap = nullptr);
 
 }  // namespace WarpPoint

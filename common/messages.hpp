@@ -46,6 +46,8 @@ enum class Msg : uint8_t {
   AlbumListReq = 44,   // host -> agent: captures newer than a stamp (cap "album")
   AlbumList = 45,      // agent -> host: name, size, game, stamp of each
   AlbumReq = 46,       // host -> agent: one capture, streamed as FileBegin Chunk* FileEnd UnitEnd
+  TapReq = 47,         // host -> agent: read these pointer chains in the running game (cap "tap")
+  TapResp = 48,        // agent -> host: the game's ids, then each entry's status and bytes
 };
 
 enum class ErrorCode : uint16_t {
@@ -128,6 +130,36 @@ struct ReportEntry {
   uint64_t mtime = 0;  // seconds since 1970, the console's clock
 };
 
+// Warp Tap: read-only live game state. An entry is a pointer chain as cheat codes write
+// them: start at a region of the running game plus an offset, then for each hop read a
+// pointer there and add the hop; finally read `length` bytes. [[main+A]+B]+C is
+// {Main, A, {B, C}}. The console resolves chains itself, one request per tick.
+enum class TapRegion : uint8_t { Main = 0, Heap = 1, Alias = 2, Aslr = 3 };
+struct TapEntry {
+  TapRegion region = TapRegion::Main;
+  uint64_t offset = 0;
+  std::vector<int64_t> hops;  // at most kMaxTapHops
+  uint32_t length = 0;        // at most kMaxTapLength
+};
+enum class TapStatus : uint8_t {
+  Ok = 0,
+  NoGame = 1,       // nothing running (or the cheat service isn't there)
+  NullPointer = 2,  // a pointer on the way was 0: usually "not in a battle right now"
+  ReadFailed = 3,
+};
+struct TapResult {
+  TapStatus status = TapStatus::Ok;
+  std::vector<uint8_t> bytes;
+};
+struct TapReply {
+  uint64_t titleId = 0;  // 0 = no game
+  std::string buildId;   // main module's build id, 16 hex (what cheat files are named by)
+  std::vector<TapResult> results;
+};
+constexpr size_t kMaxTapEntries = 64;
+constexpr size_t kMaxTapHops = 8;
+constexpr uint32_t kMaxTapLength = 4096;
+
 // Warp Album: a screenshot or video in the console's album on the SD card, named by its
 // path under Nintendo/Album ("2026/11/26/2026112602451200-<32 hex>.jpg").
 struct AlbumEntry {
@@ -181,6 +213,11 @@ bool decode(const std::vector<uint8_t>& p, TitleInfo& m);
 
 std::vector<uint8_t> encode(const std::vector<ConsoleUser>& users);
 bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users);
+
+std::vector<uint8_t> encode(const std::vector<TapEntry>& plan);
+bool decode(const std::vector<uint8_t>& p, std::vector<TapEntry>& plan);
+std::vector<uint8_t> encode(const TapReply& reply);
+bool decode(const std::vector<uint8_t>& p, TapReply& reply);
 
 // AlbumListReq carries a u64 "newer than" stamp; AlbumList the entries.
 std::vector<uint8_t> encode(const std::vector<AlbumEntry>& album);

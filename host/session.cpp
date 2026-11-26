@@ -1,7 +1,9 @@
 #include "session.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <thread>
 
 namespace WarpPoint {
 
@@ -12,21 +14,25 @@ bool Session::can(const std::string& cap) const {
 std::optional<Session> openSession(const std::string& address, uint16_t port,
                                    const std::string& hostId, const std::string& hostName,
                                    std::string& error) {
-  Session s;
-  s.address = address;
-  s.stream = net::TcpStream::connect(address, port, 5000, error);
-  if (!s.stream) {
-    error = "cannot connect to " + address + ": " + error;
-    return std::nullopt;
-  }
-  s.stream->setTimeout(60000);  // hashing a big save on the Switch takes a while
-  s.store = std::make_unique<RemoteStore>(*s.stream);
-  const proto::Hello me{proto::kProtocolVersion, hostId, hostName, {"list", "read"}};
-  if (!s.store->handshake(me, s.agent, error)) {
+  // A connection made just as the console is finishing the previous session can be
+  // dropped before the handshake (seen with back-to-back Tap reads): try once more.
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (attempt) std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    Session s;
+    s.address = address;
+    s.stream = net::TcpStream::connect(address, port, 5000, error);
+    if (!s.stream) {
+      error = "cannot connect to " + address + ": " + error;
+      return std::nullopt;
+    }
+    s.stream->setTimeout(60000);  // hashing a big save on the Switch takes a while
+    s.store = std::make_unique<RemoteStore>(*s.stream);
+    const proto::Hello me{proto::kProtocolVersion, hostId, hostName, {"list", "read"}};
+    if (s.store->handshake(me, s.agent, error)) return s;
     error = "handshake with " + address + " failed: " + error;
-    return std::nullopt;
+    if (error.find("connection lost") == std::string::npos) break;  // a real refusal
   }
-  return s;
+  return std::nullopt;
 }
 
 size_t fetchTitles(Session& s, TitleCache& cache, const std::vector<uint64_t>& ids,

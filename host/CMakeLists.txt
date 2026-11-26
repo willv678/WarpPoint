@@ -9,6 +9,8 @@ add_library(warp_host_core STATIC
   album.cpp
   lens.cpp
   presence.cpp
+  tap.cpp
+  tap_profiles.cpp
   mac_store.cpp
   nxnative_store.cpp
   file_lock.cpp

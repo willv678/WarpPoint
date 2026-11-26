@@ -145,7 +145,7 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
                   TitleSource* titles, UserSource* users, ReportSource* reports,
-                  AlbumSource* album) {
+                  AlbumSource* album, TapSource* tap) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -234,6 +234,18 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
         } else {
           if (list.size() > proto::kMaxReports) list.resize(proto::kMaxReports);
           ok = send(s, Msg::ReportList, proto::encode(list));
+        }
+        break;
+      }
+      case Msg::TapReq: {
+        std::vector<proto::TapEntry> plan;
+        proto::TapReply reply;
+        if (!proto::decode(f.payload, plan) || !tap) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad tap request");
+        } else if (!tap->read(plan, reply)) {
+          ok = sendError(s, ErrorCode::Io, "can't read the game");
+        } else {
+          ok = send(s, Msg::TapResp, proto::encode(reply));
         }
         break;
       }

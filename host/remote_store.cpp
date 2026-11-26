@@ -252,6 +252,25 @@ bool RemoteStore::read(const UnitRef& ref, UnitSink& sink, std::string& unitHash
   return receiveUnit(sink, unitHash, error);
 }
 
+bool RemoteStore::tap(const std::vector<proto::TapEntry>& plan, proto::TapReply& reply,
+                      std::string& error) {
+  Frame f;
+  if (writeOpen_ || !send(Msg::TapReq, proto::encode(plan)) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::TapResp)) {
+    error = errorText(f);
+    return false;
+  }
+  if (!proto::decode(f.payload, reply) || reply.results.size() != plan.size()) {
+    broken_ = true;
+    error = "bad tap reply from the console";
+    return false;
+  }
+  return true;
+}
+
 bool RemoteStore::albumList(uint64_t newerThan, std::vector<proto::AlbumEntry>& out,
                             std::string& error) {
   ByteWriter w;

@@ -27,6 +27,14 @@ class ReportSource {
   virtual bool read(const std::string& name, std::vector<uint8_t>& out, bool& truncated) = 0;
 };
 
+// Warp Tap: read-only access to the running game's memory.
+class TapSource {
+ public:
+  virtual ~TapSource() = default;
+  // Resolve and read each entry. reply.titleId = 0 when no game is running.
+  virtual bool read(const std::vector<proto::TapEntry>& plan, proto::TapReply& reply) = 0;
+};
+
 // Warp Album: the console's screenshots and videos.
 class AlbumSource {
  public:

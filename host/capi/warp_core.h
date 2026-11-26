@@ -42,6 +42,11 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
  * emulatorOnly, problem, new, ignored. */
 char* warp_core_games(WarpCore* core);
 
+/* Warp Tap: one look at the game running on the console:
+ * {"game","titleId","buildId","supported","status","fields":[{"id","label","group","value","note"}]}.
+ * Connects for this look only; poll it every second or two while a window shows it. */
+char* warp_core_tap(WarpCore* core);
+
 /* Warp Lens: crash reports from the console, newest first (see AppCore::reportsJson).
  * New crashes also arrive as events: {"kind":"crash","console","name","titleId","icon",
  * "image","message"}. */

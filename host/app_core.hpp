@@ -41,6 +41,10 @@ class AppCore {
   // the emulator, with names, icons and status. See gamesJson() in app_core.cpp.
   std::string gamesJson();
 
+  // Warp Tap: one look at the game running on the console (see tapSnapshot in tap.hpp).
+  // Connects for just this look, so syncing is never held up for long.
+  std::string tapJson();
+
   // Warp Lens: every crash report kept from the console, newest first:
   // [{"name","time","programId","program","errorCode","what","where","explanation",
   //   "image","file","icon"}]

@@ -108,6 +108,8 @@ bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordApp
   return false;
 }
 
+char* warp_core_tap(WarpCore* core) { return dup(core->core.tapJson()); }
+
 char* warp_core_reports(WarpCore* core) { return dup(core->core.reportsJson()); }
 
 char* warp_core_games(WarpCore* core) { return dup(core->core.gamesJson()); }

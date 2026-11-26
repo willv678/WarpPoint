@@ -6,6 +6,7 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "lens.hpp"
+#include "tap.hpp"
 #include "net.hpp"
 #include "ryujinx_store.hpp"
 #include "session.hpp"
@@ -391,6 +392,39 @@ std::string AppCore::gamesJson() {
               {"consoleCanCreate", consoleCanCreate},
               {"consolePresent", consolePresent_.load()}, {"keepBackups", config.keepBackups},
               {"games", games}}.dump();
+}
+
+namespace {
+json latestConsole(const std::filesystem::path& dataDir);  // below
+}  // namespace
+
+std::string AppCore::tapJson() {
+  using json = nlohmann::json;
+  if (!consolePresent_) return json{{"status", "Open WarpPoint on your Switch."}, {"fields", json::array()}}.dump();
+  // The console last synced with, at its last address.
+  StateStore state(dataDir_ / "state.json");
+  std::string error;
+  state.load(error);
+  const json console = latestConsole(dataDir_);
+  std::string address;
+  for (const auto& [id, d] : state.devices()) {
+    if (d.name == console.value("name", "")) address = d.lastAddress;
+  }
+  if (address.empty()) return json{{"status", "WarpPoint hasn't synced with the Switch yet."}, {"fields", json::array()}}.dump();
+  auto session = openSession(address, proto::kAgentTcpPort, state.hostId(), net::hostName() + " (Tap)", error);
+  if (!session) return json{{"status", "Can't reach the Switch: " + error}, {"fields", json::array()}}.dump();
+  if (!session->can("tap")) {
+    return json{{"status", "Update WarpPoint on the Switch to 1.4 for Tap."}, {"fields", json::array()}}.dump();
+  }
+  session->stream->setTimeout(5000);
+  uint64_t playing = 0;
+  {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    playing = playingTitle_;
+  }
+  TitleCache titles(dataDir_ / "titles");
+  const auto rec = playing ? titles.get(playing) : std::nullopt;
+  return tapSnapshot(*session->store, tapProfiles(dataDir_), rec && rec->found ? rec->name : "");
 }
 
 std::string AppCore::reportsJson() {

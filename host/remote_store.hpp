@@ -42,6 +42,9 @@ class RemoteStore : public UnitStore {
   bool albumList(uint64_t newerThan, std::vector<proto::AlbumEntry>& out, std::string& error);
   bool album(const std::string& name, UnitSink& sink, std::string& error);
 
+  // Warp Tap (needs "tap"): read these pointer chains in the running game.
+  bool tap(const std::vector<proto::TapEntry>& plan, proto::TapReply& reply, std::string& error);
+
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }
 

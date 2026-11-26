@@ -20,6 +20,7 @@ struct AgentConfig {
   UserSource* users = nullptr;    // optional: the console's user accounts
   ReportSource* reports = nullptr;  // optional: crash and error reports (Warp Lens)
   AlbumSource* album = nullptr;     // optional: screenshots and videos (Warp Album)
+  TapSource* tap = nullptr;         // optional: read-only live game state (Warp Tap)
   // optional: the game running now, sent in every beacon (Warp Presence)
   std::function<uint64_t()> runningTitle;
   // Where the announce's generation starts. Start it somewhere random so a restarted

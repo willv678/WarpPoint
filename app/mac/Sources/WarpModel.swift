@@ -258,6 +258,24 @@ final class WarpModel: ObservableObject {
     }
   }
 
+  // MARK: - Warp Tap
+
+  private var tapBusy = false
+  /// One look at the Switch's running game, off the main thread; skipped if one is in flight.
+  func tapSnapshot(_ done: @escaping (TapSnapshot) -> Void) {
+    guard !tapBusy else { return }
+    tapBusy = true
+    let core = self.core
+    Task.detached {
+      let raw = WarpModel.takeString(warp_core_tap(core)) ?? "{}"
+      let snap = (try? JSONDecoder().decode(TapSnapshot.self, from: Data(raw.utf8))) ?? TapSnapshot()
+      await MainActor.run {
+        self.tapBusy = false
+        done(snap)
+      }
+    }
+  }
+
   // MARK: - Warp Lens
 
   func refreshReports() {
