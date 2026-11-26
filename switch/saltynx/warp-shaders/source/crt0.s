@@ -12,6 +12,9 @@ _start:
     b       1f
     .word   __nx_mod0 - _start          // SaltyNX reads the MOD0 offset at base+4
     .ascii  "WARPSHDR"
+    .word   wp_pub - _start             // offset of the published header (WpscPublished)
+    .word   0
+    .weak   wp_pub                      // builds without one (coexist.c) leave it unresolved
 
 1:
     stp     x29, x30, [sp, #-16]!

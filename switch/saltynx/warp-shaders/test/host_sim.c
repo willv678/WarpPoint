@@ -23,33 +23,10 @@ static void sd_path(char* out, size_t n, const char* path) {
     else if (!strncmp(path, "wpsd:/", 6)) path += 6;
     snprintf(out, n, "%s/%s", g_sd_root, path);
 }
-// The game's nn::fs, on the Mac's file system (mount "wpsd:" = SD_ROOT).
-static u32 h_mount(const char* m) { (void)m; return 0; }
-static u32 h_mkdir(const char* path) { char p[512]; sd_path(p, sizeof p, path); return mkdir(p, 0777) ? 1 : 0; }
-static u32 h_create(const char* path, int64_t size) { char p[512]; sd_path(p, sizeof p, path); FILE* f = fopen(p, "wb"); (void)size; if (!f) return 1; fclose(f); return 0; }
-static u32 h_open(FsFile* out, const char* path, int mode) {
-    char p[512]; sd_path(p, sizeof p, path);
-    FILE* f = fopen(p, (mode & 2) ? "r+b" : "rb");
-    out->handle = f;
-    return f ? 0 : 1;
-}
-static u32 h_size(int64_t* out, FsFile f) { fseek(f.handle, 0, SEEK_END); *out = ftell(f.handle); return 0; }
-static u32 h_write(FsFile f, int64_t off, const void* buf, u64 size, const FsWriteOption* o) {
-    (void)o; fseek(f.handle, off, SEEK_SET); return fwrite(buf, 1, size, f.handle) == size ? 0 : 1;
-}
-static u32 h_flush(FsFile f) { return fflush(f.handle) ? 1 : 0; }
-static void h_close(FsFile f) { fclose(f.handle); }
 static u64 fake_bootstrap(const char* name);
 void SaltySDCore_ReplaceImport(const char* name, void* func) { (void)name; (void)func; }
 u64 SaltySDCore_FindSymbolBuiltin(const char* name) {
-    static const struct { const char* n; void* f; } t[] = {
-        { "nvnBootstrapLoader", fake_bootstrap },
-        { "_ZN2nn2fs19MountSdCardForDebugEPKc", h_mount }, { "_ZN2nn2fs15CreateDirectoryEPKc", h_mkdir },
-        { "_ZN2nn2fs10CreateFileEPKcl", h_create }, { "_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci", h_open },
-        { "_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE", h_size },
-        { "_ZN2nn2fs9WriteFileENS0_10FileHandleElPKvmRKNS0_11WriteOptionE", h_write },
-        { "_ZN2nn2fs9FlushFileENS0_10FileHandleE", h_flush }, { "_ZN2nn2fs9CloseFileENS0_10FileHandleE", h_close },
-    };
+    static const struct { const char* n; void* f; } t[] = { { "nvnBootstrapLoader", fake_bootstrap } };
     for (size_t i = 0; i < sizeof t / sizeof t[0]; i++) if (str_eq(name, t[i].n)) return (u64)t[i].f;
     return 0;
 }
@@ -110,7 +87,48 @@ static u8* g_sim; static size_t g_simpos;
 static u32 rd32(void) { u32 v; memcpy(&v, g_sim + g_simpos, 4); g_simpos += 4; return v; }
 
 static Fn get(Fn gpa_fn, const char* name) { return (Fn)((u64 (*)(const void*, const char*))gpa_fn)(0, name); }
-static void maybe_flush(void) { if (g_wpos - g_rpos > RING_SIZE / 2) flush(); }
+// Stands in for the WarpPoint sysmodule (switch/common/switch_shaders.cpp): finds the rings
+// through the published header and appends what's new to SD_ROOT/config/warppoint/shaders/.
+static FILE* g_cap; static u64 g_rd, g_logrd;
+static void put_rec(FILE* f, u32 type, const void* body, u32 n) {
+    WpscRecHeader h = { WPSC_REC_MAGIC, (u16)type, 0, (u32)((sizeof h + n + 7) & ~7u), fnv1a(2166136261u, body, n) };
+    static const u8 zero[8];
+    fwrite(&h, sizeof h, 1, f); fwrite(body, n, 1, f); fwrite(zero, h.size - sizeof h - n, 1, f);
+}
+static void sim_drain(int final) {
+    char path[512];
+    if (memcmp((const void*)wp_pub.magic, WPSC_PUB_MAGIC, 8)) { fprintf(stderr, "no published header\n"); exit(1); }
+    if (!g_cap) {
+        sd_path(path, sizeof path, "sdmc:/config");  mkdir(path, 0777);
+        sd_path(path, sizeof path, "sdmc:/config/warppoint");  mkdir(path, 0777);
+        sd_path(path, sizeof path, "sdmc:/config/warppoint/shaders");  mkdir(path, 0777);
+        snprintf(path, sizeof path, "%s/config/warppoint/shaders/%016llX.bin", g_sd_root, (unsigned long long)wp_pub.title_id);
+        g_cap = fopen(path, "wb");
+        WpscFileHeader fh; memcpy(fh.magic, WPSC_MAGIC, 8); fh.version = WPSC_VERSION; fh.header_size = sizeof fh;
+        fwrite(&fh, sizeof fh, 1, g_cap);
+        WpscSession ss = { wp_pub.title_id, wp_pub.build_id, wp_pub.plugin_version, wp_pub.flags, wp_pub.session };
+        put_rec(g_cap, WPSC_REC_SESSION, &ss, sizeof ss);
+    }
+    u64 w = wp_pub.wpos;
+    const u8* ring = (const u8*)wp_pub.ring_addr;
+    if (w - g_rd > wp_pub.ring_size) g_rd = w - wp_pub.ring_size;       // fell behind: oldest lost
+    while (g_rd < w) {
+        u32 at = (u32)(g_rd % wp_pub.ring_size);
+        u64 n = w - g_rd;
+        if (n > wp_pub.ring_size - at) n = wp_pub.ring_size - at;
+        fwrite(ring + at, 1, n, g_cap); g_rd += n;
+    }
+    if (final) {
+        put_rec(g_cap, WPSC_REC_STATS, (const void*)wp_pub.stats_addr, wp_pub.stats_size);
+        fclose(g_cap);
+        snprintf(path, sizeof path, "%s/config/warppoint/shaders/log.txt", g_sd_root);
+        FILE* lf = fopen(path, "ab");
+        const char* lr = (const char*)wp_pub.log_addr;
+        for (u64 i = g_logrd; i < wp_pub.log_wpos; i++) fputc(lr[i % wp_pub.log_size], lf);
+        fclose(lf);
+    }
+}
+static void maybe_flush(void) { if (g_wpos - g_rd > RING_SIZE / 2) sim_drain(0); }
 
 int main(int argc, char** argv) {
     if (argc != 3) { fprintf(stderr, "usage: host_sim SIMSCRIPT SD_ROOT\n"); return 2; }
@@ -180,7 +198,7 @@ int main(int argc, char** argv) {
         for (u32 t = 0; t < ntex; t++) bind_texture((u64)cmd, tex[t][0], tex[t][1], 0, 0, 0, 0, 0);
         maybe_flush();
     }
-    flush();
+    sim_drain(1);
     printf("host_sim: %u shaders, %u programs replayed; plugin recorded %llu shaders, %llu draws, %llu dispatches, "
            "%llu drops\n", nshaders, nprogs, (unsigned long long)g_stats.new_shaders, (unsigned long long)g_stats.new_draws,
            (unsigned long long)g_stats.new_dispatches, (unsigned long long)(g_stats.drops_full + g_stats.drops_busy));

@@ -90,6 +90,7 @@ static int patch_imports(const char* name, s64 delta) {
     return patched;
 }
 
+HIDDEN char wp_pub[8];                   // crt0.s publishes this offset; nothing to publish here
 static u64 (*g_next)(const char*);       // what our hook calls: the real loader (C1) or NX-FPS's (C2)
 static int g_calls;
 

@@ -14,8 +14,13 @@
 // No allocation, no I/O, no locks, and no exclusive load/store (ldxr/stxr) anywhere: shared
 // state is plain loads and stores (plus load-acquire/store-release for ordering), and the rare
 // races they allow cost a duplicate or lost record, never a hang. Each record carries a
-// checksum so the reader skips a torn one. A low-priority thread started at the first present
-// writes the records to the SD card through SaltyNX's file service.
+// checksum so the reader skips a torn one.
+//
+// Output (F1d): nothing in the plugin does I/O. Hardware showed that SaltyNX's service can block
+// forever after boot and that the game may not mount the SD card. The records and log lines sit
+// in rings in the plugin's own memory, described by a published header (WpscPublished) that the
+// WarpPoint sysmodule finds and reads through dmnt:cht (switch/common/switch_shaders.cpp), then
+// appends to sdmc:/config/warppoint/shaders/<TitleID>.bin.
 //
 // Built freestanding (no libnx/newlib) with -mgeneral-regs-only, so wrappers never touch the
 // game's FP/SIMD registers.
@@ -25,11 +30,10 @@
 #include "capture_format.h"
 #include "xxhash64.h"
 
-#define PLUGIN_VERSION 3
+#define PLUGIN_VERSION 4
 
-// Staged builds (make staged): F1 = level 2, F2 = level 4 (the default).
-//   2  bootstrap hook, our nvnDeviceGetProcAddress, nvnQueuePresentTexture (frame timing) and
-//      the flush thread
+// Staged builds (make staged): F1d = level 2, F2 = level 4 (the default).
+//   2  bootstrap hook, our nvnDeviceGetProcAddress and nvnQueuePresentTexture (frame timing)
 //   3  also nvnProgramSetShaders, nvnCommandBufferBindProgram and the memory pool calls
 //   4  everything
 #ifndef WP_LEVEL
@@ -48,6 +52,7 @@ typedef uint8_t  u8;
 
 _Static_assert(sizeof(WpscDraw) == 416, "WpscDraw layout");
 _Static_assert(sizeof(WpscDispatch) == 40, "WpscDispatch layout");
+_Static_assert(sizeof(WpscPublished) == 136, "WpscPublished layout");
 
 // ---- imports resolved by SaltyNX's dynamic linker (0 when missing) ---------------------------
 extern void SaltySDCore_ReplaceImport(const char* name, void* func) WEAK;
@@ -133,10 +138,17 @@ static u64 g_title_id, g_build_id;
 static int g_passthrough;
 static char g_path[80];
 
-// Ring buffer of finished records, drained by the flush thread.
+// Ring buffer of finished records, read by the sysmodule through dmnt:cht.
 #define RING_SIZE (768 * 1024)
 static u8 g_ring[RING_SIZE] __attribute__((aligned(16)));
-static u64 g_wpos, g_rpos;          // monotonically increasing byte positions
+static u64 g_wpos;                  // bytes ever written (also published in wp_pub.wpos)
+
+// Log lines as text, for the reader to append to log.txt.
+#define LOG_RING 8192
+static char g_logring[LOG_RING];
+
+// The published header. crt0.s stores its offset from the image base at base+0x10.
+HIDDEN volatile WpscPublished wp_pub;
 static volatile int g_ring_busy;           // plain flag: narrows, but doesn't close, the race
 
 // FNV-1a over the record body, so the reader can drop a record two threads wrote at once.
@@ -151,8 +163,9 @@ static int ring_push(u32 type, const void* a, u32 alen, const void* b, u32 blen,
     if (size > RING_SIZE / 2) { STAT_ADD(drops_full, 1); return 0; }
     if (g_ring_busy) { STAT_ADD(drops_busy, 1); return 0; }
     g_ring_busy = 1;
-    u64 w = g_wpos, r = __atomic_load_n(&g_rpos, __ATOMIC_ACQUIRE);
-    if (w + size - r > RING_SIZE) {
+    u64 w = g_wpos;
+    // Only a reader that acks can make the ring "full"; otherwise the oldest bytes are overwritten.
+    if (wp_pub.ack_magic == WPSC_ACK_MAGIC && w + size - wp_pub.ack_pos > RING_SIZE) {
         g_ring_busy = 0;
         STAT_ADD(drops_full, 1);
         return 0;
@@ -172,6 +185,7 @@ static int ring_push(u32 type, const void* a, u32 alen, const void* b, u32 blen,
     }
     while (pos < w + size) { g_ring[pos % RING_SIZE] = 0; pos++; }
     __atomic_store_n(&g_wpos, w + size, __ATOMIC_RELEASE);
+    __atomic_store_n(&wp_pub.wpos, w + size, __ATOMIC_RELEASE);
     g_ring_busy = 0;
     return 1;
 }
@@ -269,10 +283,9 @@ NVN_GETTERS(DECL)
 
 // ---- logging ----------------------------------------------------------------------------------
 // At load (inside SaltyNX Core's session) lines go to saltynx_core.log through SaltySDCore_printf.
-// After boot nothing talks to SaltyNX: SaltyNX's service can block forever then (F1b). Runtime
-// lines are queued, and the flush thread appends them to sdmc:/config/warppoint/shaders/log.txt.
+// After boot nothing talks to SaltyNX: lines are formatted into the log ring, which the
+// sysmodule appends to sdmc:/config/warppoint/shaders/log.txt. No I/O on any game thread.
 static int g_in_main;
-static volatile int g_thread_live;
 
 static volatile u64 g_hook_calls, g_hook_first_tick;
 static int g_brk_on_hook;                    // brk.flag: stop on the first nvnBootstrapLoader call
@@ -280,18 +293,15 @@ static int g_brk_on_hook;                    // brk.flag: stop on the first nvnB
 static u64* g_slot_addr[MAX_SLOTS];          // GOT slots our relocation patch targets
 static int g_slot_count;
 
-#define LOGQ 48
-typedef struct { const char* fmt; u64 a, b; volatile u32 used; u32 pad; } LogMsg;
-static LogMsg g_logq[LOGQ];
+static char* fmt_line(char* d, char* end, const char* f, u64 a0, u64 a1, u64 a2);
 
 static void wp_log(const char* fmt, u64 a, u64 b) {
     if (g_in_main) { if (SaltySDCore_printf) SaltySDCore_printf(fmt, (u64)WP_NAME, a, b); return; }
-    for (int i = 0; i < LOGQ; i++) {           // runtime: queue only; the flush thread writes log.txt
-        if (g_logq[i].used) continue;
-        g_logq[i].fmt = fmt; g_logq[i].a = a; g_logq[i].b = b;
-        __atomic_store_n(&g_logq[i].used, 1, __ATOMIC_RELEASE);
-        return;
-    }
+    char line[256];
+    u32 n = (u32)(fmt_line(line, line + sizeof line, fmt, (u64)WP_NAME, a, b) - line);
+    u64 w = wp_pub.log_wpos;                   // plain: two threads at once can garble a line
+    for (u32 i = 0; i < n; i++) g_logring[(w + i) % LOG_RING] = line[i];
+    __atomic_store_n(&wp_pub.log_wpos, w + n, __ATOMIC_RELEASE);
 }
 
 // Minimal formatter for our own log lines: %s %d %x %lx %p, first arg is the build name.
@@ -316,18 +326,6 @@ static char* fmt_line(char* d, char* end, const char* f, u64 a0, u64 a1, u64 a2)
     }
     return d;
 }
-// Flush thread only: format the queued lines into buf, return the length.
-static u32 drain_log(char* buf, u32 cap) {
-    char* d = buf;
-    for (int i = 0; i < LOGQ; i++) {
-        if (!__atomic_load_n(&g_logq[i].used, __ATOMIC_ACQUIRE)) continue;
-        if (d + 200 > buf + cap) break;
-        d = fmt_line(d, buf + cap, g_logq[i].fmt, (u64)WP_NAME, g_logq[i].a, g_logq[i].b);
-        __atomic_store_n(&g_logq[i].used, 0, __ATOMIC_RELEASE);
-    }
-    return (u32)(d - buf);
-}
-
 // One line the first time each wrapper runs, so the log shows how far the game got.
 #define ENUMID(n) ID_##n,
 enum { NVN_FUNCS(ENUMID) ID_COUNT };
@@ -378,7 +376,7 @@ static u64 capture_shader(u64 gpu, const void* control) {
     u64 h = xxh64(cpu, size, 0);
     if (!(flags & WPSC_SHADER_TERMINATED)) return h;      // identity only, nothing worth sending
     if (g_passthrough || !seen_insert(h ^ SALT_SHADER)) return h;
-    u32 csize = control ? readable_bytes(control, 0x2000) : 0;   // includes the c1 constants (calibrate)
+    u32 csize = control ? readable_bytes(control, 0x800) : 0;    // the whole control section (c1 constants: calibrate)
     WpscShader rec = { h, size, csize, flags, 0 };
     if (ring_push(WPSC_REC_SHADER, &rec, sizeof rec, cpu, size, control, csize)) STAT_ADD(new_shaders, 1);
     return h;
@@ -659,11 +657,9 @@ static u64 hk_nvnDeviceSetWindowOriginMode(A8) { g_origin_mode = (u8)a1; return 
 // Frame timing, so overhead can be measured without SaltyNX's own FPS counter (which this
 // plugin displaces for the title it is installed for).
 static u64 g_last_present;
-static void start_flush_thread(void);
 static u64 hk_nvnQueuePresentTexture(A8) {
     u64 r = CALL(nvnQueuePresentTexture, P8);
     u64 now = wp_ticks();
-    if (!g_last_present) start_flush_thread();
     if (g_last_present) {
         u64 dt = now - g_last_present;                 // 19.2 MHz ticks
         u64 ms = dt / 19200;
@@ -748,170 +744,6 @@ static u64 hk_bootstrap(const char* name) {
     return wrap(name, addr);
 }
 
-// ---- output: the game's own nn::fs and nn::os ------------------------------------------------
-// After boot, SaltyNX's service can block forever (seen on hardware: F1b), so nothing at runtime
-// talks to SaltyNX. The flush thread is an nn::os thread created from the game's first present,
-// and it writes through the game's nn::fs, with the SD card mounted by MountSdCardForDebug.
-// All of these functions come from the game's SDK module, resolved at load.
-typedef struct { void* handle; } FsFile;
-typedef struct { int flags; } FsWriteOption;
-static u32 (*nn_fs_MountSdCardForDebug)(const char* mount);
-static u32 (*nn_fs_CreateDirectory)(const char* path);
-static u32 (*nn_fs_CreateFile)(const char* path, int64_t size);
-static u32 (*nn_fs_OpenFile)(FsFile* out, const char* path, int mode);
-static u32 (*nn_fs_GetFileSize)(int64_t* out, FsFile f);
-static u32 (*nn_fs_WriteFile)(FsFile f, int64_t offset, const void* buf, u64 size, const FsWriteOption* opt);
-static u32 (*nn_fs_FlushFile)(FsFile f);
-static void (*nn_fs_CloseFile)(FsFile f);
-static u32 (*nn_os_CreateThread)(void* thread, void (*fn)(void*), void* arg, void* stack, u64 size, int prio);
-static void (*nn_os_StartThread)(void* thread);
-static void* (*c_aligned_alloc)(u64 align, u64 size);
-static void* (*c_memalign)(u64 align, u64 size);
-static void* (*c_malloc)(u64 size);
-// nn::fs aborts the game on unexpected errors (a missing file, a refused mount) unless auto-abort
-// is off. We turn it off only while our own calls run, on the flush thread.
-static void (*nn_fs_SetEnabledAutoAbort)(int enabled);
-#define FS_BEGIN() do { if (nn_fs_SetEnabledAutoAbort) nn_fs_SetEnabledAutoAbort(0); } while (0)
-#define FS_END()   do { if (nn_fs_SetEnabledAutoAbort) nn_fs_SetEnabledAutoAbort(1); } while (0)
-
-#define FS_MOUNT "wpsd"
-#define STACK_SIZE 0x10000
-static u8 g_thread_obj[0x400] __attribute__((aligned(16)));   // nn::os::ThreadType (~0x1c0 bytes)
-static int g_session_written, g_mounted;
-static u32 g_mount_rc = 0xFFFFFFFF;
-static char g_fs_path[96], g_fs_log[96];
-static int g_fsbrk;                          // fsbrk.flag: brk #0x59 if the SD card can't be mounted
-static char g_logbuf[4096];
-
-// Appends n bytes to path (creating it), returns 1 on success.
-static int fs_append(const char* path, const void* p, u64 n) {
-    FsFile f;
-    if (nn_fs_OpenFile(&f, path, 2 | 4) != 0) {                // Write | AllowAppend
-        nn_fs_CreateFile(path, 0);
-        if (nn_fs_OpenFile(&f, path, 2 | 4) != 0) return 0;
-    }
-    int64_t size = 0;
-    int ok = nn_fs_GetFileSize(&size, f) == 0;
-    const u8* b = p;
-    FsWriteOption opt = { 0 };
-    while (ok && n) {
-        u64 chunk = n > 0x10000 ? 0x10000 : n;
-        ok = nn_fs_WriteFile(f, size, b, chunk, &opt) == 0;
-        if (ok) { size += chunk; b += chunk; n -= chunk; STAT_ADD(bytes_written, chunk); }
-    }
-    if (ok) ok = nn_fs_FlushFile(f) == 0;
-    nn_fs_CloseFile(f);
-    return ok;
-}
-
-static int fs_ready(void) {
-    if (g_mounted) return 1;
-    g_mount_rc = nn_fs_MountSdCardForDebug(FS_MOUNT);
-    if (g_mount_rc != 0) {
-        if (g_fsbrk) {
-            register u64 r0 __asm__("x0") = g_mount_rc;
-            __asm__ volatile("brk #0x59" :: "r"(r0) : "memory");
-        }
-        return 0;
-    }
-    g_mounted = 1;
-    nn_fs_CreateDirectory(FS_MOUNT ":/config");
-    nn_fs_CreateDirectory(FS_MOUNT ":/config/warppoint");
-    nn_fs_CreateDirectory(FS_MOUNT ":/config/warppoint/shaders");
-    return 1;
-}
-
-static void flush_locked(void);
-static void flush(void) { FS_BEGIN(); flush_locked(); FS_END(); }
-static void flush_locked(void) {
-    if (!fs_ready()) { STAT_ADD(flush_fail, 1); return; }
-    int ok = 1;
-    u32 nlog = drain_log(g_logbuf, sizeof g_logbuf);
-    if (nlog) fs_append(g_fs_log, g_logbuf, nlog);
-    if (!g_session_written) {
-        FsFile probe;
-        int is_new = nn_fs_OpenFile(&probe, g_fs_path, 1) != 0;
-        if (!is_new) nn_fs_CloseFile(probe);
-        struct { WpscFileHeader fh; WpscRecHeader h; WpscSession s; } rec;
-        memcpy(rec.fh.magic, WPSC_MAGIC, 8);
-        rec.fh.version = WPSC_VERSION; rec.fh.header_size = sizeof rec.fh;
-        rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_SESSION; rec.h.reserved = 0;
-        rec.h.size = sizeof rec.h + sizeof rec.s;
-        rec.s.title_id = g_title_id; rec.s.build_id = g_build_id; rec.s.plugin_version = PLUGIN_VERSION;
-        rec.s.flags = (u32)g_passthrough; rec.s.start_tick = wp_ticks();
-        rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
-        ok = is_new ? fs_append(g_fs_path, &rec, sizeof rec) : fs_append(g_fs_path, &rec.h, sizeof rec - sizeof rec.fh);
-        if (ok) g_session_written = 1;
-    }
-    u64 w = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE), r = g_rpos;
-    while (ok && r < w) {
-        u32 at = (u32)(r % RING_SIZE);
-        u64 n = w - r;
-        if (n > RING_SIZE - at) n = RING_SIZE - at;
-        ok = fs_append(g_fs_path, g_ring + at, n);
-        if (ok) { r += n; __atomic_store_n(&g_rpos, r, __ATOMIC_RELEASE); }
-    }
-    if (ok) {
-        struct { WpscRecHeader h; WpscStats s; } rec;
-        g_stats.ticks = wp_ticks();
-        memcpy(&rec.s, &g_stats, sizeof g_stats);
-        rec.h.magic = WPSC_REC_MAGIC; rec.h.type = WPSC_REC_STATS; rec.h.reserved = 0; rec.h.size = sizeof rec;
-        rec.h.check = fnv1a(2166136261u, &rec.s, sizeof rec.s);
-        ok = fs_append(g_fs_path, &rec, sizeof rec);
-    }
-    if (g_stats.flush_ok + g_stats.flush_fail == 0)
-        wp_log(ok ? "WarpShaders %s: first flush ok, %d bytes so far\n" : "WarpShaders %s: first flush failed, %d bytes\n",
-               (u64)g_stats.bytes_written, 0);
-    if (ok) STAT_ADD(flush_ok, 1); else STAT_ADD(flush_fail, 1);
-}
-
-static void flush_thread(void* arg) {
-    (void)arg;
-    wp_log("WarpShaders %s: flush thread running; SD mount next\n", 0, 0);
-    wp_svcSleepThread(5ll * 1000 * 1000 * 1000);
-    FS_BEGIN();
-    if (fs_ready()) {
-        static const char hello[] = "WarpShaders: SD card mounted by the game process\n";
-        fs_append(g_fs_log, hello, sizeof hello - 1);
-    }
-    FS_END();
-    u64 last = 0, last_frames = 0;
-    for (u32 tick = 0;; tick++) {
-        u64 pending = __atomic_load_n(&g_wpos, __ATOMIC_ACQUIRE) - g_rpos;
-        int logs = 0;
-        for (int i = 0; i < LOGQ; i++) logs |= g_logq[i].used;
-        int due = (tick - last) >= 20;                 // at least every 10 s while things change
-        if (pending >= RING_SIZE / 2 || (due && (pending || g_stats.frames != last_frames)) || !g_session_written ||
-            (logs && (tick - last) >= 2)) {
-            flush();
-            last = tick;
-            last_frames = g_stats.frames;
-        }
-        wp_svcSleepThread(500ll * 1000 * 1000);
-    }
-}
-
-// Created from the game's first present, through nn::os so nn::fs works on it. Lowest normal
-// nn::os priority (31); the stack comes from the game's heap, which nn::os can map.
-static int g_thread_started;
-static void start_flush_thread(void) {
-    if (g_thread_started) return;
-    g_thread_started = 1;
-    if (!nn_os_CreateThread || !nn_os_StartThread || !(c_aligned_alloc || c_memalign || c_malloc) || !nn_fs_MountSdCardForDebug) {
-        wp_log("WarpShaders %s: no flush thread: an nn::os/nn::fs function is missing\n", 0, 0);
-        return;
-    }
-    void* stack = c_aligned_alloc ? c_aligned_alloc(0x1000, STACK_SIZE) : c_memalign ? c_memalign(0x1000, STACK_SIZE) : 0;
-    if (!stack && c_malloc) {                    // align by hand inside a larger block
-        u8* raw = c_malloc(STACK_SIZE + 0x1000);
-        if (raw) stack = (void*)(((u64)raw + 0xFFF) & ~0xFFFull);
-    }
-    if (!stack) { wp_log("WarpShaders %s: no flush thread: stack allocation failed\n", 0, 0); return; }
-    u32 rc = nn_os_CreateThread(g_thread_obj, flush_thread, 0, stack, STACK_SIZE, 31);
-    wp_log("WarpShaders %s: nn::os::CreateThread rc 0x%x\n", rc, 0);
-    if (rc == 0) { g_thread_live = 1; nn_os_StartThread(g_thread_obj); }
-}
-
 // ---- entry ------------------------------------------------------------------------------------
 static int file_exists(const char* path) {
     void* f = SaltySDCore_fopen ? SaltySDCore_fopen(path, "rb") : 0;
@@ -978,35 +810,6 @@ HIDDEN void wp_plugin_main(void) {
     str_put(p, ".bin");
     g_passthrough = file_exists("sdmc:/config/warppoint/shaders/passthrough.flag");
     g_brk_on_hook = file_exists("sdmc:/config/warppoint/shaders/brk.flag");
-    g_fsbrk = file_exists("sdmc:/config/warppoint/shaders/fsbrk.flag");
-    {
-        char* q = str_put(g_fs_path, FS_MOUNT ":/config/warppoint/shaders/");
-        q = hex16(q, g_title_id);
-        str_put(q, ".bin");
-        str_put(g_fs_log, FS_MOUNT ":/config/warppoint/shaders/log.txt");
-    }
-#define RESOLVE(var, sym) var = (__typeof__(var))SaltySDCore_FindSymbolBuiltin(sym)
-    RESOLVE(nn_fs_MountSdCardForDebug, "_ZN2nn2fs19MountSdCardForDebugEPKc");
-    RESOLVE(nn_fs_CreateDirectory, "_ZN2nn2fs15CreateDirectoryEPKc");
-    RESOLVE(nn_fs_CreateFile, "_ZN2nn2fs10CreateFileEPKcl");
-    RESOLVE(nn_fs_OpenFile, "_ZN2nn2fs8OpenFileEPNS0_10FileHandleEPKci");
-    RESOLVE(nn_fs_GetFileSize, "_ZN2nn2fs11GetFileSizeEPlNS0_10FileHandleE");
-    RESOLVE(nn_fs_WriteFile, "_ZN2nn2fs9WriteFileENS0_10FileHandleElPKvmRKNS0_11WriteOptionE");
-    RESOLVE(nn_fs_FlushFile, "_ZN2nn2fs9FlushFileENS0_10FileHandleE");
-    RESOLVE(nn_fs_CloseFile, "_ZN2nn2fs9CloseFileENS0_10FileHandleE");
-    RESOLVE(nn_os_CreateThread, "_ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mi");
-    RESOLVE(nn_os_StartThread, "_ZN2nn2os11StartThreadEPNS0_10ThreadTypeE");
-    RESOLVE(c_aligned_alloc, "aligned_alloc");
-    RESOLVE(c_memalign, "memalign");
-    RESOLVE(c_malloc, "malloc");
-    RESOLVE(nn_fs_SetEnabledAutoAbort, "_ZN2nn2fs19SetEnabledAutoAbortEb");
-    wp_log("WarpShaders %s: nn::fs Mount %p OpenFile %p\n", (u64)nn_fs_MountSdCardForDebug, (u64)nn_fs_OpenFile);
-    wp_log("WarpShaders %s: nn::fs WriteFile %p, CreateFile %p\n", (u64)nn_fs_WriteFile, (u64)nn_fs_CreateFile);
-    wp_log("WarpShaders %s: nn::os CreateThread %p, aligned_alloc %p\n", (u64)nn_os_CreateThread, (u64)c_aligned_alloc);
-    wp_log("WarpShaders %s: memalign %p, malloc %p\n", (u64)c_memalign, (u64)c_malloc);
-    wp_log("WarpShaders %s: nn::fs SetEnabledAutoAbort %p\n", (u64)nn_fs_SetEnabledAutoAbort, 0);
-    if (!nn_fs_GetFileSize || !nn_fs_FlushFile || !nn_fs_CloseFile || !nn_fs_CreateDirectory || !nn_os_StartThread)
-        wp_log("WarpShaders %s: some nn::fs/nn::os functions are missing; no output this run\n", 0, 0);
     if (SaltySDCore_mkdir) {
         SaltySDCore_mkdir("sdmc:/config", 0777);
         SaltySDCore_mkdir("sdmc:/config/warppoint", 0777);
@@ -1027,6 +830,23 @@ HIDDEN void wp_plugin_main(void) {
            (u64)real_bootstrap, (u64)n);
     wp_log("WarpShaders %s: output %s\n", (u64)g_path, 0);
     if (g_passthrough) wp_log("WarpShaders %s: passthrough.flag set: no capture\n", 0, 0);
+    // Publish where the rings are, for the sysmodule (dmnt:cht) to find.
+    memcpy((void*)wp_pub.magic, WPSC_PUB_MAGIC, 8);
+    wp_pub.version = WPSC_PUB_VERSION;
+    wp_pub.size = sizeof(WpscPublished);
+    wp_pub.title_id = g_title_id;
+    wp_pub.build_id = g_build_id;
+    wp_pub.session = wp_ticks();
+    wp_pub.ring_addr = (u64)g_ring;
+    wp_pub.ring_size = RING_SIZE;
+    wp_pub.flags = g_passthrough ? WPSC_PUB_PASSTHROUGH : 0;
+    wp_pub.stats_addr = (u64)&g_stats;
+    wp_pub.stats_size = sizeof g_stats;
+    wp_pub.plugin_version = PLUGIN_VERSION;
+    wp_pub.log_addr = (u64)g_logring;
+    wp_pub.log_size = LOG_RING;
+    wp_log("WarpShaders %s: shm: published header at %p (read through dmnt:cht; SaltyNX shared memory unused)\n", (u64)&wp_pub, 0);
+    wp_log("WarpShaders %s: shm: record ring %p, log ring %p\n", (u64)g_ring, (u64)g_logring);
     if (g_brk_on_hook) wp_log("WarpShaders %s: brk.flag set: the first nvnBootstrapLoader call stops the game\n", 0, 0);
     for (int i = 0; i < g_slot_count; i++)
         wp_log("WarpShaders %s: patched GOT slot at %p (relocated after Core finishes)\n", (u64)g_slot_addr[i], 0);

@@ -454,3 +454,63 @@ session. After that:
 - **Untested risk:** whether a retail game may mount the SD card with `MountSdCardForDebug` on
   this setup. `fsbrk.flag` makes a failed mount stop with `brk #0x59` and the result in x0.
   - If the mount is refused, the next option is SaltyNX's shared memory, mapped at load.
+
+**F1c on hardware:**
+- Everything resolved, but no files appeared.
+- With `fsbrk.flag`, the game stopped at its crest splash. `MountSdCardForDebug` is refused for
+  this retail game.
+
+**F1d: the plugin does no I/O; the WarpPoint sysmodule reads it through dmnt:cht.**
+
+The plugin keeps its rings in its own memory and publishes where they are:
+- **Image header:** the image starts with `"WARPSHDR"` at base+8 and the u32 offset of a
+  `WpscPublished` header (in `capture_format.h`) at base+0x10.
+- **Published header (version 1, 136 bytes), in order:**
+  - `"WPSHPUB1"`, then u32 version and u32 size;
+  - title id, build id, session (a tick that changes every boot);
+  - record ring address and u32 size, u32 flags (bit 0 pass-through);
+  - `wpos`: bytes ever written, so byte i is at `ring[i % size]`;
+  - stats address, stats size, plugin version;
+  - log ring address and size, `log_wpos`;
+  - `ack_pos`, `ack_magic` (optional, for a reader that writes back);
+  - reserved space.
+- **Write order:** ring bytes first, then `wpos` with store-release.
+- **When the ring fills:**
+  - **Default:** the plugin overwrites the oldest bytes. A reader that falls more than one ring
+    behind loses those records, and the per-record checksums keep the capture readable.
+  - **Optional:** a reader that writes `ack_pos` and sets `ack_magic` = `"WACK"` makes the plugin
+    drop new records instead of overwriting.
+- **Log lines** are formatted into an 8 KiB text ring.
+- **The control section capture** is cut to 2 KiB per shader, to ease the boot burst.
+
+`switch/common/switch_shaders.{hpp,cpp}` (sysmodule side, new files, not yet wired in):
+- **When it acts:** `poll(runningTitle)` once a second. It acts only when
+  `sdmc:/SaltySD/plugins/<TitleID>/warp-shaders.elf` exists. Otherwise it opens nothing.
+- **Each poll:**
+  - It opens `dmnt:cht` and closes it again before returning, so Tap and cheat overlays keep
+    their sessions.
+  - It attaches the way Tap does (`ForceOpenCheatProcess` if needed).
+- **Finding the plugin:** until it has the header, it walks the game's executable mappings with
+  `QueryCheatProcessMemory` (65104) every 2 s, looking for the magic.
+- **Copying records:** it appends up to 16 x 32 KiB of new ring bytes per poll to
+  `sdmc:/config/warppoint/shaders/<TitleID>.bin`.
+  - Before that it writes the file header and a SESSION record (built from the published header)
+    the first time it sees each boot.
+  - If the plugin lapped it during a read, it drops that chunk.
+- **Stats:** every 10 s it writes a STATS record from the live counters.
+- **Log:** new log-ring text goes to `log.txt`.
+- **Memory:** one reused 32 KiB buffer, freed when no such game runs.
+- **No writes into the game:** it never writes back (`ack` is unused).
+
+Wiring, in `switch/sysmodule/source/main.cpp`:
+
+```cpp
+#include "switch_shaders.hpp"
+// before the main loop, next to Tap:
+static WarpPoint::SwitchShaders shaders(logLine);
+// in the main loop, right after `const uint64_t game = havePm ? runningApplication() : 0;`:
+shaders.poll(game);
+```
+
+The sysmodule Makefile already compiles everything in `switch/common`. With
+`switch_shaders.cpp` added, the sysmodule builds unchanged in this branch.

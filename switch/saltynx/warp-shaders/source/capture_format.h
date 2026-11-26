@@ -96,6 +96,45 @@ typedef struct {
 #define WPSC_DRAW_ARRAYS_INDIRECT       6
 #define WPSC_DRAW_ELEMENTS_INDIRECT     7
 
+// Published header: how a reader outside the game finds the plugin's buffers (version 1).
+// The plugin's image starts with "WARPSHDR" at base+8 and the u32 offset of this header from the
+// image base at base+0x10; a reader (the WarpPoint sysmodule, through dmnt:cht) finds the image by
+// scanning the game's executable mappings for that magic, then reads this header and the two
+// rings. The plugin writes ring data first and publishes `wpos`/`log_wpos` after (store-release).
+// By default nothing writes back into the game: the record ring is overwritten when full, and a
+// reader that falls behind more than ring_size bytes loses the oldest data (the capture's
+// per-record checksums let the Mac skip any torn record). A reader may instead write ack_pos
+// and set ack_magic = WPSC_ACK_MAGIC; the plugin then drops new records rather than overwrite
+// bytes past ack_pos.
+#define WPSC_PUB_MAGIC   "WPSHPUB1"
+#define WPSC_PUB_VERSION 1
+#define WPSC_ACK_MAGIC   0x4B434157u   // "WACK"
+#define WPSC_PUB_PASSTHROUGH 1u
+
+typedef struct {
+    char     magic[8];          // "WPSHPUB1"
+    uint32_t version;           // 1
+    uint32_t size;              // sizeof(WpscPublished) = 136
+    uint64_t title_id;
+    uint64_t build_id;
+    uint64_t session;           // system tick at plugin load: changes every game boot
+    uint64_t ring_addr;         // game address of the record ring (records as in this file)
+    uint32_t ring_size;
+    uint32_t flags;             // WPSC_PUB_*
+    volatile uint64_t wpos;     // bytes ever written to the record ring; byte i is at ring[i % ring_size]
+    uint64_t stats_addr;        // game address of the live WpscStats
+    uint32_t stats_size;
+    uint32_t plugin_version;
+    uint64_t log_addr;          // game address of a text ring of log lines
+    uint32_t log_size;
+    uint32_t reserved;
+    volatile uint64_t log_wpos; // bytes ever written to the log ring
+    volatile uint64_t ack_pos;  // optional, written by the reader
+    volatile uint32_t ack_magic;
+    uint32_t reserved2;
+    uint64_t reserved3[2];
+} WpscPublished;
+
 typedef struct {
     uint64_t shader_hash;
     uint8_t  tex_target[WPSC_BINDINGS];
