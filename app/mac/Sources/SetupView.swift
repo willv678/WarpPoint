@@ -51,7 +51,7 @@ struct SetupView: View {
         } else {
           HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("On your Switch, open the homebrew menu and start WarpPoint. Keep both on the same Wi-Fi.")
+            Text("Turn on your Switch with WarpPoint's files on its SD card (it starts in the background). Keep both on the same Wi-Fi.")
               .foregroundStyle(.secondary)
           }
         }

@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.10.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.11.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.10.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.11.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
