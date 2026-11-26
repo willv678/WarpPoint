@@ -38,6 +38,14 @@ bool readFully(int fd, uint8_t* buf, size_t n, int timeoutMs) {
   return true;
 }
 
+// A string field, or "" when it's missing, null or not a string. Discord sends
+// "evt": null on replies, and json::value() throws on a null.
+std::string str(const json& j, const char* key) {
+  if (!j.is_object()) return "";
+  const auto it = j.find(key);
+  return it != j.end() && it->is_string() ? it->get<std::string>() : "";
+}
+
 }  // namespace
 
 std::string DiscordIpc::socketDir() {
@@ -99,9 +107,8 @@ bool DiscordIpc::connect(const std::string& appId, std::string& error) {
     return false;
   }
   const json j = json::parse(reply, nullptr, false);
-  if (op != 1 || !j.is_object() || j.value("evt", "") != "READY") {
-    error = j.is_object() && j.contains("message") ? j["message"].get<std::string>()
-                                                    : "Discord refused the connection";
+  if (op != 1 || str(j, "evt") != "READY") {
+    error = !str(j, "message").empty() ? str(j, "message") : "Discord refused the connection";
     close();
     return false;
   }
@@ -125,10 +132,9 @@ bool DiscordIpc::setActivity(const std::string& activityJson, std::string& error
     return false;
   }
   const json j = json::parse(reply, nullptr, false);
-  if (op == 2 || (j.is_object() && j.value("evt", "") == "ERROR")) {
-    error = j.is_object() && j.contains("data") && j["data"].is_object()
-                ? j["data"].value("message", "Discord said no")
-                : "Discord said no";
+  if (op == 2 || str(j, "evt") == "ERROR") {
+    const std::string m = j.is_object() && j.contains("data") ? str(j["data"], "message") : "";
+    error = !m.empty() ? m : !str(j, "message").empty() ? str(j, "message") : "Discord said no";
     if (op == 2) close();
     return false;
   }

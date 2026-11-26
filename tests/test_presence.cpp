@@ -95,11 +95,13 @@ struct FakeDiscord {
           ::close(c);
           continue;
         }
-        writeFrame(c, 1, {{"cmd", "DISPATCH"}, {"evt", "READY"}});
+        writeFrame(c, 1, {{"cmd", "DISPATCH"}, {"evt", "READY"}, {"nonce", nullptr}});
         while (readFrame(c, op, body) && op == 1) {
           lastActivity = body["args"]["activity"];
           ++commands;
-          writeFrame(c, 1, {{"cmd", "SET_ACTIVITY"}, {"nonce", body["nonce"]}});
+          // As the real Discord answers: "evt" is null, "data" the activity (or null).
+          writeFrame(c, 1, {{"cmd", "SET_ACTIVITY"}, {"data", lastActivity}, {"evt", nullptr},
+                            {"nonce", body["nonce"]}});
         }
       }
       ::close(c);

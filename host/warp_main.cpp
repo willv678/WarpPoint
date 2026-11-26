@@ -87,7 +87,7 @@ int usage() {
                "       warp nxnative                       (the nxnative apps found here)\n"
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
-               "       warp presence-mac                   (Warp Presence: the game running on this Mac)\n"
+               "       warp presence-mac [DISCORD_APP_ID]  (Warp Presence: the game on this Mac; with an ID, show it 30 s)\n"
                "       warp album                          (Warp Album: copy new captures now)\n"
                "       warp tap                            (Warp Tap: the running game's live numbers)\n"
                "       warp mods TITLE_ID                  (Warp Mods: a game's mod library)\n"
@@ -778,8 +778,9 @@ int main(int argc, char** argv) {
     if (cmd != "mods") std::printf("Applied at the next sync (or now with `warp mods-apply`).\n");
     return 0;
   }
-  if (cmd == "presence-mac" && args.size() == 1) {
-    // What Presence would show for this Mac right now, without Discord.
+  if (cmd == "presence-mac" && args.size() <= 2) {
+    // What Presence would show for this Mac right now; with an ID, shown in Discord
+    // for 30 s too.
     Config c;
     std::string e;
     loadConfig(dataDir() / "config.json", c, e);
@@ -798,6 +799,14 @@ int main(int argc, char** argv) {
     if (a.start) {
       const auto mins = (static_cast<int64_t>(std::time(nullptr)) - a.start) / 60;
       std::printf("  started %lld min ago\n", static_cast<long long>(mins));
+    }
+    if (args.size() == 2) {
+      Presence p;
+      p.show(true, args[1], a);
+      std::printf("%s\n", p.status().c_str());
+      if (p.status().rfind("Showing", 0) != 0) return 1;
+      std::this_thread::sleep_for(std::chrono::seconds(30));
+      p.show(true, args[1], Activity{});
     }
     return 0;
   }

@@ -166,7 +166,7 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   Switch first, then the Mac; on the Mac, a port before Astris. WarpPoint checks the Mac's
   processes every 5 seconds. Astris keeps no log here, so its game is known only when its open
   files name one game (or one game has started since Astris did); otherwise Discord shows just
-  "Astris" rather than a guess. `warp presence-mac` prints what would show.
+  "Astris" rather than a guess. `warp presence-mac` prints what would show (`warp presence-mac ID` also shows it in Discord for 30 s).
 
 ## Live game info, mods and speedruns (1.4)
 
