@@ -103,6 +103,10 @@ and start it at boot.
 WarpPoint 1.2 finds those apps on its own and treats each one as the Mac-side home of that game's
 save. Nothing to set up beyond picking, once, which Switch user the apps' saves belong to.
 
+<p align="center">
+  <img src="docs/images/nxnative.png" width="720" alt="The WarpPoint library with Fire Emblem: Three Houses and Xenoblade Chronicles marked nxnative; Xenoblade's details say its newer save is kept on this Mac, with a Sync with switch between the Xenoblade Chronicles app and Astris">
+</p>
+
 - **Found automatically.** Any nxnative app in `/Applications` or `~/Applications` (or one folder
   below) shows up in the library with an **nxnative** badge, under the game's own name and icon.
 - **The right save, even for Switch 2 Editions.** An nxnative app is named after its own title ID,

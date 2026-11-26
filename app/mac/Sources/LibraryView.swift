@@ -99,7 +99,14 @@ struct LibraryView: View {
     } message: { game in
       Text("Nothing is deleted: its saves stay in \(game.macShort) and on your Switch. WarpPoint just stops copying between them. You can add it back with +.")
     }
-    .onAppear { model.windowOpened() }
+    .onAppear {
+      model.windowOpened()
+      // For screenshots and checks: WARP_SELECT=<title id> opens that game's details.
+      if let id = ProcessInfo.processInfo.environment["WARP_SELECT"]?.lowercased(),
+         let g = model.library.games.first(where: { $0.titleId == id }) {
+        selection = g.key
+      }
+    }
     .onDisappear { model.windowClosed() }
   }
 

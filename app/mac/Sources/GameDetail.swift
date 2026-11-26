@@ -72,7 +72,7 @@ struct GameDetail: View {
   /// "Checked 2 minutes ago", or "Copied Astris → Will's Switch 2 minutes ago".
   private func lastSync(_ at: Date) -> String {
     let when = WarpModel.ago(at)
-    if game.lastText == "in sync" { return "Checked \(when)" }
+    if game.lastText == "in sync" || game.status == "held" { return "Checked \(when)" }
     let text = game.lastText.replacingOccurrences(of: "->", with: "→")  // older records
     return text.prefix(1).uppercased() + text.dropFirst() + " " + when
   }

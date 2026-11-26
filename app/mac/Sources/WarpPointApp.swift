@@ -42,6 +42,11 @@ struct MenuBarLabel: View {
         if model.setup.needsSetup {
           openWindow(id: "setup")
           NSApp.activate()
+        } else if let w = ProcessInfo.processInfo.environment["WARP_OPEN_WINDOW"],
+                  ["library", "setup"].contains(w) {
+          // For screenshots and checks: open a window at launch without the menu.
+          openWindow(id: w)
+          NSApp.activate()
         }
       }
   }
