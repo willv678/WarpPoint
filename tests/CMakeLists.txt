@@ -1,3 +1,6 @@
+# Save preview tests: one file per game, like the parsers.
+file(GLOB WARP_SAVE_PREVIEW_TESTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/save_previews/*.cpp)
+
 # One test binary. Add new test_*.cpp files to the list as they're written.
 add_executable(warp_tests
   test_main.cpp
@@ -18,9 +21,10 @@ add_executable(warp_tests
   test_mods.cpp
   test_split.cpp
   test_save_preview.cpp
+  ${WARP_SAVE_PREVIEW_TESTS}
   test_plugins.cpp
 )
-target_include_directories(warp_tests PRIVATE third_party/doctest)
+target_include_directories(warp_tests PRIVATE third_party/doctest ${CMAKE_CURRENT_SOURCE_DIR})
 # The repo itself, for tests that check plugins/ and docs/ against the code.
 target_compile_definitions(warp_tests PRIVATE WARP_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_link_libraries(warp_tests PRIVATE warp_agent warp_host_core warp_warnings Threads::Threads)
