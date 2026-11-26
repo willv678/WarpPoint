@@ -14,6 +14,7 @@ struct Peer {
   std::string deviceId;
   std::string name;
   uint32_t generation = 0;  // see proto::Announce
+  uint64_t runningTitle = 0;  // the game running there (0 = none or an older agent)
 };
 
 class Discovery {

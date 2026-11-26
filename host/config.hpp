@@ -45,6 +45,11 @@ struct Config {
     std::vector<std::filesystem::path> appFolders;
   } nxnative;
 
+  struct Presence {  // Warp Presence: the Switch's game in Discord (1.3)
+    bool enabled = false;
+    std::string discordAppId;
+  } presence;
+
   // The console user whose saves the nxnative apps hold ("" = nobody yet).
   std::string nxnativeUser() const {
     if (!nxnative.user.empty()) return nxnative.user;

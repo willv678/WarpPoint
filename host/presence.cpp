@@ -1,0 +1,199 @@
+#include "presence.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <ctime>
+
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+
+namespace WarpPoint {
+
+using json = nlohmann::json;
+
+namespace {
+
+void put32(uint8_t* p, uint32_t v) {
+  for (int i = 0; i < 4; ++i) p[i] = static_cast<uint8_t>(v >> (8 * i));
+}
+uint32_t get32(const uint8_t* p) {
+  return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24;
+}
+
+bool readFully(int fd, uint8_t* buf, size_t n, int timeoutMs) {
+  size_t got = 0;
+  while (got < n) {
+    pollfd p{fd, POLLIN, 0};
+    if (poll(&p, 1, timeoutMs) <= 0) return false;
+    const ssize_t r = ::read(fd, buf + got, n - got);
+    if (r <= 0) return false;
+    got += static_cast<size_t>(r);
+  }
+  return true;
+}
+
+}  // namespace
+
+std::string DiscordIpc::socketDir() {
+  const char* t = std::getenv("TMPDIR");
+  std::string dir = t && *t ? t : "/tmp";
+  if (dir.back() == '/') dir.pop_back();
+  return dir;
+}
+
+bool DiscordIpc::send(uint32_t op, const std::string& body) {
+  std::string frame(8, '\0');
+  put32(reinterpret_cast<uint8_t*>(frame.data()), op);
+  put32(reinterpret_cast<uint8_t*>(frame.data()) + 4, static_cast<uint32_t>(body.size()));
+  frame += body;
+  size_t sent = 0;
+  while (sent < frame.size()) {
+    const ssize_t n = ::write(fd_, frame.data() + sent, frame.size() - sent);
+    if (n <= 0) return false;
+    sent += static_cast<size_t>(n);
+  }
+  return true;
+}
+
+bool DiscordIpc::receive(uint32_t& op, std::string& body, int timeoutMs) {
+  uint8_t head[8];
+  if (!readFully(fd_, head, 8, timeoutMs)) return false;
+  op = get32(head);
+  const uint32_t len = get32(head + 4);
+  if (len > (1u << 20)) return false;
+  body.assign(len, '\0');
+  return len == 0 || readFully(fd_, reinterpret_cast<uint8_t*>(body.data()), len, timeoutMs);
+}
+
+bool DiscordIpc::connect(const std::string& appId, std::string& error) {
+  close();
+  for (int i = 0; i < 10 && fd_ < 0; ++i) {
+    const std::string path = socketDir() + "/discord-ipc-" + std::to_string(i);
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    if (path.size() >= sizeof(addr.sun_path)) continue;
+    std::strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
+    const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) continue;
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
+      fd_ = fd;
+    } else {
+      ::close(fd);
+    }
+  }
+  if (fd_ < 0) {
+    error = "Discord isn't open";
+    return false;
+  }
+  uint32_t op = 0;
+  std::string reply;
+  if (!send(0, json{{"v", 1}, {"client_id", appId}}.dump()) || !receive(op, reply, 3000)) {
+    close();
+    error = "Discord didn't answer";
+    return false;
+  }
+  const json j = json::parse(reply, nullptr, false);
+  if (op != 1 || !j.is_object() || j.value("evt", "") != "READY") {
+    error = j.is_object() && j.contains("message") ? j["message"].get<std::string>()
+                                                    : "Discord refused the connection";
+    close();
+    return false;
+  }
+  return true;
+}
+
+bool DiscordIpc::setActivity(const std::string& activityJson, std::string& error) {
+  if (fd_ < 0) {
+    error = "not connected to Discord";
+    return false;
+  }
+  json args = {{"pid", static_cast<int>(getpid())}};
+  args["activity"] = json::parse(activityJson, nullptr, false);
+  if (args["activity"].is_discarded()) args["activity"] = nullptr;
+  const json cmd = {{"cmd", "SET_ACTIVITY"}, {"args", args}, {"nonce", std::to_string(++nonce_)}};
+  uint32_t op = 0;
+  std::string reply;
+  if (!send(1, cmd.dump()) || !receive(op, reply, 3000)) {
+    close();
+    error = "lost the connection to Discord";
+    return false;
+  }
+  const json j = json::parse(reply, nullptr, false);
+  if (op == 2 || (j.is_object() && j.value("evt", "") == "ERROR")) {
+    error = j.is_object() && j.contains("data") && j["data"].is_object()
+                ? j["data"].value("message", "Discord said no")
+                : "Discord said no";
+    if (op == 2) close();
+    return false;
+  }
+  return true;
+}
+
+void DiscordIpc::close() {
+  if (fd_ >= 0) ::close(fd_);
+  fd_ = -1;
+}
+
+void Presence::update(bool enabled, const std::string& appId, const std::string& console,
+                      uint64_t titleId, const std::string& name) {
+  const auto now = std::chrono::steady_clock::now();
+  if (!enabled || appId.empty()) {
+    if (ipc_.connected()) {
+      std::string e;
+      ipc_.setActivity("null", e);
+      ipc_.close();
+    }
+    shown_ = 0;
+    status_ = !enabled ? "Off" : "Needs a Discord Application ID (see Settings)";
+    return;
+  }
+  if (appId != appId_) {  // a new id: start over
+    ipc_.close();
+    appId_ = appId;
+    shown_ = 0;
+    nextTry_ = {};
+  }
+  const bool changed = titleId != shown_ || (titleId && name != shownName_);
+  if (!changed && (ipc_.connected() || !titleId)) return;
+  if (!ipc_.connected()) {
+    if (!titleId) {
+      shown_ = 0;
+      status_ = "Nothing playing";
+      return;
+    }
+    if (now < nextTry_) return;
+    std::string error;
+    if (!ipc_.connect(appId, error)) {
+      status_ = error;
+      nextTry_ = now + std::chrono::seconds(30);
+      return;
+    }
+  }
+  std::string error;
+  if (!titleId) {
+    ipc_.setActivity("null", error);
+    shown_ = 0;
+    status_ = "Nothing playing";
+    return;
+  }
+  if (titleId != shown_) startedAt_ = static_cast<int64_t>(std::time(nullptr));
+  const std::string game = name.empty() ? "a game" : name;
+  const json activity = {{"details", game},
+                         {"state", "on " + (console.empty() ? std::string("Switch") : console)},
+                         {"timestamps", {{"start", startedAt_}}}};
+  if (!ipc_.setActivity(activity.dump(), error)) {
+    status_ = error;
+    nextTry_ = now + std::chrono::seconds(30);
+    return;
+  }
+  shown_ = titleId;
+  shownName_ = name;
+  status_ = "Showing " + game + " in Discord";
+}
+
+}  // namespace WarpPoint

@@ -26,7 +26,14 @@ struct Setup: Codable {
     var apps: [NxApp] = []
   }
 
+  struct PresenceSettings: Codable {
+    var enabled: Bool = false
+    var discordAppId: String = ""
+    var status: String = "Off"
+  }
+
   var emulator = Emulator()
+  var presence = PresenceSettings()
   var nxnative = NxNative()
   var console: String = ""
   var consolePresent: Bool = false

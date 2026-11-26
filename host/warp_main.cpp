@@ -32,6 +32,7 @@
 #include "net.hpp"
 #include "file_lock.hpp"
 #include "lens.hpp"
+#include "presence.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
 #include "session.hpp"
@@ -75,6 +76,7 @@ int usage() {
                "       warp watch\n"
                "       warp nxnative                       (the nxnative apps found here)\n"
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
+               "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -180,6 +182,10 @@ int cmdFind() {
   }
   std::printf("%s at %s:%u (id %s)\n", peer->name.c_str(), peer->address.c_str(), peer->port,
               peer->deviceId.c_str());
+  if (peer->runningTitle) {
+    std::printf("Playing: %s (%016llx)\n", titleCache().nameOf(peer->runningTitle).c_str(),
+                static_cast<unsigned long long>(peer->runningTitle));
+  }
   return 0;
 }
 
@@ -663,6 +669,15 @@ int main(int argc, char** argv) {
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();
   if (cmd == "nxnative") return cmdNxNative();
+  if (cmd == "presence-test" && args.size() == 2) {
+    Presence p;
+    p.update(true, args[1], "WarpPoint", 1, "WarpPoint presence test");
+    std::printf("%s\n", p.status().c_str());
+    if (p.status().rfind("Showing", 0) != 0) return 1;
+    std::this_thread::sleep_for(std::chrono::seconds(20));
+    p.update(true, args[1], "WarpPoint", 0, "");
+    return 0;
+  }
   if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
   const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||

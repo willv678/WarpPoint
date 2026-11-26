@@ -60,6 +60,10 @@ char* warp_core_setup(WarpCore* core);
 /* Link a console user to an emulator profile; "" or NULL emulatorUser unlinks. */
 bool warp_core_set_link(WarpCore* core, const char* consoleUser, const char* emulatorUser,
                         char** error);
+/* Warp Presence: show the Switch's game in Discord (setup's "presence": {"enabled",
+ * "discordAppId","status"}); events {"kind":"playing","console","titleId","name","icon",
+ * "presence"} say what's running there. */
+bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordAppId, char** error);
 /* Backups to keep per save (0 = all). */
 bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error);
 /* The emulator's data folder (the one with bis/ and system/ in it). */

@@ -124,6 +124,8 @@ void AutoSync::loop() {
   bool gameWasRunning = cfg_.emulatorBusy();
   Clock::time_point nextEmulatorPoll = Clock::now() + cfg_.emulatorPoll;
   bool toldWaiting = false;  // "waiting for the emulator" is said once per wait
+  uint64_t playing = 0;      // the console's running game, as last told to onPlaying
+  Clock::time_point nextPlaying{};
   int failures = 0;          // in a row: the first retry comes quickly
 
   while (!stop_) {
@@ -145,8 +147,15 @@ void AutoSync::loop() {
     const auto now = Clock::now();
     if (console && now - lastBeacon > cfg_.consoleTimeout) {
       emit({AutoSyncEvent::Kind::ConsoleLost, console->name, "", {}, ""});
+      if (cfg_.onPlaying) cfg_.onPlaying(console->name, 0);
+      playing = 0;
       console.reset();
       pending = false;
+    }
+    if (console && cfg_.onPlaying && (console->runningTitle != playing || now >= nextPlaying)) {
+      playing = console->runningTitle;
+      nextPlaying = now + std::chrono::seconds(30);
+      cfg_.onPlaying(console->name, playing);
     }
     if (now >= nextEmulatorPoll) {
       const bool running = cfg_.emulatorBusy();

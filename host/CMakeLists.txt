@@ -7,6 +7,7 @@ add_library(warp_host_core STATIC
   discovery.cpp
   emulator.cpp
   lens.cpp
+  presence.cpp
   mac_store.cpp
   nxnative_store.cpp
   file_lock.cpp

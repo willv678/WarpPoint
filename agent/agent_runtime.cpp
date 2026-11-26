@@ -52,7 +52,8 @@ void AgentRuntime::discoveryLoop() {
   auto announce = [this] {
     return proto::encodeAnnounce({proto::kProtocolVersion, listener_.port(),
                                   config_.identity.deviceId, config_.identity.name,
-                                  generation_.load()});
+                                  generation_.load(),
+                                  config_.runningTitle ? config_.runningTitle() : 0});
   };
   auto nextBeacon = std::chrono::steady_clock::now();
   uint8_t buf[512];

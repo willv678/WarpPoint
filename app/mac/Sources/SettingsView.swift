@@ -45,6 +45,7 @@ struct SettingsView: View {
       NxNativeSettings(setup: setup,
                        setEnabled: { error = model.setNxNativeEnabled($0) },
                        setUser: { error = model.setNxNativeUser($0) })
+      DiscordSettings(setup: setup, set: { error = model.setPresence(enabled: $0, appId: $1) })
       Section("General") {
         Toggle("Open WarpPoint when you log in", isOn: $model.openAtLogin)
       }
@@ -123,6 +124,31 @@ struct NxNativeSettings: View {
       Text("nxnative")
     } footer: {
       Text("Games ported with nxnative run as their own Mac apps. WarpPoint copies their saves to and from your Switch while the app is closed, and never touches nxnative's own cloud-save files.")
+        .font(.caption).foregroundStyle(.secondary)
+    }
+  }
+}
+
+/// Warp Presence: the Switch's game in Discord.
+struct DiscordSettings: View {
+  let setup: Setup
+  let set: (Bool, String) -> Void
+  @State private var appId = ""
+
+  var body: some View {
+    Section {
+      Toggle("Show what I'm playing on the Switch", isOn: Binding(
+        get: { setup.presence.enabled }, set: { set($0, appId) }))
+      TextField("Discord Application ID", text: $appId)
+        .onSubmit { set(setup.presence.enabled, appId) }
+        .onAppear { appId = setup.presence.discordAppId }
+      LabeledContent("Status") {
+        Text(setup.presence.status).foregroundStyle(.secondary)
+      }
+    } header: {
+      Text("Discord")
+    } footer: {
+      Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Nothing leaves this Mac except to the Discord app.")
         .font(.caption).foregroundStyle(.secondary)
     }
   }

@@ -194,6 +194,9 @@ struct Announce {
   // "Sync now" was pressed on the console), so the Mac knows to sync. Sent after the
   // name; an announce without it reads as 0.
   uint32_t generation = 0;
+  // The game running on the console right now (0 = none), for Warp Presence. Sent after
+  // the generation (1.3); older agents don't send it and older Macs ignore it.
+  uint64_t runningTitle = 0;
 };
 
 std::vector<uint8_t> encodeProbe();

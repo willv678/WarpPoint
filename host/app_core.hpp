@@ -4,6 +4,7 @@
 // UI language that can call C can drive WarpPoint.
 #pragma once
 #include "auto_sync.hpp"
+#include "presence.hpp"
 
 #include <atomic>
 #include <deque>
@@ -57,6 +58,8 @@ class AppCore {
   // Link a console user to an emulator profile ("" unlinks).
   bool setLink(const std::string& consoleUser, const std::string& emulatorUser, std::string& error);
   bool setKeepBackups(size_t keep, std::string& error);
+  // Warp Presence: show the Switch's game in Discord under this Discord application.
+  bool setPresence(bool enabled, const std::string& discordAppId, std::string& error);
   // Point at the emulator's data folder; refused if it isn't one.
   bool setEmulatorPath(const std::string& path, std::string& error);
 
@@ -94,6 +97,11 @@ class AppCore {
   std::filesystem::path dataDir_;
   std::function<bool()> emulatorRunning_;
   std::atomic<bool> consolePresent_{false};
+  void playing(const std::string& console, uint64_t titleId);
+  Presence presence_;          // used on AutoSync's thread only
+  std::mutex playingMutex_;    // guards the two below (read by the UI)
+  uint64_t playingTitle_ = 0;
+  std::string presenceStatus_ = "Off";
   AutoSync sync_;
   std::mutex mutex_;
   std::deque<std::string> events_;

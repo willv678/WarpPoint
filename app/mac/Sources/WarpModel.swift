@@ -42,6 +42,8 @@ final class WarpModel: ObservableObject {
   @Published private(set) var setup = Setup()
   @Published private(set) var reports: [CrashReport] = []
   @Published var newCrashes = 0  // since the Crash Reports window was last opened
+  @Published private(set) var nowPlaying: String?  // the game running on the Switch
+  @Published private(set) var nowPlayingIcon = ""
   @Published var openAtLogin = SMAppService.mainApp.status == .enabled {
     didSet { setOpenAtLogin(openAtLogin) }
   }
@@ -149,6 +151,11 @@ final class WarpModel: ObservableObject {
   func setEmulatorPath(_ path: String) -> String? {
     defer { refreshSetup(); refreshLibrary() }
     return call { warp_core_set_emulator_path(core, path, &$0) }
+  }
+
+  func setPresence(enabled: Bool, appId: String) -> String? {
+    defer { refreshSetup() }
+    return call { warp_core_set_presence(core, enabled, appId, &$0) }
   }
 
   func setNxNativeUser(_ consoleUser: String) -> String? {
@@ -289,11 +296,16 @@ final class WarpModel: ObservableObject {
       refreshSetup()
     case "consoleLost":
       console = nil
+      nowPlaying = nil
       refreshLibrary()
       setSyncing(false)
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "playing":
+      nowPlaying = s("name").isEmpty ? nil : s("name")
+      nowPlayingIcon = s("icon")
+      if !s("presence").isEmpty { setup.presence.status = s("presence") }
     case "crash":
       let name = s("name").isEmpty ? "Something" : s("name")
       recent.insert(RecentSync(name: name, text: "crashed on \(s("console"))", icon: s("icon"),

@@ -142,6 +142,11 @@ TEST_CASE("discovery: the announce carries a 'saves may have changed' counter") 
   proto::Announce out;
   REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
   CHECK(out.generation == 7);
+  CHECK(out.runningTitle == 0);
+  // A 1.2 agent's announce (no running game) still reads.
+  bytes.resize(bytes.size() - 8);
+  REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
+  CHECK(out.generation == 7);
   // An older agent's announce (no counter) still reads, as 0.
   bytes.resize(bytes.size() - 4);
   REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
@@ -152,6 +157,16 @@ TEST_CASE("discovery: the announce carries a 'saves may have changed' counter") 
   newer.insert(newer.end(), {1, 2, 3, 4, 5});
   REQUIRE(proto::decodeDiscovery(newer.data(), newer.size(), kind, out));
   CHECK(out.generation == 7);
+}
+
+TEST_CASE("discovery: the announce says what's running (Warp Presence)") {
+  proto::Announce a{proto::kProtocolVersion, 40000, "dev-1", "Switch", 3, 0x0100ff500e34a000};
+  const auto bytes = proto::encodeAnnounce(a);
+  proto::DiscoveryKind kind{};
+  proto::Announce out;
+  REQUIRE(proto::decodeDiscovery(bytes.data(), bytes.size(), kind, out));
+  CHECK(out.generation == 3);
+  CHECK(out.runningTitle == 0x0100ff500e34a000);
 }
 
 TEST_CASE("hello: capabilities are bounded so a peer can't flood us") {

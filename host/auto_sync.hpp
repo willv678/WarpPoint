@@ -71,6 +71,9 @@ struct AutoSyncConfig {
   std::chrono::milliseconds retryAfter{10000};     // after that
   std::chrono::milliseconds emulatorPoll{2000};  // how often emulatorBusy is asked
   std::function<void(const AutoSyncEvent&)> onEvent;
+  // Warp Presence: the console's running game (0 = none or console gone), on every
+  // change and every 30 s while a console is around. Called on AutoSync's thread.
+  std::function<void(const std::string& console, uint64_t titleId)> onPlaying;
 };
 
 // The library's records (see above). Exposed for tests and the CLI.

@@ -291,6 +291,7 @@ std::vector<uint8_t> encodeAnnounce(const Announce& a) {
   w.str(a.deviceId);
   w.str(a.name);
   w.u32(a.generation);
+  w.u64(a.runningTitle);
   return std::move(w.data());
 }
 
@@ -314,6 +315,7 @@ bool decodeDiscovery(const uint8_t* data, size_t len, DiscoveryKind& kind, Annou
   announce.deviceId = r.str();
   announce.name = r.str();
   announce.generation = r.remaining() >= 4 ? r.u32() : 0;  // older agents don't send it
+  announce.runningTitle = r.remaining() >= 8 ? r.u64() : 0;  // nor this (before 1.3)
   // Anything after that is from a newer agent: ignore it rather than drop the whole
   // announce, so a Mac never loses sight of a console that's been updated first.
   return r.ok();

@@ -18,6 +18,8 @@
 #include "switch_titles.hpp"
 
 #include <switch.h>
+
+#include <atomic>
 #include <sys/stat.h>
 
 #include <cstdio>
@@ -280,6 +282,10 @@ int main(int, char**) {
     // Mac can get its save made here.
     cfg.identity.caps.push_back("create");
   }
+  // Warp Presence: the game running now goes out with every beacon.
+  // (The main loop reads it once a second; the beacon thread only reads this copy.)
+  static std::atomic<uint64_t> playing{0};
+  if (havePm) cfg.runningTitle = [] { return playing.load(); };
   // Warp Lens: crash and error reports from the SD card.
   static WarpPoint::SwitchReports reports;
   cfg.reports = &reports;
@@ -332,6 +338,7 @@ int main(int, char**) {
 
     // A game closed (or another one started): its save may be new, tell the Mac.
     const uint64_t game = havePm ? runningApplication() : 0;
+    playing = game;
     if (lastGame != 0 && game != lastGame) {
       ++generation;
       runtime.bumpGeneration();

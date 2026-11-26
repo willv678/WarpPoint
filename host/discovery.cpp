@@ -38,7 +38,7 @@ std::optional<Peer> Discovery::listen(int timeoutMs) {
         a.version != proto::kProtocolVersion) {
       continue;
     }
-    return Peer{from, a.tcpPort, a.deviceId, a.name, a.generation};
+    return Peer{from, a.tcpPort, a.deviceId, a.name, a.generation, a.runningTitle};
   }
 }
 

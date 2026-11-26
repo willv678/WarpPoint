@@ -128,7 +128,32 @@ bool AppCore::start(std::string& error) {
   cfg.keepBackups = config.keepBackups;
   cfg.hostName = net::hostName();
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
+  cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
   return sync_.start(cfg, error);
+}
+
+void AppCore::playing(const std::string& console, uint64_t titleId) {
+  Config c;
+  std::string e;
+  loadConfig(dataDir_ / "config.json", c, e);
+  TitleCache titles(dataDir_ / "titles");
+  const auto rec = titleId ? titles.get(titleId) : std::nullopt;
+  const std::string name = rec && rec->found ? rec->name : "";
+  presence_.update(c.presence.enabled, c.presence.discordAppId, console, titleId, name);
+  bool changed = false;
+  {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    changed = titleId != playingTitle_ || presenceStatus_ != presence_.status();
+    playingTitle_ = titleId;
+    presenceStatus_ = presence_.status();
+  }
+  if (!changed) return;
+  json j = {{"kind", "playing"}, {"console", console}, {"presence", presence_.status()}};
+  j["titleId"] = titleId ? hex64(titleId) : "";
+  j["name"] = titleId ? (name.empty() ? std::string("a game") : name) : "";
+  j["icon"] = rec && rec->hasIcon ? titles.iconPath(titleId).string() : "";
+  std::lock_guard<std::mutex> lock(mutex_);
+  events_.push_back(j.dump());
 }
 
 void AppCore::push(const AutoSyncEvent& e) {
@@ -520,6 +545,12 @@ std::string AppCore::setupJson() {
               {"links", links},
               {"keepBackups", config.keepBackups},
               {"nxnative", nx},
+              {"presence", {{"enabled", config.presence.enabled},
+                            {"discordAppId", config.presence.discordAppId},
+                            {"status", [this] {
+                               std::lock_guard<std::mutex> lock(playingMutex_);
+                               return presenceStatus_;
+                             }()}}},
               {"needsSetup", config.users.empty() && config.nxnativeUser().empty()}}
       .dump();
 }
@@ -633,6 +664,19 @@ bool AppCore::setNxNativeSaveId(const std::string& appTitleId, const std::string
     else c.nxnative.saveIds[app] = save;
     return true;
   }, true, error);
+}
+
+bool AppCore::setPresence(bool enabled, const std::string& discordAppId, std::string& error) {
+  const bool digits = discordAppId.find_first_not_of("0123456789") == std::string::npos;
+  if (!digits || discordAppId.size() > 24) {
+    error = "a Discord Application ID is a number (from discord.com/developers/applications)";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    c.presence.enabled = enabled;
+    c.presence.discordAppId = discordAppId;
+    return true;
+  }, false, error);
 }
 
 bool AppCore::setKeepBackups(size_t keep, std::string& error) {

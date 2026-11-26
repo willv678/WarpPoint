@@ -10,6 +10,7 @@ add_executable(warp_tests
   test_auto_sync.cpp
   test_nxnative.cpp
   test_lens.cpp
+  test_presence.cpp
 )
 target_include_directories(warp_tests PRIVATE third_party/doctest)
 target_link_libraries(warp_tests PRIVATE warp_agent warp_host_core warp_warnings Threads::Threads)

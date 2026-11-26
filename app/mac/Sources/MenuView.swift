@@ -16,6 +16,15 @@ struct MenuView: View {
           .foregroundStyle(.orange)
           .fixedSize(horizontal: false, vertical: true)
       }
+      if let playing = model.nowPlaying, model.console != nil {
+        HStack(spacing: 8) {
+          GameIcon(path: model.nowPlayingIcon)
+          VStack(alignment: .leading, spacing: 1) {
+            Text("Playing \(playing)").font(.callout.weight(.medium)).lineLimit(1)
+            Text("on \(model.console ?? "your Switch")").font(.caption).foregroundStyle(.secondary)
+          }
+        }
+      }
       if !model.conflicts.isEmpty { conflicts }
       if !model.recent.isEmpty { recent }
       Divider()
