@@ -43,12 +43,16 @@ struct AutoSyncEvent {
     PassFinished,  // message: a one-line summary
     PassFailed,    // message: why (will retry)
     Waiting,       // a sync is owed but a game is running: it runs when the game stops
+    Crash,         // Warp Lens: something crashed on the console (message: explained)
   };
   Kind kind;
   std::string console;  // "Will's Switch"
   std::string local;    // "Astris"
   UnitReport report;    // for Synced
   std::string message;
+  std::string program = {};  // for Crash: what crashed
+  uint64_t programId = 0;
+  std::string image = {};    // for Crash: the screenshot on the Mac, if any
 };
 
 struct AutoSyncConfig {

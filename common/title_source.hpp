@@ -16,6 +16,16 @@ class TitleSource {
   virtual bool info(uint64_t titleId, proto::TitleInfo& out) = 0;
 };
 
+// Warp Lens: the reports a console keeps after a crash or error.
+class ReportSource {
+ public:
+  virtual ~ReportSource() = default;
+  // Reports changed after newerThan (seconds since 1970), newest first, at most kMaxReports.
+  virtual bool list(uint64_t newerThan, std::vector<proto::ReportEntry>& out) = 0;
+  // One report by a name from list(); at most kMaxReportSize bytes (truncated says if cut).
+  virtual bool read(const std::string& name, std::vector<uint8_t>& out, bool& truncated) = 0;
+};
+
 // The console's user accounts, so the Mac can say "Will" instead of a 32-digit id.
 class UserSource {
  public:

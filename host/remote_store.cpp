@@ -134,6 +134,49 @@ bool RemoteStore::list(std::vector<UnitRef>& out, std::string& error) {
   return true;
 }
 
+bool RemoteStore::reports(uint64_t newerThan, std::vector<proto::ReportEntry>& out,
+                          std::string& error) {
+  ByteWriter w;
+  w.u64(newerThan);
+  Frame f;
+  if (writeOpen_ || !send(Msg::ReportListReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::ReportList)) {
+    error = errorText(f);
+    return false;
+  }
+  if (!proto::decode(f.payload, out)) {
+    broken_ = true;
+    error = "bad report list from the console";
+    return false;
+  }
+  return true;
+}
+
+bool RemoteStore::report(const std::string& name, std::vector<uint8_t>& bytes, bool& truncated,
+                         std::string& error) {
+  ByteWriter w;
+  w.str(name);
+  Frame f;
+  if (writeOpen_ || !send(Msg::ReportReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::Report)) {
+    error = errorText(f);
+    return false;
+  }
+  std::string got;
+  if (!proto::decodeReport(f.payload, got, truncated, bytes) || got != name) {
+    broken_ = true;
+    error = "bad report from the console";
+    return false;
+  }
+  return true;
+}
+
 bool RemoteStore::users(std::vector<proto::ConsoleUser>& out, std::string& error) {
   Frame f;
   if (writeOpen_ || !send(Msg::UsersReq) || !receive(f)) {

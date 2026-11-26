@@ -31,6 +31,12 @@ class RemoteStore : public UnitStore {
   // The console's user accounts (needs the agent's "users" ability).
   bool users(std::vector<proto::ConsoleUser>& out, std::string& error);
 
+  // Warp Lens (needs "reports"): reports changed after newerThan, newest first; and one
+  // report's bytes by name from that list.
+  bool reports(uint64_t newerThan, std::vector<proto::ReportEntry>& out, std::string& error);
+  bool report(const std::string& name, std::vector<uint8_t>& bytes, bool& truncated,
+              std::string& error);
+
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }
 

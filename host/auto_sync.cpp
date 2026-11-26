@@ -2,6 +2,7 @@
 
 #include "backup_store.hpp"
 #include "file_lock.hpp"
+#include "lens.hpp"
 #include "session.hpp"
 #include "state_store.hpp"
 #include "title_cache.hpp"
@@ -257,6 +258,19 @@ bool AutoSync::runPass(const Peer& console) {
   std::string titleError;
   fetchTitles(*session, titles, ids, false, titleError);
   saveLastResults(cfg_.dataDir, reports, localName, session->agent.name);
+
+  // Warp Lens: anything that crashed on the console since last time.
+  if (session->can("reports")) {
+    Lens lens(cfg_.dataDir, session->agent.deviceId);
+    std::string lensError;
+    for (const auto& c : lens.fetch(*session->store, &titles, lensError)) {
+      AutoSyncEvent e{AutoSyncEvent::Kind::Crash, session->agent.name, localName, {}, c.explanation};
+      e.program = c.program;
+      e.programId = c.programId;
+      e.image = c.image;
+      emit(e);
+    }
+  }
 
   size_t copied = 0, conflicts = 0, problems = 0;
   for (const auto& r : reports) {

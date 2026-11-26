@@ -99,6 +99,57 @@ bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users) {
   return r.done();
 }
 
+std::vector<uint8_t> encode(const std::vector<ReportEntry>& reports) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(reports.size()));
+  for (const auto& r : reports) {
+    w.str(r.name);
+    w.u8(static_cast<uint8_t>(r.kind));
+    w.u64(r.size);
+    w.u64(r.mtime);
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, std::vector<ReportEntry>& reports) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxReports) return false;
+  reports.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    ReportEntry e;
+    e.name = r.str();
+    const uint8_t kind = r.u8();
+    if (kind < 1 || kind > 4) return false;
+    e.kind = static_cast<ReportKind>(kind);
+    e.size = r.u64();
+    e.mtime = r.u64();
+    reports.push_back(std::move(e));
+  }
+  return r.done();
+}
+
+std::vector<uint8_t> encodeReport(const std::string& name, bool truncated,
+                                  const std::vector<uint8_t>& bytes) {
+  ByteWriter w;
+  w.str(name);
+  w.u8(truncated ? 1 : 0);
+  w.u32(static_cast<uint32_t>(bytes.size()));
+  w.raw(bytes.data(), bytes.size());
+  return std::move(w.data());
+}
+
+bool decodeReport(const std::vector<uint8_t>& p, std::string& name, bool& truncated,
+                  std::vector<uint8_t>& bytes) {
+  ByteReader r(p);
+  name = r.str();
+  truncated = r.u8() != 0;
+  const uint32_t n = r.u32();
+  if (n > kMaxReportSize) return false;
+  if (!r.bytes(n, bytes)) return false;
+  return r.done();
+}
+
 std::vector<uint8_t> encodeTitleReq(const std::vector<uint64_t>& titleIds) {
   ByteWriter w;
   w.u32(static_cast<uint32_t>(titleIds.size()));

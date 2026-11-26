@@ -4,6 +4,7 @@
 #include "config.hpp"
 #include "emulator.hpp"
 #include "file_lock.hpp"
+#include "lens.hpp"
 #include "net.hpp"
 #include "ryujinx_store.hpp"
 #include "session.hpp"
@@ -42,6 +43,7 @@ const char* kindName(AutoSyncEvent::Kind k) {
     case K::PassFinished: return "passFinished";
     case K::PassFailed: return "passFailed";
     case K::Waiting: return "waiting";
+    case K::Crash: return "crash";
   }
   return "?";
 }
@@ -150,6 +152,14 @@ void AppCore::push(const AutoSyncEvent& e) {
     j["text"] = r.skipped ? std::string("skipped")
                 : !r.ok   ? std::string("failed")
                           : describeAction(r.action, local, e.console);
+  }
+  if (e.kind == AutoSyncEvent::Kind::Crash) {
+    TitleCache titles(dataDir_ / "titles");
+    const auto rec = e.programId ? titles.get(e.programId) : std::nullopt;
+    j["name"] = e.program;
+    j["titleId"] = hex64(e.programId);
+    j["icon"] = rec && rec->hasIcon ? titles.iconPath(e.programId).string() : "";
+    j["image"] = e.image;
   }
   std::lock_guard<std::mutex> lock(mutex_);
   events_.push_back(j.dump());
@@ -347,6 +357,26 @@ std::string AppCore::gamesJson() {
               {"consoleCanCreate", consoleCanCreate},
               {"consolePresent", consolePresent_.load()}, {"keepBackups", config.keepBackups},
               {"games", games}}.dump();
+}
+
+std::string AppCore::reportsJson() {
+  TitleCache titles(dataDir_ / "titles");
+  json out = json::array();
+  for (const auto& c : allReports(dataDir_)) {
+    const auto rec = c.programId ? titles.get(c.programId) : std::nullopt;
+    out.push_back({{"name", c.name},
+                   {"time", c.time},
+                   {"programId", hex64(c.programId)},
+                   {"program", c.program},
+                   {"errorCode", c.errorCode},
+                   {"what", c.what},
+                   {"where", c.where},
+                   {"explanation", c.explanation},
+                   {"image", c.image},
+                   {"file", c.file},
+                   {"icon", rec && rec->hasIcon ? titles.iconPath(c.programId).string() : ""}});
+  }
+  return out.dump();
 }
 
 std::string AppCore::backupsJson(const std::string& key) {

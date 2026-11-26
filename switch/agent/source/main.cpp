@@ -3,6 +3,7 @@
 #include "agent_runtime.hpp"
 #include "save_store.hpp"
 #include "switch_env.hpp"
+#include "switch_reports.hpp"
 #include "switch_titles.hpp"
 
 #include <switch.h>
@@ -116,6 +117,10 @@ int main(int, char**) {
     // Mac can get its save made here.
     cfg.identity.caps.push_back("create");
   }
+  // Warp Lens: crash and error reports from the SD card.
+  static WarpPoint::SwitchReports reports;
+  cfg.reports = &reports;
+  cfg.identity.caps.push_back("reports");
   WarpPoint::SwitchUsers users;
   if (haveUsers) {
     cfg.users = &users;

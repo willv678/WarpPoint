@@ -94,6 +94,8 @@ bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
   return false;
 }
 
+char* warp_core_reports(WarpCore* core) { return dup(core->core.reportsJson()); }
+
 char* warp_core_games(WarpCore* core) { return dup(core->core.gamesJson()); }
 
 char* warp_core_backups(WarpCore* core, const char* key) {

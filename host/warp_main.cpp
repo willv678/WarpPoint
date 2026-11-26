@@ -31,6 +31,7 @@
 #include "emulator.hpp"
 #include "net.hpp"
 #include "file_lock.hpp"
+#include "lens.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
 #include "session.hpp"
@@ -73,6 +74,7 @@ int usage() {
                "       warp restore GAME BACKUP_ID mac|switch\n"
                "       warp watch\n"
                "       warp nxnative                       (the nxnative apps found here)\n"
+               "       warp reports                        (Warp Lens: crashes on the Switch)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -572,6 +574,7 @@ int cmdWatch() {
       case K::PassFinished: std::printf("Done: %s.\n", e.message.c_str()); break;
       case K::PassFailed: std::printf("Couldn't sync (will retry): %s\n", e.message.c_str()); break;
       case K::Waiting: std::printf("Waiting for the game to stop before syncing.\n"); break;
+      case K::Crash: std::printf("Crash on %s: %s\n", e.console.c_str(), e.message.c_str()); break;
     }
     std::fflush(stdout);
   };
@@ -664,7 +667,8 @@ int main(int argc, char** argv) {
   const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3) ||
-                     (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4);
+                     (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
+                     cmd == "reports";
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -707,6 +711,28 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "reports") {
+    if (!hasCap(session->agent, "reports")) {
+      std::fprintf(stderr, "This Switch's WarpPoint can't send reports (update it to 1.3).\n");
+      rc = 1;
+    } else {
+      Lens lens(dataDir(), session->agent.deviceId);
+      std::string e;
+      const auto news = lens.fetch(*session->store, nullptr, e);
+      if (!e.empty()) std::fprintf(stderr, "warning: %s\n", e.c_str());
+      std::printf("%zu new. Crash reports from %s (newest first):\n", news.size(),
+                  session->agent.name.c_str());
+      for (const auto& c : lens.all()) {
+        char when[32] = "?";
+        const std::time_t t = static_cast<std::time_t>(c.time);
+        std::tm tm{};
+        if (localtime_r(&t, &tm)) std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", &tm);
+        std::printf("\n  %s  %s\n    %s\n", when, c.program.c_str(), c.explanation.c_str());
+        if (!c.where.empty()) std::printf("    at %s\n", c.where.c_str());
+        std::printf("    %s\n", c.file.c_str());
+      }
+    }
+  }
   if (cmd == "restore") {
     for (const auto& k : *keys) rc |= cmdRestore(*session, state, k, args[2], args[3]);
   }

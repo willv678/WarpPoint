@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import ServiceManagement
+import UserNotifications
 
 /// A save that changed on both sides since they last agreed.
 struct Conflict: Identifiable, Hashable {
@@ -39,6 +40,8 @@ final class WarpModel: ObservableObject {
   @Published private(set) var library = Library()
   @Published var libraryMessage: String?
   @Published private(set) var setup = Setup()
+  @Published private(set) var reports: [CrashReport] = []
+  @Published var newCrashes = 0  // since the Crash Reports window was last opened
   @Published var openAtLogin = SMAppService.mainApp.status == .enabled {
     didSet { setOpenAtLogin(openAtLogin) }
   }
@@ -243,6 +246,26 @@ final class WarpModel: ObservableObject {
     }
   }
 
+  // MARK: - Warp Lens
+
+  func refreshReports() {
+    guard let raw = take(warp_core_reports(core)), let data = raw.data(using: .utf8),
+          let list = try? JSONDecoder().decode([CrashReport].self, from: data) else { return }
+    reports = list
+  }
+
+  /// A notification for a crash on the console (asks for permission the first time).
+  private func notifyCrash(_ title: String, _ body: String) {
+    let center = UNUserNotificationCenter.current()
+    center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+      guard granted else { return }
+      let content = UNMutableNotificationContent()
+      content.title = title
+      content.body = body
+      center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+  }
+
   // MARK: - Events
 
   private func drainEvents() {
@@ -271,6 +294,14 @@ final class WarpModel: ObservableObject {
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "crash":
+      let name = s("name").isEmpty ? "Something" : s("name")
+      recent.insert(RecentSync(name: name, text: "crashed on \(s("console"))", icon: s("icon"),
+                               ok: false, date: Date()), at: 0)
+      recent = Array(recent.prefix(6))
+      newCrashes += 1
+      refreshReports()
+      notifyCrash("\(name) crashed on \(s("console"))", s("message"))
     case "passStarted":
       if !s("local").isEmpty { localName = s("local") }
       waitingForEmulator = false

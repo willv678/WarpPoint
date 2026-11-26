@@ -40,6 +40,11 @@ class AppCore {
   // the emulator, with names, icons and status. See gamesJson() in app_core.cpp.
   std::string gamesJson();
 
+  // Warp Lens: every crash report kept from the console, newest first:
+  // [{"name","time","programId","program","errorCode","what","where","explanation",
+  //   "image","file","icon"}]
+  std::string reportsJson();
+
   // A save's backups, newest first.
   std::string backupsJson(const std::string& key);
 

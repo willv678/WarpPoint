@@ -109,6 +109,10 @@ struct MenuView: View {
         openWindow(id: "library")
         NSApp.activate()  // a menu bar app's window should come to the front
       }
+      MenuButton(model.newCrashes > 0 ? "Crash Reports (\(model.newCrashes) new)…" : "Crash Reports…") {
+        openWindow(id: "reports")
+        NSApp.activate()
+      }
       MenuButton("Show Backups and Data in Finder") { model.showDataFolder() }
       MenuButton("Settings…") {
         openSettings()

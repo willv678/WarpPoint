@@ -39,6 +39,10 @@ enum class Msg : uint8_t {
   Abort = 25,      // host -> agent: discard the write in progress
   Ping = 30,
   Pong = 31,
+  ReportListReq = 40,  // host -> agent: crash/error reports newer than a time (cap "reports")
+  ReportList = 41,     // agent -> host: name, kind, size, time of each
+  ReportReq = 42,      // host -> agent: one report's bytes, by name from the list
+  Report = 43,         // agent -> host: name + bytes (truncated to kMaxReportSize)
 };
 
 enum class ErrorCode : uint16_t {
@@ -104,6 +108,26 @@ struct ConsoleUser {
   std::string name;  // the nickname picked on the console
 };
 
+// Warp Lens: a report the console keeps after something went wrong. Named by its folder
+// and file name as listed ("crash_reports/01789152945_0100830004fb6000.log"); the agent
+// only ever serves names from its own listing.
+enum class ReportKind : uint8_t {
+  CrashLog = 1,     // Atmosphère crash report, text (atmosphere/crash_reports/*.log)
+  CrashImage = 2,   // the screen at the crash (atmosphere/crash_reports/*.jpg)
+  Fatal = 3,        // Atmosphère fatal error, binary (atmosphere/fatal_errors/*.bin)
+  ErrorReport = 4,  // the system's error report, MessagePack (atmosphere/erpt_reports/*)
+};
+
+struct ReportEntry {
+  std::string name;
+  ReportKind kind = ReportKind::CrashLog;
+  uint64_t size = 0;
+  uint64_t mtime = 0;  // seconds since 1970, the console's clock
+};
+
+constexpr size_t kMaxReports = 1024;
+constexpr size_t kMaxReportSize = 900 * 1024;  // under one frame (kMaxFrameSize)
+
 struct FileBegin {
   std::string path;
   uint64_t size = 0;
@@ -143,6 +167,15 @@ bool decode(const std::vector<uint8_t>& p, TitleInfo& m);
 
 std::vector<uint8_t> encode(const std::vector<ConsoleUser>& users);
 bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users);
+
+// ReportListReq carries a u64 "newer than" time; ReportList the entries.
+std::vector<uint8_t> encode(const std::vector<ReportEntry>& reports);
+bool decode(const std::vector<uint8_t>& p, std::vector<ReportEntry>& reports);
+// Report: the name, a truncated flag and the bytes.
+std::vector<uint8_t> encodeReport(const std::string& name, bool truncated,
+                                  const std::vector<uint8_t>& bytes);
+bool decodeReport(const std::vector<uint8_t>& p, std::string& name, bool& truncated,
+                  std::vector<uint8_t>& bytes);
 
 // FileEnd, UnitEnd and Committed carry a single hex hash string.
 std::vector<uint8_t> encodeHash(const std::string& hash);

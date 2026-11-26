@@ -42,6 +42,11 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
  * emulatorOnly, problem, new, ignored. */
 char* warp_core_games(WarpCore* core);
 
+/* Warp Lens: crash reports from the console, newest first (see AppCore::reportsJson).
+ * New crashes also arrive as events: {"kind":"crash","console","name","titleId","icon",
+ * "image","message"}. */
+char* warp_core_reports(WarpCore* core);
+
 /* A save's backups, newest first: [{"id","side","reason","created","files","bytes"}]. */
 char* warp_core_backups(WarpCore* core, const char* key);
 

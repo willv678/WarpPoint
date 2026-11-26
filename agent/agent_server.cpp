@@ -144,7 +144,7 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 }
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
-                  TitleSource* titles, UserSource* users) {
+                  TitleSource* titles, UserSource* users, ReportSource* reports) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -222,6 +222,37 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
       case Msg::WriteReq:
         ok = handleWrite(s, store, f, log);
         break;
+      case Msg::ReportListReq: {
+        ByteReader r(f.payload);
+        const uint64_t since = r.u64();
+        std::vector<proto::ReportEntry> list;
+        if (!r.done()) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad report list request");
+        } else if (!reports || !reports->list(since, list)) {
+          ok = sendError(s, ErrorCode::BadRequest, "this agent can't list reports");
+        } else {
+          if (list.size() > proto::kMaxReports) list.resize(proto::kMaxReports);
+          ok = send(s, Msg::ReportList, proto::encode(list));
+        }
+        break;
+      }
+      case Msg::ReportReq: {
+        ByteReader r(f.payload);
+        const std::string name = r.str();
+        std::vector<uint8_t> bytes;
+        bool truncated = false;
+        if (!r.done() || !reports || !reports->read(name, bytes, truncated)) {
+          ok = sendError(s, ErrorCode::BadRequest, "no such report");
+        } else {
+          if (bytes.size() > proto::kMaxReportSize) {
+            bytes.resize(proto::kMaxReportSize);
+            truncated = true;
+          }
+          log("Sent report " + name);
+          ok = send(s, Msg::Report, proto::encodeReport(name, truncated, bytes));
+        }
+        break;
+      }
       case Msg::Ping:
         ok = send(s, Msg::Pong);
         break;

@@ -18,6 +18,7 @@ struct AgentConfig {
   UnitStore* store = nullptr;
   TitleSource* titles = nullptr;  // optional: game names and icons
   UserSource* users = nullptr;    // optional: the console's user accounts
+  ReportSource* reports = nullptr;  // optional: crash and error reports (Warp Lens)
   // Where the announce's generation starts. Start it somewhere random so a restarted
   // agent never repeats the number the Mac saw last, and the Mac syncs with it.
   uint32_t initialGeneration = 0;
