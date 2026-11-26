@@ -8,6 +8,7 @@ add_library(warp_host_core STATIC
   emulator.cpp
   album.cpp
   lens.cpp
+  mods.cpp
   presence.cpp
   tap.cpp
   tap_profiles.cpp

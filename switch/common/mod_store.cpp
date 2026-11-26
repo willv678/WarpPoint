@@ -174,13 +174,19 @@ class ModWriter : public StagedWriter {
         return false;
       }
     }
+    if (incoming.size() == 1) {
+      // No mods any more: leave the game's folder as if WarpPoint had never been there.
+      removeEmptyDirs(dir_);
+      fs::remove(dir_, ec);  // only if nothing else is in it
+      return true;
+    }
     fs::create_directories(dir_, ec);
     fs::rename(staging / "files" / ModStore::kMarker, dir_ / ModStore::kMarker, ec);
     if (ec) {
       error = "cannot write the mod list: " + ec.message();
       return false;
     }
-    removeEmptyDirs(dir_);  // a set that's now empty leaves no empty folders
+    removeEmptyDirs(dir_);
     return true;
   }
 

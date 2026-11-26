@@ -258,6 +258,26 @@ final class WarpModel: ObservableObject {
     }
   }
 
+  // MARK: - Warp Mods
+
+  func mods(_ titleId: String) -> ModsState {
+    guard let raw = take(warp_core_mods(core, titleId)), let data = raw.data(using: .utf8),
+          let s = try? JSONDecoder().decode(ModsState.self, from: data) else { return ModsState() }
+    return s
+  }
+
+  func addMod(_ titleId: String, folder: String, name: String) -> String? {
+    call { warp_core_add_mod(core, titleId, folder, name, &$0) }
+  }
+
+  func removeMod(_ titleId: String, name: String) -> String? {
+    call { warp_core_remove_mod(core, titleId, name, &$0) }
+  }
+
+  func setModEnabled(_ titleId: String, name: String, on: Bool) -> String? {
+    call { warp_core_set_mod_enabled(core, titleId, name, on, &$0) }
+  }
+
   // MARK: - Warp Tap
 
   private var tapBusy = false
@@ -325,6 +345,11 @@ final class WarpModel: ObservableObject {
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "mods":
+      recent.insert(RecentSync(name: s("name"), text: s("message"), icon: s("icon"),
+                               ok: !s("message").contains("couldn't") && !s("message").contains("didn't"),
+                               date: Date()), at: 0)
+      recent = Array(recent.prefix(6))
     case "album":
       recent.insert(RecentSync(name: s("name").isEmpty ? "Switch album" : s("name"),
                                text: "copied \(s("message").components(separatedBy: " from ").first ?? s("message")) to this Mac",

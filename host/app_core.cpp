@@ -6,6 +6,7 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "lens.hpp"
+#include "mods.hpp"
 #include "tap.hpp"
 #include "net.hpp"
 #include "ryujinx_store.hpp"
@@ -47,6 +48,7 @@ const char* kindName(AutoSyncEvent::Kind k) {
     case K::Waiting: return "waiting";
     case K::Crash: return "crash";
     case K::Album: return "album";
+    case K::Mods: return "mods";
   }
   return "?";
 }
@@ -132,6 +134,7 @@ bool AppCore::start(std::string& error) {
   cfg.hostName = net::hostName();
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
   cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
+  cfg.afterPass = [this](Session& s) { return applyMods(s); };
   cfg.albumFolder = [dataDir]() -> std::optional<std::filesystem::path> {
     Config c;
     std::string e;
@@ -188,7 +191,8 @@ void AppCore::push(const AutoSyncEvent& e) {
                 : !r.ok   ? std::string("failed")
                           : describeAction(r.action, local, e.console);
   }
-  if (e.kind == AutoSyncEvent::Kind::Crash || e.kind == AutoSyncEvent::Kind::Album) {
+  if (e.kind == AutoSyncEvent::Kind::Crash || e.kind == AutoSyncEvent::Kind::Album ||
+      e.kind == AutoSyncEvent::Kind::Mods) {
     TitleCache titles(dataDir_ / "titles");
     const auto rec = e.programId ? titles.get(e.programId) : std::nullopt;
     j["name"] = e.program;
@@ -425,6 +429,143 @@ std::string AppCore::tapJson() {
   TitleCache titles(dataDir_ / "titles");
   const auto rec = playing ? titles.get(playing) : std::nullopt;
   return tapSnapshot(*session->store, tapProfiles(dataDir_), rec && rec->found ? rec->name : "");
+}
+
+namespace {
+
+bool parseTitle(const std::string& s, uint64_t& out) {
+  if (s.size() != 16 || s.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return false;
+  out = std::strtoull(s.c_str(), nullptr, 16);
+  return true;
+}
+
+std::string readSmall(const std::filesystem::path& p) {
+  std::ifstream in(p);
+  std::string s;
+  std::getline(in, s);
+  return s;
+}
+
+}  // namespace
+
+std::string AppCore::modsJson(const std::string& titleIdText) {
+  uint64_t id = 0;
+  json out = {{"mods", json::array()}, {"conflicts", json::array()}, {"exefs", false}, {"where", ""}};
+  if (!parseTitle(titleIdText, id)) return out.dump();
+  ModLibrary lib(dataDir_);
+  for (const auto& m : lib.mods(id)) {
+    out["mods"].push_back({{"name", m.name}, {"enabled", m.enabled}, {"files", m.files},
+                           {"bytes", m.bytes}, {"romfs", m.romfs}, {"exefs", m.exefs}});
+  }
+  const auto layer = lib.compose(id);
+  out["conflicts"] = layer.conflicts;
+  out["exefs"] = layer.exefs;
+  Config c;
+  std::string e;
+  loadConfig(dataDir_ / "config.json", c, e);
+  const auto mac = openLocal(c);
+  const std::string key = "game/" + hex64(id) + "/" + c.nxnativeUser();
+  out["where"] = mac->nxApp(key) ? mac->nameFor(key)
+                                 : (mac->emulator() ? mac->emulator()->displayName() : "");
+  return out.dump();
+}
+
+bool AppCore::addMod(const std::string& titleId, const std::string& folder, const std::string& name,
+                     std::string& error) {
+  uint64_t id = 0;
+  if (!parseTitle(titleId, id)) {
+    error = "not a title id";
+    return false;
+  }
+  return ModLibrary(dataDir_).add(id, folder, name, error);
+}
+
+bool AppCore::removeMod(const std::string& titleId, const std::string& name, std::string& error) {
+  uint64_t id = 0;
+  if (!parseTitle(titleId, id)) {
+    error = "not a title id";
+    return false;
+  }
+  const bool ok = ModLibrary(dataDir_).remove(id, name, error);
+  if (ok) sync_.syncNow();
+  return ok;
+}
+
+bool AppCore::setModEnabled(const std::string& titleId, const std::string& name, bool on,
+                            std::string& error) {
+  uint64_t id = 0;
+  if (!parseTitle(titleId, id)) {
+    error = "not a title id";
+    return false;
+  }
+  const bool ok = ModLibrary(dataDir_).setEnabled(id, name, on, error);
+  if (ok) sync_.syncNow();
+  return ok;
+}
+
+std::vector<AutoSyncEvent> AppCore::applyMods(Session& s) {
+  std::vector<AutoSyncEvent> events;
+  ModLibrary lib(dataDir_);
+  Config c;
+  std::string e;
+  loadConfig(dataDir_ / "config.json", c, e);
+  const auto mac = openLocal(c);
+  TitleCache titles(dataDir_ / "titles");
+  for (const uint64_t id : lib.titles()) {
+    if (!lib.touched(id)) continue;
+    const ModLayer layer = lib.compose(id);
+    const std::string want = ModLibrary::unitHash(layer);
+    const std::string game = titles.nameOf(id);
+    auto note = [&](const std::string& msg) {
+      AutoSyncEvent ev{AutoSyncEvent::Kind::Mods, "", "", {}, msg};
+      ev.program = game;
+      ev.programId = id;
+      events.push_back(ev);
+    };
+    const auto dir = lib.root() / hex64(id);
+    // The console: only when its layer isn't already this one.
+    if (s.can("mods")) {
+      const auto st = s.store->status({{modsKey(id)}});
+      if (st.size() == 1 && !st[0].error.empty()) {
+        if (readSmall(dir / ".switch-problem") != st[0].error) {
+          note("Switch: " + st[0].error);
+          std::ofstream(dir / ".switch-problem") << st[0].error << "\n";
+        }
+      } else if (st.size() == 1 && !st[0].busy) {
+        const std::string have = st[0].exists ? st[0].hash : "";
+        // Nothing there and nothing wanted: leave the console alone.
+        if (have != want && !(layer.files.empty() && have.empty())) {
+          std::string error, hash;
+          auto writer = s.store->write({modsKey(id)}, have, error);
+          if (writer && ModLibrary::stream(layer, *writer, hash, error) && writer->commit(hash)) {
+            note(layer.files.empty() ? "mods turned off on the Switch"
+                                     : std::to_string(layer.files.size()) + " mod files on the Switch");
+          } else {
+            if (writer && error.empty()) error = writer->error();
+            note("Switch: couldn't apply mods: " + error);
+          }
+        }
+      }
+    }
+    // This Mac: Astris or the game's nxnative app, once per change, never while it runs.
+    if (readSmall(dir / ".applied-mac") == want) continue;
+    const std::string key = "game/" + hex64(id) + "/" + c.nxnativeUser();
+    std::string error;
+    bool ok = false;
+    if (const auto* app = mac->nxApp(key)) {
+      if (mac->nxnative()->running(*app)) continue;
+      ok = ModLibrary::applyToNxNative(app->dataDir, layer, error);
+    } else if (mac->emulator()) {
+      if (emulatorRunning_()) continue;
+      ok = ModLibrary::applyToEmulator(mac->emulator()->root(), id, layer, error);
+    }
+    if (ok) {
+      std::ofstream(dir / ".applied-mac") << want << "\n";
+    } else if (!error.empty()) {
+      note("this Mac: " + error);
+    }
+  }
+  return events;
 }
 
 std::string AppCore::reportsJson() {

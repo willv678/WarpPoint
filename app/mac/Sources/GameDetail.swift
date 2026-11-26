@@ -24,6 +24,8 @@ struct GameDetail: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         Divider()
+        ModsSection(game: game, model: model)
+        Divider()
         backupList
       }
       .padding(18)

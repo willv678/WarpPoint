@@ -62,6 +62,17 @@ class AppCore {
   // Link a console user to an emulator profile ("" unlinks).
   bool setLink(const std::string& consoleUser, const std::string& emulatorUser, std::string& error);
   bool setKeepBackups(size_t keep, std::string& error);
+  // Warp Mods: a game's mods ({"mods":[{"name","enabled","files","bytes","romfs","exefs"}],
+  // "conflicts":[...],"exefs","where"}), and changing them. Applied at the next sync.
+  std::string modsJson(const std::string& titleId);
+  bool addMod(const std::string& titleId, const std::string& folder, const std::string& name,
+              std::string& error);
+  bool removeMod(const std::string& titleId, const std::string& name, std::string& error);
+  bool setModEnabled(const std::string& titleId, const std::string& name, bool on,
+                     std::string& error);
+  // Apply every game's mods to the console in s and to this Mac (AutoSync's afterPass).
+  std::vector<AutoSyncEvent> applyMods(struct Session& s);
+
   // Warp Album: copy the Switch's screenshots and videos into folder ("" = ~/Pictures/WarpPoint).
   bool setAlbum(bool enabled, const std::string& folder, std::string& error);
   // Warp Presence: show the Switch's game in Discord under this Discord application.

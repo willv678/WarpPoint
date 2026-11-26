@@ -46,6 +46,7 @@ struct AutoSyncEvent {
     Waiting,       // a sync is owed but a game is running: it runs when the game stops
     Crash,         // Warp Lens: something crashed on the console (message: explained)
     Album,         // Warp Album: captures copied (message: "3 screenshots from X", image: one)
+    Mods,          // Warp Mods: a game's mods were applied, or couldn't be (message says)
   };
   Kind kind;
   std::string console;  // "Will's Switch"
@@ -78,6 +79,8 @@ struct AutoSyncConfig {
   std::function<void(const std::string& console, uint64_t titleId)> onPlaying;
   // Warp Album: where captures go, read every pass; nullopt = off. Unset = off.
   std::function<std::optional<std::filesystem::path>()> albumFolder;
+  // After each pass, with the console's session (Warp Mods). Returns events to report.
+  std::function<std::vector<AutoSyncEvent>(struct Session&)> afterPass;
 };
 
 // The library's records (see above). Exposed for tests and the CLI.

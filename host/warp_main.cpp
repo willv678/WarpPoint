@@ -32,7 +32,9 @@
 #include "net.hpp"
 #include "file_lock.hpp"
 #include "album.hpp"
+#include "app_core.hpp"
 #include "lens.hpp"
+#include "mods.hpp"
 #include "tap.hpp"
 
 #include <nlohmann/json.hpp>
@@ -83,6 +85,9 @@ int usage() {
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
                "       warp album                          (Warp Album: copy new captures now)\n"
                "       warp tap                            (Warp Tap: the running game's live numbers)\n"
+               "       warp mods TITLE_ID                  (Warp Mods: a game's mod library)\n"
+               "       warp mods-add TITLE_ID FOLDER NAME / mods-on|mods-off TITLE_ID NAME\n"
+               "       warp mods-apply                     (apply every game's mods now)\n"
                "       warp tap-dump FILE SIZE REGION OFFSET [HOP...]  (for profile authors)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
@@ -589,6 +594,7 @@ int cmdWatch() {
       case K::Waiting: std::printf("Waiting for the game to stop before syncing.\n"); break;
       case K::Crash: std::printf("Crash on %s: %s\n", e.console.c_str(), e.message.c_str()); break;
       case K::Album: std::printf("Copied %s into %s\n", e.message.c_str(), e.image.c_str()); break;
+      case K::Mods: std::printf("Mods for %s: %s\n", e.program.c_str(), e.message.c_str()); break;
     }
     std::fflush(stdout);
   };
@@ -677,6 +683,26 @@ int main(int argc, char** argv) {
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();
   if (cmd == "nxnative") return cmdNxNative();
+  if ((cmd == "mods" && args.size() == 2) || (cmd == "mods-add" && args.size() == 4) ||
+      ((cmd == "mods-on" || cmd == "mods-off") && args.size() == 3)) {
+    const uint64_t id = std::strtoull(args[1].c_str(), nullptr, 16);
+    ModLibrary lib(dataDir());
+    std::string e;
+    bool ok = true;
+    if (cmd == "mods-add") ok = lib.add(id, args[2], args[3], e);
+    if (cmd == "mods-on" || cmd == "mods-off") ok = lib.setEnabled(id, args[2], cmd == "mods-on", e);
+    if (!ok) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    for (const auto& m : lib.mods(id)) {
+      std::printf("  [%s] %s  (%llu files%s%s)\n", m.enabled ? "on " : "off", m.name.c_str(),
+                  static_cast<unsigned long long>(m.files), m.romfs ? ", romfs" : "", m.exefs ? ", exefs" : "");
+    }
+    for (const auto& c : lib.compose(id).conflicts) std::printf("  conflict: %s\n", c.c_str());
+    if (cmd != "mods") std::printf("Applied at the next sync (or now with `warp mods-apply`).\n");
+    return 0;
+  }
   if (cmd == "presence-test" && args.size() == 2) {
     Presence p;
     p.update(true, args[1], "WarpPoint", 1, "WarpPoint presence test");
@@ -692,7 +718,7 @@ int main(int argc, char** argv) {
                      (cmd == "resolve" && args.size() == 3) ||
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
                      cmd == "reports" || cmd == "album" || cmd == "tap" ||
-                     (cmd == "tap-dump" && args.size() >= 5);
+                     (cmd == "tap-dump" && args.size() >= 5) || cmd == "mods-apply";
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -735,6 +761,14 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "mods-apply") {
+    // The same as the app does after each sync: AppCore::applyMods, without its sync.
+    AppCore core(dataDir());
+    for (const auto& ev : core.applyMods(*session)) {
+      std::printf("  %s: %s\n", ev.program.c_str(), ev.message.c_str());
+    }
+    std::printf("Mods are as the library says.\n");
+  }
   if (cmd == "tap-dump") {
     // Read SIZE bytes at the end of a pointer chain into FILE, 4 KB per entry, 64 a request.
     // REGION is main, heap, alias or aslr; OFFSET and HOPs as in a profile.

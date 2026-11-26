@@ -8,8 +8,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
-#include <set>
-#include <sstream>
 
 namespace WarpPoint {
 
@@ -175,7 +173,7 @@ bool ModLibrary::add(uint64_t titleId, const fs::path& from, const std::string& 
   std::error_code ec;
   // Find the folder that holds romfs/ or exefs/.
   fs::path src = from;
-  for (const fs::path c : {from, from / "atmosphere" / "contents" / hex16(titleId, true),
+  for (const fs::path& c : {from, from / "atmosphere" / "contents" / hex16(titleId, true),
                            from / "atmosphere" / "contents" / hex16(titleId),
                            from / "contents" / hex16(titleId, true), from / hex16(titleId, true)}) {
     if (fs::is_directory(c / "romfs", ec) || fs::is_directory(c / "exefs", ec)) {

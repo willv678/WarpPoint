@@ -108,6 +108,33 @@ bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordApp
   return false;
 }
 
+char* warp_core_mods(WarpCore* core, const char* titleId) {
+  return dup(core->core.modsJson(titleId ? titleId : ""));
+}
+
+bool warp_core_add_mod(WarpCore* core, const char* titleId, const char* folder, const char* name,
+                       char** error) {
+  std::string e;
+  if (core->core.addMod(titleId ? titleId : "", folder ? folder : "", name ? name : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_remove_mod(WarpCore* core, const char* titleId, const char* name, char** error) {
+  std::string e;
+  if (core->core.removeMod(titleId ? titleId : "", name ? name : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_set_mod_enabled(WarpCore* core, const char* titleId, const char* name, bool on,
+                               char** error) {
+  std::string e;
+  if (core->core.setModEnabled(titleId ? titleId : "", name ? name : "", on, e)) return true;
+  setError(error, e);
+  return false;
+}
+
 char* warp_core_tap(WarpCore* core) { return dup(core->core.tapJson()); }
 
 char* warp_core_reports(WarpCore* core) { return dup(core->core.reportsJson()); }

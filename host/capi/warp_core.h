@@ -42,6 +42,14 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
  * emulatorOnly, problem, new, ignored. */
 char* warp_core_games(WarpCore* core);
 
+/* Warp Mods (see AppCore::modsJson). titleId: 16 hex. Changes apply at the next sync. */
+char* warp_core_mods(WarpCore* core, const char* titleId);
+bool warp_core_add_mod(WarpCore* core, const char* titleId, const char* folder, const char* name,
+                       char** error);
+bool warp_core_remove_mod(WarpCore* core, const char* titleId, const char* name, char** error);
+bool warp_core_set_mod_enabled(WarpCore* core, const char* titleId, const char* name, bool on,
+                               char** error);
+
 /* Warp Tap: one look at the game running on the console:
  * {"game","titleId","buildId","supported","status","fields":[{"id","label","group","value","note"}]}.
  * Connects for this look only; poll it every second or two while a window shows it. */

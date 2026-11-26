@@ -283,6 +283,14 @@ bool AutoSync::runPass(const Peer& console) {
     }
   }
 
+  if (cfg_.afterPass) {
+    for (auto& e : cfg_.afterPass(*session)) {
+      e.console = session->agent.name;
+      e.local = localName;
+      emit(e);
+    }
+  }
+
   // Warp Album: new screenshots and videos into the Mac folder, one note per game.
   if (session->can("album") && cfg_.albumFolder) {
     if (const auto folder = cfg_.albumFolder()) {
