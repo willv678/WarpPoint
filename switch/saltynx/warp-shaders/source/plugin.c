@@ -18,7 +18,18 @@
 #include "capture_format.h"
 #include "xxhash64.h"
 
-#define PLUGIN_VERSION 1
+#define PLUGIN_VERSION 2
+
+// Bisect levels (make bisect builds one .elf per level; the default build is level 4):
+//  -1  load only: log from the entry point, hook nothing
+//   0  replace nvnBootstrapLoader with a pass-through wrapper
+//   1  also hand out our nvnDeviceGetProcAddress, which passes every name through
+//   2  also wrap nvnQueuePresentTexture (frame timing) and run the flush thread
+//   3  also wrap nvnProgramSetShaders, nvnCommandBufferBindProgram and the memory pool calls
+//   4  everything (the real plugin)
+#ifndef WP_LEVEL
+#define WP_LEVEL 4
+#endif
 #define HIDDEN __attribute__((visibility("hidden")))
 #define WEAK   __attribute__((weak))
 
@@ -245,7 +256,47 @@ static u64 (*real_gpa)(const void*, const char*);
 #define DECL(n) static Fn o_##n;
 NVN_FUNCS(DECL)
 NVN_GETTERS(DECL)
-#define CALL(n, ...) (o_##n ? o_##n(__VA_ARGS__) : 0)
+
+// ---- logging ----------------------------------------------------------------------------------
+// SaltySDCore_printf talks to the SaltyNX service over Core's session, which Core closes once the
+// game starts. At runtime we open a session around each line (and around each flush), one at a
+// time; a line is dropped rather than wait more than ~2 s for the session.
+static int g_in_main;
+static int g_session_lock;
+static int session_lock(void) {
+    for (int i = 0; i < 2000; i++) {
+        if (!__atomic_exchange_n(&g_session_lock, 1, __ATOMIC_ACQUIRE)) return 1;
+        wp_svcSleepThread(1000 * 1000);
+    }
+    return 0;
+}
+static void session_unlock(void) { __atomic_store_n(&g_session_lock, 0, __ATOMIC_RELEASE); }
+
+static void wp_log(const char* fmt, u64 a, u64 b) {
+    if (!SaltySDCore_printf) return;
+    if (g_in_main) { SaltySDCore_printf(fmt, WP_LEVEL, a, b); return; }
+#ifdef WP_QUIET   // no runtime logging: rules out the logging sessions themselves
+    return;
+#endif
+    if (!SaltySD_Init || !SaltySD_Deinit || !session_lock()) return;
+    if (SaltySD_Init() == 0) {
+        SaltySDCore_printf(fmt, WP_LEVEL, a, b);
+        SaltySD_Deinit();
+    }
+    session_unlock();
+}
+
+// One line the first time each wrapper runs, so the log shows how far the game got.
+#define ENUMID(n) ID_##n,
+enum { NVN_FUNCS(ENUMID) ID_COUNT };
+static u8 g_first[ID_COUNT];
+static __attribute__((noinline)) void first_call_slow(int id, const char* name) {
+    u8 expected = 0;
+    if (__atomic_compare_exchange_n(&g_first[id], &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED))
+        wp_log("WarpShaders L%d: first call %s\n", (u64)name, 0);
+}
+#define CALL(n, ...) ((__builtin_expect(!g_first[ID_##n], 0) ? first_call_slow(ID_##n, #n) : (void)0), \
+                      (o_##n ? o_##n(__VA_ARGS__) : 0))
 
 // ---- capture helpers --------------------------------------------------------------------------
 static u8* gpu_to_cpu(u64 gpu, u64* avail) {
@@ -593,11 +644,23 @@ static const Hook g_getters[] = { NVN_GETTERS(GETTER) };
 
 static u64 hk_gpa(const void* device, const char* name);
 
+static int hook_level(const char* name) {
+    if (str_eq(name, "nvnQueuePresentTexture")) return 2;
+    if (str_eq(name, "nvnProgramSetShaders") || str_eq(name, "nvnCommandBufferBindProgram") ||
+        str_eq(name, "nvnMemoryPoolInitialize") || str_eq(name, "nvnMemoryPoolFinalize")) return 3;
+    return 4;
+}
+
+static int g_wrapped_once;
 static u64 wrap(const char* name, u64 addr) {
     if (!addr || !name) return addr;
     if (str_eq(name, "nvnDeviceGetProcAddress")) return (u64)hk_gpa;
+    if (WP_LEVEL < 2) return addr;
     for (size_t i = 0; i < sizeof g_hooks / sizeof g_hooks[0]; i++) {
         if (str_eq(name, g_hooks[i].name)) {
+            if (hook_level(name) > WP_LEVEL) return addr;
+            if (!__atomic_exchange_n(&g_wrapped_once, 1, __ATOMIC_ACQ_REL))
+                wp_log("WarpShaders L%d: first wrapper handed out: %s\n", (u64)name, 0);
             __atomic_store_n(g_hooks[i].orig, (Fn)addr, __ATOMIC_RELEASE);
             return (u64)g_hooks[i].hook;
         }
@@ -606,18 +669,29 @@ static u64 wrap(const char* name, u64 addr) {
 }
 
 static int g_getters_done;
+static int g_gpa_calls;
 static u64 hk_gpa(const void* device, const char* name) {
+    int n = __atomic_fetch_add(&g_gpa_calls, 1, __ATOMIC_RELAXED);
+    if (n == 0) wp_log("WarpShaders L%d: first nvnDeviceGetProcAddress(%s), device %p\n", (u64)name, (u64)device);
     u64 addr = real_gpa ? real_gpa(device, name) : 0;
-    if (!__atomic_load_n(&g_getters_done, __ATOMIC_ACQUIRE) && real_gpa) {
+    if (n == 0) wp_log("WarpShaders L%d: real nvnDeviceGetProcAddress returned %p for %s\n", addr, (u64)name);
+    if (WP_LEVEL >= 3 && !__atomic_load_n(&g_getters_done, __ATOMIC_ACQUIRE) && real_gpa) {
         for (size_t i = 0; i < sizeof g_getters / sizeof g_getters[0]; i++)
             if (!*g_getters[i].orig) *g_getters[i].orig = (Fn)real_gpa(device, g_getters[i].name);
         __atomic_store_n(&g_getters_done, 1, __ATOMIC_RELEASE);
+        wp_log("WarpShaders L%d: getters resolved (pool map %p, texture target %p)\n",
+               (u64)o_nvnMemoryPoolMap, (u64)o_nvnTextureGetTarget);
     }
     return wrap(name, addr);
 }
 
+static int g_boot_calls;
 static u64 hk_bootstrap(const char* name) {
-    u64 addr = real_bootstrap(name);
+    int n = __atomic_fetch_add(&g_boot_calls, 1, __ATOMIC_RELAXED);
+    if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d: %s\n", (u64)n + 1, (u64)(name ? name : "(null)"));
+    u64 addr = real_bootstrap ? real_bootstrap(name) : 0;
+    if (n < 16) wp_log("WarpShaders L%d: nvnBootstrapLoader call %d returned %p\n", (u64)n + 1, addr);
+    if (WP_LEVEL < 1) return addr;
     if (name && str_eq(name, "nvnDeviceGetProcAddress")) {
         if (addr) real_gpa = (u64 (*)(const void*, const char*))addr;
         return addr ? (u64)hk_gpa : 0;
@@ -642,7 +716,14 @@ static int write_all(void* f, const void* p, u64 n) {
 
 static void flush(void) {
     if (!SaltySD_Init || !SaltySD_Deinit || !SaltySDCore_fopen) return;
-    if (SaltySD_Init() != 0) { STAT_ADD(flush_fail, 1); return; }
+    if (!session_lock()) { STAT_ADD(flush_fail, 1); return; }
+    u32 rc = SaltySD_Init();
+    if (rc != 0) {
+        session_unlock();
+        STAT_ADD(flush_fail, 1);
+        if (g_stats.flush_fail == 1) wp_log("WarpShaders L%d: flush could not connect to SaltyNX (0x%x)\n", rc, 0);
+        return;
+    }
     int ok = 0;
     int is_new = 0;
     if (!g_session_written) {
@@ -681,7 +762,11 @@ static void flush(void) {
         }
         SaltySDCore_fclose(f);
     }
+    if (g_stats.flush_ok + g_stats.flush_fail == 0 && SaltySDCore_printf)
+        SaltySDCore_printf("WarpShaders L%d: first flush %s, %d bytes so far\n", WP_LEVEL,
+                           ok ? "ok" : (f ? "write failed" : "fopen failed"), (int)g_stats.bytes_written);
     SaltySD_Deinit();
+    session_unlock();
     if (ok) STAT_ADD(flush_ok, 1); else STAT_ADD(flush_fail, 1);
 }
 
@@ -707,11 +792,12 @@ static int g_thread_started;
 static void start_flush_thread(void) {
     int expected = 0;
     if (!__atomic_compare_exchange_n(&g_thread_started, &expected, 1, 0, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) return;
-    u32 th = 0;
+    u32 th = 0, prio = 0x3B;
     void* top = g_stack + sizeof g_stack;
-    if (wp_svcCreateThread(&th, flush_thread, 0, top, 0x3B, -2) == 0 ||
-        wp_svcCreateThread(&th, flush_thread, 0, top, 0x2C, -2) == 0)
-        wp_svcStartThread(th);
+    u32 rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2);
+    if (rc != 0) { prio = 0x2C; rc = wp_svcCreateThread(&th, flush_thread, 0, top, prio, -2); }
+    if (rc == 0) rc = wp_svcStartThread(th);
+    wp_log("WarpShaders L%d: flush thread start rc 0x%x, priority 0x%x\n", rc, prio);
 }
 
 // ---- entry ------------------------------------------------------------------------------------
@@ -721,9 +807,32 @@ static int file_exists(const char* path) {
     return f != 0;
 }
 
+// Every level keeps the full plugin's memory footprint, so a bisect step only changes hooks.
+static void keep_memory(void) {
+    ((volatile u8*)g_ring)[0] = 0;
+    ((volatile u64*)g_seen)[0] = 0;
+    ((volatile u8*)g_progs)[0] = 0;
+    ((volatile u8*)g_tex_target)[0] = 0;
+    ((volatile u8*)g_pools)[0] = 0;
+    ((volatile u8*)g_cmd)[0] = 0;
+    ((volatile u8*)g_stack)[0] = 0;
+}
+
 HIDDEN void wp_plugin_main(void) {
-    if (!SaltySDCore_ReplaceImport || !SaltySDCore_FindSymbolBuiltin) return;
-    if (file_exists("sdmc:/config/warppoint/shaders/off.flag")) return;
+    keep_memory();
+    g_in_main = 1;
+    wp_log("WarpShaders L%d: plugin v%d entry\n", PLUGIN_VERSION, 0);
+    if (!SaltySDCore_ReplaceImport || !SaltySDCore_FindSymbolBuiltin) { g_in_main = 0; return; }
+    if (file_exists("sdmc:/config/warppoint/shaders/off.flag")) {
+        wp_log("WarpShaders L%d: off.flag set, not hooking\n", 0, 0);
+        g_in_main = 0;
+        return;
+    }
+    if (WP_LEVEL < 0) {
+        wp_log("WarpShaders L%d: load-only build, not hooking\n", 0, 0);
+        g_in_main = 0;
+        return;
+    }
 
     wp_svcGetInfo(&g_title_id, 18, 0xFFFF8001, 0);    // InfoType_ProgramId, current process
     char* p = str_put(g_path, "sdmc:/config/warppoint/shaders/");
@@ -739,11 +848,12 @@ HIDDEN void wp_plugin_main(void) {
 
     real_bootstrap = (u64 (*)(const char*))SaltySDCore_FindSymbolBuiltin("nvnBootstrapLoader");
     if (!real_bootstrap) {
-        if (SaltySDCore_printf) SaltySDCore_printf("WarpShaders: no nvnBootstrapLoader, not an NVN game\n");
+        wp_log("WarpShaders L%d: no nvnBootstrapLoader, not an NVN game\n", 0, 0);
+        g_in_main = 0;
         return;
     }
     SaltySDCore_ReplaceImport("nvnBootstrapLoader", (void*)hk_bootstrap);
-    if (SaltySDCore_printf)
-        SaltySDCore_printf("WarpShaders: hooked nvnBootstrapLoader, capturing to %s%s\n", g_path,
-                           g_passthrough ? " (pass-through)" : "");
+    wp_log("WarpShaders L%d: hooked nvnBootstrapLoader (real %p), output %s\n", (u64)real_bootstrap, (u64)g_path);
+    if (g_passthrough) wp_log("WarpShaders L%d: passthrough.flag set: no capture\n", 0, 0);
+    g_in_main = 0;
 }

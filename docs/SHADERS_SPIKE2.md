@@ -284,3 +284,32 @@ Lens) and `saltynx_core.log`. The likeliest cause is an NVN prototype or struct 
   - Fix any mapping `calibrate` flags.
   - Locate cb1 data and the compute sizes in the control section from real data.
   - Decide whether the Phase 3 heuristic (copy a shader's existing variants) is still needed.
+
+## 8. First hardware run: hang at boot, and the bisect builds
+
+The first build, installed with `passthrough.flag` set, hung FE3H on the boot logo. SaltyNX's
+log shows the plugin loaded, its imports resolved, and both import slots for
+`nvnBootstrapLoader` pointed at our hook. Nothing came from the plugin after that.
+
+- **SaltyNX's built-in NX-FPS doesn't chain with us.** Core keeps the first replacement of an
+  import name and reuses it for later requests, and plugins load before Core's NX-FPS. So
+  NX-FPS's own loader is never installed, and its `nvnBootstrapLoader_0` is the real function.
+  It can't re-enter our hook or loop.
+- **Bisect builds:** `make bisect` builds one `.elf` per step into `build/bisect/`. `WP_LEVEL` in
+  `plugin.c` describes each one.
+
+| Build | What it does |
+| --- | --- |
+| `warp-shaders-L00.elf` | loads, logs from the entry point, hooks nothing |
+| `warp-shaders-L0.elf` | pass-through `nvnBootstrapLoader` wrapper |
+| `warp-shaders-L0-quiet.elf` | L0 with no logging after boot (no SaltyNX sessions from game threads) |
+| `warp-shaders-L1.elf` | L0, and our `nvnDeviceGetProcAddress`, which returns the real function for every name |
+| `warp-shaders-L2.elf` | L1, and the present hook (frame timing) and the flush thread |
+| `warp-shaders-L3.elf` | L2, and the memory pool, `nvnProgramSetShaders` and `BindProgram` wrappers and the getters |
+| `warp-shaders-L4.elf` | the full plugin |
+
+- **Same memory in every build.** All of them keep the full plugin's memory (about 1.3 MiB), so
+  each step changes only hooks.
+- **How it logs.** Every build logs through `SaltySDCore_printf` (needs
+  `sdmc:/SaltySD/flags/log.flag`), the first time each wrapper runs. After boot, each line opens
+  a short SaltyNX session, because Core's own session is closed by then.

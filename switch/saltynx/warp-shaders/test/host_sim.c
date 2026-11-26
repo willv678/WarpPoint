@@ -12,6 +12,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdarg.h>
 
 #include "plugin.c"
 
@@ -28,7 +29,11 @@ void* SaltySDCore_fopen(const char* path, const char* mode) { char p[512]; sd_pa
 size_t SaltySDCore_fwrite(const void* p, size_t size, size_t count, void* f) { return fwrite(p, size, count, f) * size; }
 int SaltySDCore_fclose(void* f) { return fclose(f); }
 int SaltySDCore_mkdir(const char* path, u32 mode) { char p[512]; sd_path(p, sizeof p, path); return mkdir(p, mode); }
-u32 SaltySDCore_printf(const char* fmt, ...) { (void)fmt; return 0; }
+u32 SaltySDCore_printf(const char* fmt, ...) {
+    if (!getenv("WP_SIM_LOG")) return 0;          // WP_SIM_LOG=1 shows the plugin's log lines
+    va_list ap; va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
+    return 0;
+}
 u32 SaltySD_Init(void) { return 0; }
 u32 SaltySD_Deinit(void) { return 0; }
 u64 SaltySD_GetBID(void) { return 0x1234567890ABCDEFull; }

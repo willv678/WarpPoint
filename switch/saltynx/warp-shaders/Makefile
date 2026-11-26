@@ -22,7 +22,7 @@ LDFLAGS   := -nostdlib -nostartfiles -pie -T plugin.ld \
              -Wl,-z,text -Wl,-z,now -Wl,-z,nopack-relative-relocs -Wl,--build-id=sha1 \
              -Wl,--gc-sections -Wl,--no-undefined-version -Wl,-Map,$(BUILD)/$(TARGET).map
 
-.PHONY: all clean check
+.PHONY: all clean check bisect
 
 all: $(TARGET).elf
 
@@ -40,6 +40,26 @@ check: $(TARGET).elf
 	@$(READELF) -rW $(TARGET).elf | awk 'NR>3 && $$3 != "" && $$3 !~ /R_AARCH64_(RELATIVE|GLOB_DAT|ABS64|JUMP_SLOT)/ {print "error: relocation " $$3; bad=1} END {exit bad}'
 	@echo "imports:"; $(READELF) -rW $(TARGET).elf | awk '$$3 ~ /GLOB_DAT|JUMP_SLOT|ABS64/ {print "  " $$5}' | sort -u
 	@$(READELF) -lW $(TARGET).elf | awk '$$1=="LOAD" {f=$$7; if ($$8 ~ /^[RWE]+$$/) f=f $$8; printf "segment %s memsz %s flags %s\n", $$3, $$6, f}'
+
+# One .elf per bisect level (see WP_LEVEL in source/plugin.c): L00 load only, L0..L4.
+BISECT := $(BUILD)/bisect
+bisect: $(SOURCES) $(DEPS) Makefile
+	@mkdir -p $(BISECT)
+	@for lv in -1 0 1 2 3 4; do \
+	    name=L$$lv; [ $$lv = -1 ] && name=L00; \
+	    $(CC) $(CFLAGS) -DWP_LEVEL=$$lv $(subst $(BUILD)/$(TARGET).map,$(BISECT)/$$name.map,$(LDFLAGS)) \
+	        -o $(BISECT)/full-$$name.elf $(SOURCES) -lgcc || exit 1; \
+	    $(STRIP) --strip-debug -o $(BISECT)/warp-shaders-$$name.elf $(BISECT)/full-$$name.elf || exit 1; \
+	    rm -f $(BISECT)/full-$$name.elf; \
+	    $(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-$$name >/dev/null || exit 1; \
+	    echo "$(BISECT)/warp-shaders-$$name.elf"; \
+	done
+	@$(CC) $(CFLAGS) -DWP_LEVEL=0 -DWP_QUIET $(subst $(BUILD)/$(TARGET).map,$(BISECT)/L0-quiet.map,$(LDFLAGS)) \
+	    -o $(BISECT)/full-L0-quiet.elf $(SOURCES) -lgcc
+	@$(STRIP) --strip-debug -o $(BISECT)/warp-shaders-L0-quiet.elf $(BISECT)/full-L0-quiet.elf
+	@rm -f $(BISECT)/full-L0-quiet.elf
+	@$(MAKE) --no-print-directory check TARGET=$(BISECT)/warp-shaders-L0-quiet >/dev/null
+	@echo "$(BISECT)/warp-shaders-L0-quiet.elf"
 
 clean:
 	rm -rf $(BUILD) $(TARGET).elf
