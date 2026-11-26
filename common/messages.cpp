@@ -99,6 +99,34 @@ bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users) {
   return r.done();
 }
 
+std::vector<uint8_t> encode(const std::vector<AlbumEntry>& album) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(album.size()));
+  for (const auto& a : album) {
+    w.str(a.name);
+    w.u64(a.size);
+    w.u64(a.appId);
+    w.u64(a.stamp);
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, std::vector<AlbumEntry>& album) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxAlbumEntries) return false;
+  album.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    AlbumEntry a;
+    a.name = r.str();
+    a.size = r.u64();
+    a.appId = r.u64();
+    a.stamp = r.u64();
+    album.push_back(std::move(a));
+  }
+  return r.done();
+}
+
 std::vector<uint8_t> encode(const std::vector<ReportEntry>& reports) {
   ByteWriter w;
   w.u32(static_cast<uint32_t>(reports.size()));

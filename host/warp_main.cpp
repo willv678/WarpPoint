@@ -31,6 +31,7 @@
 #include "emulator.hpp"
 #include "net.hpp"
 #include "file_lock.hpp"
+#include "album.hpp"
 #include "lens.hpp"
 #include "presence.hpp"
 #include "remote_store.hpp"
@@ -77,6 +78,7 @@ int usage() {
                "       warp nxnative                       (the nxnative apps found here)\n"
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
+               "       warp album                          (Warp Album: copy new captures now)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -581,6 +583,7 @@ int cmdWatch() {
       case K::PassFailed: std::printf("Couldn't sync (will retry): %s\n", e.message.c_str()); break;
       case K::Waiting: std::printf("Waiting for the game to stop before syncing.\n"); break;
       case K::Crash: std::printf("Crash on %s: %s\n", e.console.c_str(), e.message.c_str()); break;
+      case K::Album: std::printf("Copied %s into %s\n", e.message.c_str(), e.image.c_str()); break;
     }
     std::fflush(stdout);
   };
@@ -683,7 +686,7 @@ int main(int argc, char** argv) {
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
                      (cmd == "resolve" && args.size() == 3) ||
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
-                     cmd == "reports";
+                     cmd == "reports" || cmd == "album";
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -726,6 +729,20 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "album") {
+    if (!hasCap(session->agent, "album")) {
+      std::fprintf(stderr, "This Switch's WarpPoint has no album support (update it to 1.3).\n");
+      rc = 1;
+    } else {
+      Album album(dataDir(), session->agent.deviceId, g_config.album.folder);
+      const auto names = titleCache();
+      std::string e;
+      const auto copied = album.fetch(*session->store, &names, e);
+      if (!e.empty()) std::fprintf(stderr, "warning: %s\n", e.c_str());
+      for (const auto& c : copied) std::printf("  %s\n", c.file.c_str());
+      std::printf("%zu copied into %s\n", copied.size(), album.folder().c_str());
+    }
+  }
   if (cmd == "reports") {
     if (!hasCap(session->agent, "reports")) {
       std::fprintf(stderr, "This Switch's WarpPoint can't send reports (update it to 1.3).\n");

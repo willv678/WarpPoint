@@ -249,6 +249,42 @@ bool RemoteStore::read(const UnitRef& ref, UnitSink& sink, std::string& unitHash
     error = "connection lost";
     return false;
   }
+  return receiveUnit(sink, unitHash, error);
+}
+
+bool RemoteStore::albumList(uint64_t newerThan, std::vector<proto::AlbumEntry>& out,
+                            std::string& error) {
+  ByteWriter w;
+  w.u64(newerThan);
+  Frame f;
+  if (writeOpen_ || !send(Msg::AlbumListReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (!is(f, Msg::AlbumList)) {
+    error = errorText(f);
+    return false;
+  }
+  if (!proto::decode(f.payload, out)) {
+    broken_ = true;
+    error = "bad album list from the console";
+    return false;
+  }
+  return true;
+}
+
+bool RemoteStore::album(const std::string& name, UnitSink& sink, std::string& error) {
+  ByteWriter w;
+  w.str(name);
+  if (writeOpen_ || !send(Msg::AlbumReq, w.data())) {
+    error = "connection lost";
+    return false;
+  }
+  std::string hash;
+  return receiveUnit(sink, hash, error);
+}
+
+bool RemoteStore::receiveUnit(UnitSink& sink, std::string& unitHash, std::string& error) {
   // Drain the whole stream even if the sink fails, so the session stays usable.
   bool sinkOk = true;
   Frame f;

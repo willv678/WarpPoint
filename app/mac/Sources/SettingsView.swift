@@ -45,6 +45,28 @@ struct SettingsView: View {
       NxNativeSettings(setup: setup,
                        setEnabled: { error = model.setNxNativeEnabled($0) },
                        setUser: { error = model.setNxNativeUser($0) })
+      Section {
+        Toggle("Copy screenshots and videos to this Mac", isOn: Binding(
+          get: { setup.album.enabled },
+          set: { error = model.setAlbum(enabled: $0, folder: setup.album.folder) }))
+        LabeledContent("Folder") {
+          Text(setup.album.folder).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+            .help(setup.album.folder)
+        }
+        HStack {
+          Button("Choose…") { chooseAlbumFolder() }
+          Button("Show in Finder") {
+            try? FileManager.default.createDirectory(atPath: setup.album.folder,
+                                                     withIntermediateDirectories: true)
+            NSWorkspace.shared.open(URL(fileURLWithPath: setup.album.folder))
+          }
+        }
+      } header: {
+        Text("Album")
+      } footer: {
+        Text("New captures from your Switch's album land here after each sync, in a folder per game. Nothing on the Switch is changed.")
+          .font(.caption).foregroundStyle(.secondary)
+      }
       DiscordSettings(setup: setup, set: { error = model.setPresence(enabled: $0, appId: $1) })
       Section("General") {
         Toggle("Open WarpPoint when you log in", isOn: $model.openAtLogin)
@@ -58,6 +80,17 @@ struct SettingsView: View {
     .frame(minHeight: 560)
     .onAppear { model.windowOpened() }
     .onDisappear { model.windowClosed() }
+  }
+
+  private func chooseAlbumFolder() {
+    let panel = NSOpenPanel()
+    panel.canChooseDirectories = true
+    panel.canChooseFiles = false
+    panel.canCreateDirectories = true
+    panel.message = "Choose where your Switch's screenshots and videos go."
+    if panel.runModal() == .OK, let url = panel.url {
+      error = model.setAlbum(enabled: setup.album.enabled, folder: url.path)
+    }
   }
 
   private func chooseFolder() {

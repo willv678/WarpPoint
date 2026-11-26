@@ -2,6 +2,7 @@
 
 #include "backup_store.hpp"
 #include "file_lock.hpp"
+#include "album.hpp"
 #include "lens.hpp"
 #include "session.hpp"
 #include "state_store.hpp"
@@ -14,6 +15,7 @@
 #include <fstream>
 
 #include <algorithm>
+#include <map>
 #include <optional>
 
 namespace WarpPoint {
@@ -278,6 +280,35 @@ bool AutoSync::runPass(const Peer& console) {
       e.programId = c.programId;
       e.image = c.image;
       emit(e);
+    }
+  }
+
+  // Warp Album: new screenshots and videos into the Mac folder, one note per game.
+  if (session->can("album") && cfg_.albumFolder) {
+    if (const auto folder = cfg_.albumFolder()) {
+      Album album(cfg_.dataDir, session->agent.deviceId, *folder);
+      std::string albumError;
+      std::map<std::string, std::vector<AlbumCopy>> byGame;
+      for (auto& c : album.fetch(*session->store, &titles, albumError)) {
+        byGame[c.game].push_back(std::move(c));
+      }
+      for (const auto& [game, copies] : byGame) {
+        size_t videos = 0;
+        for (const auto& c : copies) videos += c.video ? 1 : 0;
+        const size_t shots = copies.size() - videos;
+        std::string what;
+        if (shots) what = std::to_string(shots) + (shots == 1 ? " screenshot" : " screenshots");
+        if (videos) {
+          what += (what.empty() ? "" : " and ") + std::to_string(videos) +
+                  (videos == 1 ? " video" : " videos");
+        }
+        AutoSyncEvent e{AutoSyncEvent::Kind::Album, session->agent.name, localName, {},
+                        what + " from " + (game.empty() ? std::string("the Switch") : game)};
+        e.program = game;
+        e.programId = copies.front().appId;
+        e.image = copies.back().file.string();
+        emit(e);
+      }
     }
   }
 

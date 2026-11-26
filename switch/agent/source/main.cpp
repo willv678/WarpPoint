@@ -3,6 +3,7 @@
 #include "agent_runtime.hpp"
 #include "save_store.hpp"
 #include "switch_env.hpp"
+#include "switch_album.hpp"
 #include "switch_reports.hpp"
 #include "switch_titles.hpp"
 
@@ -117,6 +118,10 @@ int main(int, char**) {
     // Mac can get its save made here.
     cfg.identity.caps.push_back("create");
   }
+  // Warp Album: screenshots and videos.
+  static WarpPoint::SwitchAlbum album(R_SUCCEEDED(capsaInitialize()));
+  cfg.album = &album;
+  cfg.identity.caps.push_back("album");
   // Warp Lens: crash and error reports from the SD card.
   static WarpPoint::SwitchReports reports;
   cfg.reports = &reports;

@@ -32,8 +32,14 @@ struct Setup: Codable {
     var status: String = "Off"
   }
 
+  struct AlbumSettings: Codable {
+    var enabled: Bool = true
+    var folder: String = ""
+  }
+
   var emulator = Emulator()
   var presence = PresenceSettings()
+  var album = AlbumSettings()
   var nxnative = NxNative()
   var console: String = ""
   var consolePresent: Bool = false

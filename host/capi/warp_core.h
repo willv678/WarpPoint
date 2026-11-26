@@ -63,6 +63,9 @@ bool warp_core_set_link(WarpCore* core, const char* consoleUser, const char* emu
 /* Warp Presence: show the Switch's game in Discord (setup's "presence": {"enabled",
  * "discordAppId","status"}); events {"kind":"playing","console","titleId","name","icon",
  * "presence"} say what's running there. */
+/* Warp Album: setup's "album": {"enabled","folder"}; events {"kind":"album","console",
+ * "name","titleId","icon","image","message"} say what was copied. */
+bool warp_core_set_album(WarpCore* core, bool enabled, const char* folder, char** error);
 bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordAppId, char** error);
 /* Backups to keep per save (0 = all). */
 bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error);

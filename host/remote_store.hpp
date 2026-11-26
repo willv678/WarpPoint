@@ -37,6 +37,11 @@ class RemoteStore : public UnitStore {
   bool report(const std::string& name, std::vector<uint8_t>& bytes, bool& truncated,
               std::string& error);
 
+  // Warp Album (needs "album"): captures newer than a stamp, oldest first (a page of at
+  // most kMaxAlbumEntries); and one capture streamed into sink as a single file.
+  bool albumList(uint64_t newerThan, std::vector<proto::AlbumEntry>& out, std::string& error);
+  bool album(const std::string& name, UnitSink& sink, std::string& error);
+
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }
 
@@ -49,6 +54,8 @@ class RemoteStore : public UnitStore {
   friend class RemoteWriter;
 
   bool send(proto::Msg type, const std::vector<uint8_t>& payload = {});
+  // The FileBegin / Chunk / FileEnd / UnitEnd stream after a ReadReq or AlbumReq.
+  bool receiveUnit(UnitSink& sink, std::string& unitHash, std::string& error);
   bool receive(Frame& f);
   std::string errorText(const Frame& f);
 

@@ -113,7 +113,7 @@ void AgentRuntime::serverLoop() {
     }
     connected_ = true;
     serveSession(*client, *config_.store, config_.identity, config_.log, config_.titles,
-                 config_.users, config_.reports);
+                 config_.users, config_.reports, config_.album);
     connected_ = false;
     std::lock_guard<std::mutex> lock(activeMutex_);
     active_ = nullptr;

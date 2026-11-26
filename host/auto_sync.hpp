@@ -27,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -44,6 +45,7 @@ struct AutoSyncEvent {
     PassFailed,    // message: why (will retry)
     Waiting,       // a sync is owed but a game is running: it runs when the game stops
     Crash,         // Warp Lens: something crashed on the console (message: explained)
+    Album,         // Warp Album: captures copied (message: "3 screenshots from X", image: one)
   };
   Kind kind;
   std::string console;  // "Will's Switch"
@@ -74,6 +76,8 @@ struct AutoSyncConfig {
   // Warp Presence: the console's running game (0 = none or console gone), on every
   // change and every 30 s while a console is around. Called on AutoSync's thread.
   std::function<void(const std::string& console, uint64_t titleId)> onPlaying;
+  // Warp Album: where captures go, read every pass; nullopt = off. Unset = off.
+  std::function<std::optional<std::filesystem::path>()> albumFolder;
 };
 
 // The library's records (see above). Exposed for tests and the CLI.

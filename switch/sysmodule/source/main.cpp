@@ -14,6 +14,7 @@
 #include "agent_runtime.hpp"
 #include "save_store.hpp"
 #include "switch_env.hpp"
+#include "switch_album.hpp"
 #include "switch_reports.hpp"
 #include "switch_titles.hpp"
 
@@ -286,6 +287,10 @@ int main(int, char**) {
   // (The main loop reads it once a second; the beacon thread only reads this copy.)
   static std::atomic<uint64_t> playing{0};
   if (havePm) cfg.runningTitle = [] { return playing.load(); };
+  // Warp Album: screenshots and videos, named by game through caps:a when it opens.
+  static WarpPoint::SwitchAlbum album(R_SUCCEEDED(capsaInitialize()));
+  cfg.album = &album;
+  cfg.identity.caps.push_back("album");
   // Warp Lens: crash and error reports from the SD card.
   static WarpPoint::SwitchReports reports;
   cfg.reports = &reports;

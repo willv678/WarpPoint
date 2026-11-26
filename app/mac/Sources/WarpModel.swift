@@ -153,6 +153,11 @@ final class WarpModel: ObservableObject {
     return call { warp_core_set_emulator_path(core, path, &$0) }
   }
 
+  func setAlbum(enabled: Bool, folder: String) -> String? {
+    defer { refreshSetup() }
+    return call { warp_core_set_album(core, enabled, folder, &$0) }
+  }
+
   func setPresence(enabled: Bool, appId: String) -> String? {
     defer { refreshSetup() }
     return call { warp_core_set_presence(core, enabled, appId, &$0) }
@@ -302,6 +307,11 @@ final class WarpModel: ObservableObject {
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "album":
+      recent.insert(RecentSync(name: s("name").isEmpty ? "Switch album" : s("name"),
+                               text: "copied \(s("message").components(separatedBy: " from ").first ?? s("message")) to this Mac",
+                               icon: s("icon"), ok: true, date: Date()), at: 0)
+      recent = Array(recent.prefix(6))
     case "playing":
       nowPlaying = s("name").isEmpty ? nil : s("name")
       nowPlayingIcon = s("icon")

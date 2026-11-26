@@ -58,6 +58,8 @@ class AppCore {
   // Link a console user to an emulator profile ("" unlinks).
   bool setLink(const std::string& consoleUser, const std::string& emulatorUser, std::string& error);
   bool setKeepBackups(size_t keep, std::string& error);
+  // Warp Album: copy the Switch's screenshots and videos into folder ("" = ~/Pictures/WarpPoint).
+  bool setAlbum(bool enabled, const std::string& folder, std::string& error);
   // Warp Presence: show the Switch's game in Discord under this Discord application.
   bool setPresence(bool enabled, const std::string& discordAppId, std::string& error);
   // Point at the emulator's data folder; refused if it isn't one.

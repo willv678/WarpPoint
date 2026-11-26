@@ -45,6 +45,11 @@ struct Config {
     std::vector<std::filesystem::path> appFolders;
   } nxnative;
 
+  struct Album {  // Warp Album: Switch screenshots and videos into a Mac folder (1.3)
+    bool enabled = true;
+    std::filesystem::path folder;  // "" = ~/Pictures/WarpPoint
+  } album;
+
   struct Presence {  // Warp Presence: the Switch's game in Discord (1.3)
     bool enabled = false;
     std::string discordAppId;

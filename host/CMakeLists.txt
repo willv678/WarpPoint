@@ -6,6 +6,7 @@ add_library(warp_host_core STATIC
   backup_store.cpp
   discovery.cpp
   emulator.cpp
+  album.cpp
   lens.cpp
   presence.cpp
   mac_store.cpp

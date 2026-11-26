@@ -69,6 +69,9 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     for (const auto& f : folders) {
       if (f.is_string()) out.nxnative.appFolders.emplace_back(f.get<std::string>());
     }
+    const json al = j.value("album", json::object());
+    out.album.enabled = al.value("enabled", true);
+    out.album.folder = al.value("folder", "");
     const json pr = j.value("presence", json::object());
     out.presence.enabled = pr.value("enabled", false);
     out.presence.discordAppId = pr.value("discordAppId", "");
@@ -107,6 +110,10 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
     for (const auto& t : n.sendUpgraded) nx["sendUpgraded"].push_back(hex(t));
     for (const auto& f : n.appFolders) nx["appFolders"].push_back(f.string());
     if (!nx.empty()) j["nxnative"] = nx;
+  }
+  if (!c.album.enabled || !c.album.folder.empty()) {
+    j["album"] = {{"enabled", c.album.enabled}};
+    if (!c.album.folder.empty()) j["album"]["folder"] = c.album.folder.string();
   }
   if (c.presence.enabled || !c.presence.discordAppId.empty()) {
     j["presence"] = {{"enabled", c.presence.enabled}, {"discordAppId", c.presence.discordAppId}};

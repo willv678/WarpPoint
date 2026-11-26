@@ -94,6 +94,13 @@ bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
   return false;
 }
 
+bool warp_core_set_album(WarpCore* core, bool enabled, const char* folder, char** error) {
+  std::string e;
+  if (core->core.setAlbum(enabled, folder ? folder : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
 bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordAppId, char** error) {
   std::string e;
   if (core->core.setPresence(enabled, discordAppId ? discordAppId : "", e)) return true;

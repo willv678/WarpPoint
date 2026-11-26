@@ -43,6 +43,9 @@ enum class Msg : uint8_t {
   ReportList = 41,     // agent -> host: name, kind, size, time of each
   ReportReq = 42,      // host -> agent: one report's bytes, by name from the list
   Report = 43,         // agent -> host: name + bytes (truncated to kMaxReportSize)
+  AlbumListReq = 44,   // host -> agent: captures newer than a stamp (cap "album")
+  AlbumList = 45,      // agent -> host: name, size, game, stamp of each
+  AlbumReq = 46,       // host -> agent: one capture, streamed as FileBegin Chunk* FileEnd UnitEnd
 };
 
 enum class ErrorCode : uint16_t {
@@ -125,6 +128,17 @@ struct ReportEntry {
   uint64_t mtime = 0;  // seconds since 1970, the console's clock
 };
 
+// Warp Album: a screenshot or video in the console's album on the SD card, named by its
+// path under Nintendo/Album ("2026/11/26/2026112602451200-<32 hex>.jpg").
+struct AlbumEntry {
+  std::string name;
+  uint64_t size = 0;
+  uint64_t appId = 0;  // the game it was taken in (0 = unknown)
+  uint64_t stamp = 0;  // YYYYMMDDHHMMSSII as a number, as in the file name; orders them
+};
+// Per AlbumList: the Mac asks again from the last stamp until a list comes back empty.
+constexpr size_t kMaxAlbumEntries = 256;
+
 constexpr size_t kMaxReports = 1024;
 constexpr size_t kMaxReportSize = 900 * 1024;  // under one frame (kMaxFrameSize)
 
@@ -167,6 +181,10 @@ bool decode(const std::vector<uint8_t>& p, TitleInfo& m);
 
 std::vector<uint8_t> encode(const std::vector<ConsoleUser>& users);
 bool decode(const std::vector<uint8_t>& p, std::vector<ConsoleUser>& users);
+
+// AlbumListReq carries a u64 "newer than" stamp; AlbumList the entries.
+std::vector<uint8_t> encode(const std::vector<AlbumEntry>& album);
+bool decode(const std::vector<uint8_t>& p, std::vector<AlbumEntry>& album);
 
 // ReportListReq carries a u64 "newer than" time; ReportList the entries.
 std::vector<uint8_t> encode(const std::vector<ReportEntry>& reports);

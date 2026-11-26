@@ -4,6 +4,7 @@
 #include "config.hpp"
 #include "emulator.hpp"
 #include "file_lock.hpp"
+#include "album.hpp"
 #include "lens.hpp"
 #include "net.hpp"
 #include "ryujinx_store.hpp"
@@ -44,6 +45,7 @@ const char* kindName(AutoSyncEvent::Kind k) {
     case K::PassFailed: return "passFailed";
     case K::Waiting: return "waiting";
     case K::Crash: return "crash";
+    case K::Album: return "album";
   }
   return "?";
 }
@@ -129,6 +131,13 @@ bool AppCore::start(std::string& error) {
   cfg.hostName = net::hostName();
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
   cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
+  cfg.albumFolder = [dataDir]() -> std::optional<std::filesystem::path> {
+    Config c;
+    std::string e;
+    loadConfig(dataDir / "config.json", c, e);
+    if (!c.album.enabled) return std::nullopt;
+    return c.album.folder.empty() ? Album::defaultFolder() : c.album.folder;
+  };
   return sync_.start(cfg, error);
 }
 
@@ -178,7 +187,7 @@ void AppCore::push(const AutoSyncEvent& e) {
                 : !r.ok   ? std::string("failed")
                           : describeAction(r.action, local, e.console);
   }
-  if (e.kind == AutoSyncEvent::Kind::Crash) {
+  if (e.kind == AutoSyncEvent::Kind::Crash || e.kind == AutoSyncEvent::Kind::Album) {
     TitleCache titles(dataDir_ / "titles");
     const auto rec = e.programId ? titles.get(e.programId) : std::nullopt;
     j["name"] = e.program;
@@ -545,6 +554,9 @@ std::string AppCore::setupJson() {
               {"links", links},
               {"keepBackups", config.keepBackups},
               {"nxnative", nx},
+              {"album", {{"enabled", config.album.enabled},
+                         {"folder", (config.album.folder.empty() ? Album::defaultFolder()
+                                                                  : config.album.folder).string()}}},
               {"presence", {{"enabled", config.presence.enabled},
                             {"discordAppId", config.presence.discordAppId},
                             {"status", [this] {
@@ -664,6 +676,14 @@ bool AppCore::setNxNativeSaveId(const std::string& appTitleId, const std::string
     else c.nxnative.saveIds[app] = save;
     return true;
   }, true, error);
+}
+
+bool AppCore::setAlbum(bool enabled, const std::string& folder, std::string& error) {
+  return changeConfig([&](Config& c, std::string&) {
+    c.album.enabled = enabled;
+    c.album.folder = folder == Album::defaultFolder().string() ? "" : folder;
+    return true;
+  }, enabled, error);
 }
 
 bool AppCore::setPresence(bool enabled, const std::string& discordAppId, std::string& error) {

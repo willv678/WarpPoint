@@ -144,7 +144,8 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
 }
 
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
-                  TitleSource* titles, UserSource* users, ReportSource* reports) {
+                  TitleSource* titles, UserSource* users, ReportSource* reports,
+                  AlbumSource* album) {
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -234,6 +235,39 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
           if (list.size() > proto::kMaxReports) list.resize(proto::kMaxReports);
           ok = send(s, Msg::ReportList, proto::encode(list));
         }
+        break;
+      }
+      case Msg::AlbumListReq: {
+        ByteReader r(f.payload);
+        const uint64_t since = r.u64();
+        std::vector<proto::AlbumEntry> list;
+        if (!r.done()) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad album request");
+        } else if (!album || !album->list(since, list)) {
+          ok = sendError(s, ErrorCode::BadRequest, "this agent can't list the album");
+        } else {
+          if (list.size() > proto::kMaxAlbumEntries) list.resize(proto::kMaxAlbumEntries);
+          ok = send(s, Msg::AlbumList, proto::encode(list));
+        }
+        break;
+      }
+      case Msg::AlbumReq: {
+        ByteReader r(f.payload);
+        const std::string name = r.str();
+        if (!r.done() || !album) {
+          ok = sendError(s, ErrorCode::BadRequest, "bad album request");
+          break;
+        }
+        FrameSink sink(s);
+        std::string sha;
+        if (!album->read(name, sink, sha)) {
+          // Nothing sent yet (no such capture), or a stream cut short: either way, an
+          // Error ends it and the host drops what it got.
+          ok = !sink.broken() && sendError(s, ErrorCode::Io, "can't read " + name);
+          break;
+        }
+        log("Sent capture " + name);
+        ok = send(s, Msg::UnitEnd, proto::encodeHash(sha));
         break;
       }
       case Msg::ReportReq: {
