@@ -77,6 +77,10 @@ struct AutoSyncConfig {
   // Warp Presence: the console's running game (0 = none or console gone), on every
   // change and every 30 s while a console is around. Called on AutoSync's thread.
   std::function<void(const std::string& console, uint64_t titleId)> onPlaying;
+  // Called every tickEvery whether or not a console is around (Warp Presence looks
+  // for games running on this Mac). On AutoSync's thread; keep it cheap.
+  std::function<void()> onTick;
+  std::chrono::milliseconds tickEvery{5000};
   // Warp Album: where captures go, read every pass; nullopt = off. Unset = off.
   std::function<std::optional<std::filesystem::path>()> albumFolder;
   // After each pass, with the console's session (Warp Mods). Returns events to report.

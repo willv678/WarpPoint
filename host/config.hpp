@@ -59,6 +59,7 @@ struct Config {
   struct Presence {  // Warp Presence: the Switch's game in Discord (1.3)
     bool enabled = false;
     std::string discordAppId;
+    bool showMac = true;  // games running on this Mac too (nxnative ports, Astris), 1.8
   } presence;
 
   // The console user whose saves the nxnative apps hold ("" = nobody yet).

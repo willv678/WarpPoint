@@ -115,6 +115,13 @@ bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordApp
   return false;
 }
 
+bool warp_core_set_presence_mac(WarpCore* core, bool showMac, char** error) {
+  std::string e;
+  if (core->core.setPresenceMac(showMac, e)) return true;
+  setError(error, e);
+  return false;
+}
+
 char* warp_core_mods(WarpCore* core, const char* titleId) {
   return dup(core->core.modsJson(titleId ? titleId : ""));
 }

@@ -135,6 +135,7 @@ bool AppCore::start(std::string& error) {
   cfg.hostName = net::hostName();
   cfg.onEvent = [this](const AutoSyncEvent& e) { push(e); };
   cfg.onPlaying = [this](const std::string& console, uint64_t id) { playing(console, id); };
+  cfg.onTick = [this] { macTick(); };
   cfg.afterPass = [this](Session& s) { return applyMods(s); };
   splitStop_ = false;
   splitThread_ = std::thread([this] { splitLoop(); });
@@ -155,7 +156,8 @@ void AppCore::playing(const std::string& console, uint64_t titleId) {
   TitleCache titles(dataDir_ / "titles");
   const auto rec = titleId ? titles.get(titleId) : std::nullopt;
   const std::string name = rec && rec->found ? rec->name : "";
-  presence_.update(c.presence.enabled, c.presence.discordAppId, console, titleId, name);
+  switchPlaying_ = {console, titleId, name};
+  showPresence(c);
   bool changed = false;
   {
     std::lock_guard<std::mutex> lock(playingMutex_);
@@ -818,6 +820,7 @@ std::string AppCore::setupJson() {
                          {"port", config.split.port}, {"status", splitStatus()}}},
               {"presence", {{"enabled", config.presence.enabled},
                             {"discordAppId", config.presence.discordAppId},
+                            {"showMac", config.presence.showMac},
                             {"status", [this] {
                                std::lock_guard<std::mutex> lock(playingMutex_);
                                return presenceStatus_;
@@ -1020,6 +1023,43 @@ bool AppCore::bringToEmulator(const std::string& key, std::string& error) {
   }
   sync_.syncKeys({key});
   return true;
+}
+
+// Warp Presence on the Mac (1.8). See presence.hpp for the rule (the Switch first).
+bool AppCore::setPresenceMac(bool showMac, std::string& error) {
+  return changeConfig([&](Config& c, std::string&) {
+    c.presence.showMac = showMac;
+    return true;
+  }, false, error);
+}
+
+void AppCore::showPresence(const Config& c) {
+  presence_.show(c.presence.enabled, c.presence.discordAppId,
+                 choosePresence(switchPlaying_, macGame_, c.presence.showMac));
+}
+
+void AppCore::macTick() {
+  Config c;
+  std::string e;
+  loadConfig(dataDir_ / "config.json", c, e);
+  std::optional<MacGame> mac;
+  if (c.presence.enabled && c.presence.showMac && !c.presence.discordAppId.empty()) {
+    TitleCache titles(dataDir_ / "titles");
+    mac = macWatcher_.poll(c, [&titles](uint64_t id) {
+      const auto rec = titles.get(id);
+      return rec && rec->found ? rec->name : std::string();
+    });
+  }
+  macGame_ = mac;
+  showPresence(c);
+  {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    if (presenceStatus_ == presence_.status()) return;
+    presenceStatus_ = presence_.status();
+  }
+  const json j = {{"kind", "presence"}, {"presence", presence_.status()}};
+  std::lock_guard<std::mutex> lock(mutex_);
+  events_.push_back(j.dump());
 }
 
 }  // namespace WarpPoint

@@ -128,6 +128,7 @@ void AutoSync::loop() {
   bool toldWaiting = false;  // "waiting for the emulator" is said once per wait
   uint64_t playing = 0;      // the console's running game, as last told to onPlaying
   Clock::time_point nextPlaying{};
+  Clock::time_point nextTick{};
   int failures = 0;          // in a row: the first retry comes quickly
 
   while (!stop_) {
@@ -158,6 +159,10 @@ void AutoSync::loop() {
       playing = console->runningTitle;
       nextPlaying = now + std::chrono::seconds(30);
       cfg_.onPlaying(console->name, playing);
+    }
+    if (cfg_.onTick && now >= nextTick) {
+      nextTick = now + cfg_.tickEvery;
+      cfg_.onTick();
     }
     if (now >= nextEmulatorPoll) {
       const bool running = cfg_.emulatorBusy();

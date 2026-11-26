@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -139,8 +140,37 @@ void DiscordIpc::close() {
   fd_ = -1;
 }
 
+namespace {
+std::string hex16(uint64_t v) {
+  char b[17];
+  std::snprintf(b, sizeof(b), "%016llx", static_cast<unsigned long long>(v));
+  return b;
+}
+}  // namespace
+
+Activity choosePresence(const SwitchPlaying& sw, const std::optional<MacGame>& mac,
+                        bool showMac) {
+  if (sw.titleId) {
+    return {"switch:" + hex16(sw.titleId), sw.name.empty() ? "a game" : sw.name,
+            "on " + (sw.console.empty() ? std::string("Switch") : sw.console), 0};
+  }
+  if (showMac && mac) {
+    if (mac->titleId) {
+      return {"mac:" + hex16(mac->titleId), mac->name.empty() ? "a game" : mac->name,
+              mac->where, mac->startedAt};
+    }
+    const std::string app = mac->app.empty() ? "an emulator" : mac->app;
+    return {"emulator:" + app, app, "", mac->startedAt};
+  }
+  return {};
+}
+
 void Presence::update(bool enabled, const std::string& appId, const std::string& console,
                       uint64_t titleId, const std::string& name) {
+  show(enabled, appId, choosePresence({console, titleId, name}, std::nullopt, false));
+}
+
+void Presence::show(bool enabled, const std::string& appId, const Activity& a) {
   const auto now = std::chrono::steady_clock::now();
   if (!enabled || appId.empty()) {
     if (ipc_.connected()) {
@@ -148,21 +178,24 @@ void Presence::update(bool enabled, const std::string& appId, const std::string&
       ipc_.setActivity("null", e);
       ipc_.close();
     }
-    shown_ = 0;
+    shown_ = {};
     status_ = !enabled ? "Off" : "Needs a Discord Application ID (see Settings)";
     return;
   }
   if (appId != appId_) {  // a new id: start over
     ipc_.close();
     appId_ = appId;
-    shown_ = 0;
+    shown_ = {};
     nextTry_ = {};
   }
-  const bool changed = titleId != shown_ || (titleId && name != shownName_);
-  if (!changed && (ipc_.connected() || !titleId)) return;
+  const bool playing = !a.key.empty();
+  const bool changed = a.key != shown_.key ||
+                       (playing && (a.details != shown_.details || a.state != shown_.state ||
+                                    (a.start && a.start != shown_.start)));
+  if (!changed && (ipc_.connected() || !playing)) return;
   if (!ipc_.connected()) {
-    if (!titleId) {
-      shown_ = 0;
+    if (!playing) {
+      shown_ = {};
       status_ = "Nothing playing";
       return;
     }
@@ -175,25 +208,27 @@ void Presence::update(bool enabled, const std::string& appId, const std::string&
     }
   }
   std::string error;
-  if (!titleId) {
+  if (!playing) {
     ipc_.setActivity("null", error);
-    shown_ = 0;
+    shown_ = {};
     status_ = "Nothing playing";
     return;
   }
-  if (titleId != shown_) startedAt_ = static_cast<int64_t>(std::time(nullptr));
-  const std::string game = name.empty() ? "a game" : name;
-  const json activity = {{"details", game},
-                         {"state", "on " + (console.empty() ? std::string("Switch") : console)},
-                         {"timestamps", {{"start", startedAt_}}}};
+  int64_t start = a.start;
+  if (!start) {
+    start = a.key == shown_.key && shown_.start ? shown_.start
+                                                : static_cast<int64_t>(std::time(nullptr));
+  }
+  json activity = {{"details", a.details}, {"timestamps", {{"start", start}}}};
+  if (!a.state.empty()) activity["state"] = a.state;
   if (!ipc_.setActivity(activity.dump(), error)) {
     status_ = error;
     nextTry_ = now + std::chrono::seconds(30);
     return;
   }
-  shown_ = titleId;
-  shownName_ = name;
-  status_ = "Showing " + game + " in Discord";
+  shown_ = a;
+  shown_.start = start;
+  status_ = "Showing " + a.details + " in Discord";
 }
 
 }  // namespace WarpPoint

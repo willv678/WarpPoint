@@ -4,6 +4,7 @@
 // UI language that can call C can drive WarpPoint.
 #pragma once
 #include "auto_sync.hpp"
+#include "mac_playing.hpp"
 #include "presence.hpp"
 
 #include <atomic>
@@ -89,6 +90,8 @@ class AppCore {
   bool setAlbum(bool enabled, const std::string& folder, std::string& error);
   // Warp Presence: show the Switch's game in Discord under this Discord application.
   bool setPresence(bool enabled, const std::string& discordAppId, std::string& error);
+  // Show games running on this Mac too (nxnative ports, Astris), after the Switch's.
+  bool setPresenceMac(bool showMac, std::string& error);
   // Point at the emulator's data folder; refused if it isn't one.
   bool setEmulatorPath(const std::string& path, std::string& error);
 
@@ -132,6 +135,12 @@ class AppCore {
   std::atomic<bool> splitStop_{false};
   std::string splitStatus_ = "Off";  // guarded by playingMutex_
   Presence presence_;          // used on AutoSync's thread only
+  // Warp Presence on the Mac: AutoSync's thread only, like presence_.
+  void macTick();
+  void showPresence(const struct Config& c);
+  SwitchPlaying switchPlaying_;
+  std::optional<MacGame> macGame_;
+  MacGameWatcher macWatcher_;
   std::mutex playingMutex_;    // guards the two below (read by the UI)
   uint64_t playingTitle_ = 0;
   std::string presenceStatus_ = "Off";

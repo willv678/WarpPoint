@@ -168,6 +168,11 @@ final class WarpModel: ObservableObject {
     return call { warp_core_set_presence(core, enabled, appId, &$0) }
   }
 
+  func setPresenceMac(_ showMac: Bool) -> String? {
+    defer { refreshSetup() }
+    return call { warp_core_set_presence_mac(core, showMac, &$0) }
+  }
+
   func setNxNativeUser(_ consoleUser: String) -> String? {
     defer { refreshSetup(); refreshLibrary() }
     return call { warp_core_set_nxnative_user(core, consoleUser, &$0) }
@@ -368,6 +373,8 @@ final class WarpModel: ObservableObject {
     case "playing":
       nowPlaying = s("name").isEmpty ? nil : s("name")
       nowPlayingIcon = s("icon")
+      if !s("presence").isEmpty { setup.presence.status = s("presence") }
+    case "presence":
       if !s("presence").isEmpty { setup.presence.status = s("presence") }
     case "crash":
       let name = s("name").isEmpty ? "Something" : s("name")

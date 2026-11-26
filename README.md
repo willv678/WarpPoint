@@ -160,6 +160,13 @@ its own capability on the Switch side, so an older Switch module just doesn't of
   [discord.com/developers/applications](https://discord.com/developers/applications) (call it
   "Nintendo Switch"), paste its Application ID into Settings › Discord, and turn it on. The menu
   shows what's playing on the Switch either way. `warp presence-test ID` checks the ID.
+- **Games on this Mac (1.8).** With **Show games I play on this Mac** on (the default), Discord
+  also shows an nxnative port ("Fire Emblem: Three Houses", "on Mac") or a game in Astris
+  ("in Astris"), with the time since it started. The rule when more than one is playing: the
+  Switch first, then the Mac; on the Mac, a port before Astris. WarpPoint checks the Mac's
+  processes every 5 seconds. Astris keeps no log here, so its game is known only when its open
+  files name one game (or one game has started since Astris did); otherwise Discord shows just
+  "Astris" rather than a guess. `warp presence-mac` prints what would show.
 
 ## Live game info, mods and speedruns (1.4)
 

@@ -79,6 +79,7 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     const json pr = j.value("presence", json::object());
     out.presence.enabled = pr.value("enabled", false);
     out.presence.discordAppId = pr.value("discordAppId", "");
+    out.presence.showMac = pr.value("showMac", true);
   } catch (const json::exception& e) {
     error = file.string() + " is malformed: " + e.what();
     return false;
@@ -122,8 +123,9 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
   if (c.split.enabled || c.split.host != "127.0.0.1" || c.split.port != 16834) {
     j["split"] = {{"enabled", c.split.enabled}, {"host", c.split.host}, {"port", c.split.port}};
   }
-  if (c.presence.enabled || !c.presence.discordAppId.empty()) {
+  if (c.presence.enabled || !c.presence.discordAppId.empty() || !c.presence.showMac) {
     j["presence"] = {{"enabled", c.presence.enabled}, {"discordAppId", c.presence.discordAppId}};
+    if (!c.presence.showMac) j["presence"]["showMac"] = false;
   }
 
   std::error_code ec;

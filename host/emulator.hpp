@@ -20,6 +20,8 @@ std::shared_ptr<NxNativeStore> openNxNative(const Config& config);
 std::shared_ptr<MacStore> openLocal(const Config& config);
 // The emulator app is open (it may just be sitting on its game list).
 bool emulatorRunning();
+// The emulator processes looked for: "Astris", "Ryujinx", "Ryubing".
+const std::vector<std::string>& emulatorProcessNames();
 
 // "copied Astris -> Will's Switch", "in sync", "CONFLICT".
 std::string describeAction(SyncAction a, const std::string& local, const std::string& remote);
