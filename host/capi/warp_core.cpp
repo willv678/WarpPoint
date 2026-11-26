@@ -268,6 +268,17 @@ bool warp_core_remove_pack(WarpCore* core, const char* packId, char** error) {
 
 char* warp_core_game_data_wanted(WarpCore* core) { return dup(core->core.gameDataWantedJson()); }
 
+bool warp_core_tip_seen(WarpCore* core, const char* tipId) {
+  return core->core.tipSeen(tipId ? tipId : "");
+}
+
+bool warp_core_set_tip_seen(WarpCore* core, const char* tipId, char** error) {
+  std::string e;
+  if (core->core.setTipSeen(tipId ? tipId : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
 void warp_free(char* s) { std::free(s); }
 
 }  // extern "C"

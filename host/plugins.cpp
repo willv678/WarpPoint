@@ -205,6 +205,7 @@ std::vector<PluginInfo> makeCatalog() {
                    {"profile", "lexicon", "A Tap profile with a dialogue (\"lexicon\") field"}};
   lexicon.games = "lexicon";
   lexicon.window = "lexicon";
+  lexicon.defaultOn = false;  // for language learners: few people need it
   lexicon.docs = "docs/TAP_PROFILES.md";
   c.push_back(lexicon);
 

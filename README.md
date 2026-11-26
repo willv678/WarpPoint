@@ -68,7 +68,9 @@ overlay menu for the overlay)
 
 Back on the Mac, a setup window walks you through the rest. It finds Astris and any nxnative
 apps, waits for the Switch, and asks which Astris profile goes with which Switch user (and whose
-saves the nxnative apps hold). No Astris? nxnative apps alone are enough.
+saves the nxnative apps hold). Its Extras step lists the plugins (crash reports, screenshots,
+live game info, mods and more) with a switch for each; the defaults are fine to keep. No
+Astris? nxnative apps alone are enough.
 
 **Updating the Switch side (1.10).** Each Mac app carries the Switch files that match it. When
 they're newer than what's on your Switch, the Library says so, and the WarpPoint overlay shows
@@ -207,7 +209,7 @@ its own capability on the Switch side, so an older Switch module just doesn't of
 - **Warp Lexicon: game text.** **Lexicon…** shows the game's current line of text live, keeps
   the earlier ones, lets you select words for macOS Look Up and Translate, and saves lines for
   Anki. Fire Emblem: Three Houses 1.2.0's dialogue is built in (1.7); other games need a profile
-  with a text field marked `"lexicon"`.
+  with a text field marked `"lexicon"`. Off by default; turn it on in Plugins.
 
 Also in 1.4: the Switch remembers each save's hash until the save changes, so syncing no longer
 opens a game's save just as that game starts (which could make the game close with "an error

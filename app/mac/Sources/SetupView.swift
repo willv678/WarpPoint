@@ -20,7 +20,7 @@ struct SetupView: View {
   private var ready: Bool { (setup.emulator.found && linked) || (hasApps && !nxUser.isEmpty) }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    VStack(alignment: .leading, spacing: 16) {
       HStack(spacing: 14) {
         Image(nsImage: UFOIcon.image(size: 52)).renderingMode(.template).foregroundStyle(.primary)
         VStack(alignment: .leading, spacing: 3) {
@@ -74,7 +74,11 @@ struct SetupView: View {
         }
       }
 
-      step(4, done: true, title: "Run in the background") {
+      step(4, done: true, title: "Extras") {
+        extras
+      }
+
+      step(5, done: true, title: "Run in the background") {
         Toggle("Open WarpPoint when you log in", isOn: $openAtLogin)
       }
 
@@ -91,13 +95,105 @@ struct SetupView: View {
       }
     }
     .padding(26)
-    .frame(width: 560, height: 600)
+    .frame(width: 560, height: 820)
     .onAppear {
       model.windowOpened()
+      model.refreshPlugins()
+      model.setupOpen = true
       prefill()
     }
-    .onDisappear { model.windowClosed() }
+    .onDisappear {
+      model.setupOpen = false
+      model.windowClosed()
+    }
     .onChange(of: model.setup.consoleUsers) { prefill() }
+  }
+
+  // MARK: - Extras: the plugins, at a glance
+
+  /// Plugins in the setup window, two to a row. Labs is Terminal only: one muted line.
+  private var shownPlugins: [Plugin] { model.plugins.filter { !$0.terminalOnly } }
+
+  private var extras: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      VStack(alignment: .leading, spacing: 0) {
+        Grid(alignment: .topLeading, horizontalSpacing: 14, verticalSpacing: 8) {
+          ForEach(Array(stride(from: 0, to: shownPlugins.count, by: 2)), id: \.self) { i in
+            GridRow {
+              extraCell(shownPlugins[i])
+              if i + 1 < shownPlugins.count {
+                extraCell(shownPlugins[i + 1])
+              } else {
+                Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+              }
+            }
+          }
+        }
+        if let labs = model.plugins.first(where: { $0.terminalOnly }) {
+          Divider().padding(.vertical, 8)
+          HStack(spacing: 6) {
+            Image(systemName: labs.icon)
+            Text("\(labs.name): developer tools, in Terminal.")
+          }
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+      }
+      .padding(12)
+      .background(RoundedRectangle(cornerRadius: 10).fill(.background.secondary))
+      .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator.opacity(0.6)))
+      HStack(spacing: 4) {
+        Text("Optional, and the defaults are fine.").foregroundStyle(.secondary)
+        Button("Change these any time in Plugins.") { showPlugins(nil) }
+          .buttonStyle(.link)
+      }
+    }
+  }
+
+  /// A plugin that is off and would do nothing when switched on without a setting or
+  /// another app (Presence: a Discord ID; Split: LiveSplit) gets "Set Up…", which opens
+  /// its page, instead of a switch.
+  private func needsSetup(_ p: Plugin) -> Bool {
+    !p.enabled && p.needs.contains {
+      ($0.kind == "setting" || $0.kind == "app") && $0.value != "internet" && $0.met != true
+    }
+  }
+
+  private func extraCell(_ p: Plugin) -> some View {
+    HStack(alignment: .top, spacing: 8) {
+      PluginIcon(symbol: p.icon, on: p.enabled, size: 24)
+      VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 6) {
+          Text(p.name).font(.callout.weight(.medium))
+          Spacer(minLength: 4)
+          if needsSetup(p) {
+            Button("Set Up…") { showPlugins(p.id) }
+              .controlSize(.small)
+              .help("Open \(p.name) in Plugins to set it up")
+          } else {
+            Toggle(p.name, isOn: Binding(get: { p.enabled },
+                                         set: { error = model.setPluginEnabled(p.id, $0) }))
+              .toggleStyle(.switch)
+              .controlSize(.mini)
+              .labelsHidden()
+          }
+        }
+        Text(p.summary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .help(p.summary)
+  }
+
+  /// The Plugins window, on a plugin's page when one is given.
+  private func showPlugins(_ page: String?) {
+    model.pluginsPage = page
+    openWindow(id: "plugins")
+    NSApp.activate()
   }
 
   private func step<Content: View>(_ n: Int, done: Bool, title: String,

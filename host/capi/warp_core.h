@@ -145,6 +145,11 @@ bool warp_core_remove_pack(WarpCore* core, const char* packId, char** error);
  * last plugin list fetched: ["fe3h-1.2.0"]. [] when the plugin is off. */
 char* warp_core_game_data_wanted(WarpCore* core);
 
+/* One-time tips (config.json's "seenTips"), such as "plugins": whether one was shown,
+ * and recording that it was. */
+bool warp_core_tip_seen(WarpCore* core, const char* tipId);
+bool warp_core_set_tip_seen(WarpCore* core, const char* tipId, char** error);
+
 void warp_free(char* s);
 
 #ifdef __cplusplus

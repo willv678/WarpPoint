@@ -6,6 +6,9 @@ Plugins button in the Library). The plugins are compiled into WarpPoint. The **p
 store** (Get More in the same window) adds data packs that extend them, such as Tap
 profiles for more games.
 
+There are two places to turn plugins on and off: the **Extras** step of first-run setup,
+and the Plugins window any time after.
+
 The descriptions in the app, in `warp plugins` and on this page all come from one
 catalog in the engine, `host/plugins.cpp`. A test fails if this page and the catalog
 disagree on a plugin's name or summary.
@@ -79,7 +82,7 @@ The game's current line of dialogue in a window, for Look Up, Translate and Anki
 
 Reads the profile's text field marked `"lexicon"`. Saved lines go to
 `~/Documents/WarpPoint Lexicon.csv`. Needs Tap on and a profile with a lexicon field
-(Fire Emblem: Three Houses 1.2.0 has one). On by default.
+(Fire Emblem: Three Houses 1.2.0 has one). Off by default.
 
 ### Chronicle
 
