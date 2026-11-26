@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "packs": [
+    {
+      "id": "fe3h-1.2.0",
+      "name": "Fire Emblem: Three Houses 1.2.0",
+      "kind": "tap-profile",
+      "version": "1.0.0",
+      "author": "willv678",
+      "description": "Gold and renown at the monastery, the level and HP of the unit under the battle cursor, and the line of dialogue on screen for Lexicon. Every field checked on a Switch 1 running 1.2.0. Also built into WarpPoint 1.7.",
+      "games": [
+        {
+          "titleId": "010055d009f78000",
+          "name": "Fire Emblem: Three Houses",
+          "builds": [
+            "89048449ba238c8c"
+          ]
+        }
+      ],
+      "file": "tap/fe3h-1.2.0.json",
+      "sha256": "801cf0c0a90f5ca6057d024aa08982ce622482cf8de2f229d5f46dbb754cc13b",
+      "preview": {
+        "fields": [
+          {
+            "group": "Monastery",
+            "label": "Gold"
+          },
+          {
+            "group": "Monastery",
+            "label": "Renown"
+          },
+          {
+            "group": "Unit under the cursor",
+            "label": "Level"
+          },
+          {
+            "group": "Unit under the cursor",
+            "label": "HP"
+          },
+          {
+            "group": "Dialogue",
+            "label": "Line"
+          }
+        ],
+        "lexicon": true,
+        "splits": 0
+      }
+    }
+  ]
+}

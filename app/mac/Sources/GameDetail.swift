@@ -24,7 +24,13 @@ struct GameDetail: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         Divider()
-        ModsSection(game: game, model: model)
+        if model.pluginOn("mods") {
+          ModsSection(game: game, model: model)
+        } else {
+          Text("Mods is off. Turn it on in Plugins to add mods to this game.")
+            .font(.callout).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
         Divider()
         backupList
       }
@@ -210,18 +216,22 @@ struct GameDetail: View {
             }
             Text(describe(b)).font(.caption).foregroundStyle(.secondary)
               .fixedSize(horizontal: false, vertical: true)
-            BackupNote(note: b.note) { note in
-              _ = model.labelBackup(game, b, note: note, pinned: b.pinned)
-              loadBackups()
+            if model.pluginOn("chronicle") {  // Warp Chronicle: notes and pins
+              BackupNote(note: b.note) { note in
+                _ = model.labelBackup(game, b, note: note, pinned: b.pinned)
+                loadBackups()
+              }
             }
           }
           Spacer()
-          Button {
-            _ = model.labelBackup(game, b, note: b.note, pinned: !b.pinned)
-            loadBackups()
-          } label: { Image(systemName: b.pinned ? "pin.slash" : "pin") }
-            .buttonStyle(.borderless)
-            .help(b.pinned ? "Let WarpPoint remove it with the older ones" : "Keep this one forever")
+          if model.pluginOn("chronicle") {
+            Button {
+              _ = model.labelBackup(game, b, note: b.note, pinned: !b.pinned)
+              loadBackups()
+            } label: { Image(systemName: b.pinned ? "pin.slash" : "pin") }
+              .buttonStyle(.borderless)
+              .help(b.pinned ? "Let WarpPoint remove it with the older ones" : "Keep this one forever")
+          }
           Button("Restore…") { confirmRestore = b }
             .controlSize(.small)
             .disabled(game.isNative ? game.nxnative?.running == true

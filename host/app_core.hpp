@@ -115,6 +115,18 @@ class AppCore {
 
   const std::filesystem::path& dataDir() const { return dataDir_; }
 
+  // Plugins: every plugin with its state (see pluginsJson in plugins.hpp), and on/off.
+  std::string pluginsJson();
+  bool setPluginEnabled(const std::string& id, bool on, std::string& error);
+  // The plugin store (see PackStore in plugin_store.hpp). fetched: index.json as just
+  // downloaded, or nullptr when that failed (fetchError says why).
+  std::string pluginStoreJson(const std::string* fetched, const std::string& fetchError);
+  bool installPack(const std::string& id, const std::string& bytes, std::string& error);
+  bool removePack(const std::string& id, std::string& error);
+  // Game Data: packs to fetch for the games in the library (JSON array of pack ids);
+  // [] when Game Data is off.
+  std::string gameDataWantedJson();
+
  private:
   void push(const AutoSyncEvent& e);
 

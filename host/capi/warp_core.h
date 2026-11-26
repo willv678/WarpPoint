@@ -116,6 +116,22 @@ bool warp_core_bring_to_emulator(WarpCore* core, const char* key, char** error);
 /* The folder the core was created with (for "Show in Finder"). */
 char* warp_core_data_dir(WarpCore* core);
 
+/* Plugins: [{"id","name","icon","summary","what","how","enabled","status","statusText",
+ * "needs","games",...}] (see pluginsJson in host/plugins.hpp). */
+char* warp_core_plugins(WarpCore* core);
+bool warp_core_set_plugin_enabled(WarpCore* core, const char* pluginId, bool enabled, char** error);
+/* The plugin store. indexJson: plugins/index.json as just downloaded, or NULL when the
+ * download failed (fetchError says why; the last copy is used). See PackStore. */
+char* warp_core_plugin_store(WarpCore* core, const char* indexJson, const char* fetchError);
+/* Install a pack from the store with its downloaded file (bytes, length). Checked
+ * against the index's sha256 before anything is written. */
+bool warp_core_install_pack(WarpCore* core, const char* packId, const char* bytes, long length,
+                            char** error);
+bool warp_core_remove_pack(WarpCore* core, const char* packId, char** error);
+/* Game Data: pack ids to download and install for the games in the library, from the
+ * last plugin list fetched: ["fe3h-1.2.0"]. [] when the plugin is off. */
+char* warp_core_game_data_wanted(WarpCore* core);
+
 void warp_free(char* s);
 
 #ifdef __cplusplus

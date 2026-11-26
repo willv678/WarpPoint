@@ -47,7 +47,8 @@ std::string grouped(uint64_t v, bool negative) {
 
 }  // namespace
 
-std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& error) {
+namespace {
+std::optional<TapProfile> parseTapProfileOrThrow(const std::string& text, std::string& error) {
   const json j = json::parse(text, nullptr, false);
   if (!j.is_object()) {
     error = "not JSON";
@@ -94,6 +95,18 @@ std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& 
     return std::nullopt;
   }
   return p;
+}
+}  // namespace
+
+std::optional<TapProfile> parseTapProfile(const std::string& text, std::string& error) {
+  // A value of the wrong type ("titleId": 5) throws inside json; a bad profile file must
+  // only be skipped, never take the app down.
+  try {
+    return parseTapProfileOrThrow(text, error);
+  } catch (const json::exception& e) {
+    error = std::string("a value has the wrong type: ") + e.what();
+    return std::nullopt;
+  }
 }
 
 std::vector<TapProfile> tapProfiles(const fs::path& dataDir) {

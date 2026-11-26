@@ -42,6 +42,11 @@ struct WarpPointApp: App {
       LibraryView(model: model)
     }
     .defaultSize(width: 980, height: 640)
+
+    Window("Plugins", id: "plugins") {
+      PluginsView(model: model)
+    }
+    .defaultSize(width: 900, height: 640)
   }
 }
 
@@ -54,11 +59,12 @@ struct MenuBarLabel: View {
   var body: some View {
     Image(nsImage: UFOIcon.image(lift: model.lift, beam: model.beam))
       .task {
+        model.startGameData()  // Game Data: sheets for the library's games, daily
         if model.setup.needsSetup {
           openWindow(id: "setup")
           NSApp.activate()
         } else if let w = ProcessInfo.processInfo.environment["WARP_OPEN_WINDOW"],
-                  ["library", "setup", "reports", "live", "lexicon"].contains(w) {
+                  ["library", "setup", "reports", "live", "lexicon", "plugins"].contains(w) {
           // For screenshots and checks: open a window at launch without the menu.
           openWindow(id: w)
           NSApp.activate()

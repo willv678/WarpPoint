@@ -94,7 +94,7 @@ struct LiveView: View {
     .padding(20)
     .frame(minWidth: 420, minHeight: 300)
     .onAppear {
-      model.windowOpened()
+      model.pluginWindowOpened("live")
       poll()
       timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
         MainActor.assumeIsolated { poll() }
@@ -103,7 +103,7 @@ struct LiveView: View {
     .onDisappear {
       timer?.invalidate()
       timer = nil
-      model.windowClosed()
+      model.pluginWindowClosed("live")
     }
   }
 

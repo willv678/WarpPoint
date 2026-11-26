@@ -4,6 +4,7 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "lens.hpp"
+#include "plugins.hpp"
 #include "session.hpp"
 #include "state_store.hpp"
 #include "title_cache.hpp"
@@ -271,7 +272,7 @@ bool AutoSync::runPass(const Peer& console) {
   saveLastResults(cfg_.dataDir, reports, localName, session->agent.name);
 
   // Warp Lens: anything that crashed on the console since last time.
-  if (session->can("reports")) {
+  if (session->can("reports") && pluginOn(cfg_.dataDir, "lens")) {
     Lens lens(cfg_.dataDir, session->agent.deviceId);
     std::string lensError;
     for (const auto& c : lens.fetch(*session->store, &titles, lensError)) {

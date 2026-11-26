@@ -60,12 +60,12 @@ struct CrashReportsView: View {
       .frame(minWidth: 380)
     }
     .onAppear {
-      model.windowOpened()
+      model.pluginWindowOpened("reports")
       model.refreshReports()
       model.newCrashes = 0
       if selection == nil { selection = model.reports.first?.name }
     }
-    .onDisappear { model.windowClosed() }
+    .onDisappear { model.pluginWindowClosed("reports") }
   }
 
   private func detail(_ r: CrashReport) -> some View {

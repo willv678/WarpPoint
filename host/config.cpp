@@ -79,6 +79,10 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     const json pr = j.value("presence", json::object());
     out.presence.enabled = pr.value("enabled", false);
     out.presence.discordAppId = pr.value("discordAppId", "");
+    const json pl = j.value("plugins", json::object());
+    for (const auto& [id, on] : pl.items()) {
+      if (on.is_boolean()) out.plugins[id] = on.get<bool>();
+    }
   } catch (const json::exception& e) {
     error = file.string() + " is malformed: " + e.what();
     return false;
@@ -125,6 +129,7 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
   if (c.presence.enabled || !c.presence.discordAppId.empty()) {
     j["presence"] = {{"enabled", c.presence.enabled}, {"discordAppId", c.presence.discordAppId}};
   }
+  if (!c.plugins.empty()) j["plugins"] = c.plugins;
 
   std::error_code ec;
   fs::create_directories(file.parent_path(), ec);

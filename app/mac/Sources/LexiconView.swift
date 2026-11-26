@@ -46,7 +46,8 @@ struct LexiconView: View {
     .padding(20)
     .frame(minWidth: 480, minHeight: 360)
     .onAppear {
-      model.windowOpened()
+      model.pluginWindowOpened("lexicon")
+      model.refreshPlugins()
       poll()
       timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
         MainActor.assumeIsolated { poll() }
@@ -55,11 +56,15 @@ struct LexiconView: View {
     .onDisappear {
       timer?.invalidate()
       timer = nil
-      model.windowClosed()
+      model.pluginWindowClosed("lexicon")
     }
   }
 
   private func poll() {
+    guard model.pluginOn("lexicon") else {
+      status = "Lexicon is off. Turn it on in Plugins."
+      return
+    }
     model.tapSnapshot { snap in
       let text = snap.fields.first { $0.lexicon }?.value ?? ""
       status = snap.fields.contains { $0.lexicon } ? "" :

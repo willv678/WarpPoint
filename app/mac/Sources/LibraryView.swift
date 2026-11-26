@@ -5,6 +5,7 @@ import SwiftUI
 /// Games that are only on the Switch live behind "Add Game", not on the main page.
 struct LibraryView: View {
   @ObservedObject var model: WarpModel
+  @Environment(\.openWindow) private var openWindow
   @State private var search = ""
   @State private var selection: String?
   @State private var adding = false
@@ -68,6 +69,14 @@ struct LibraryView: View {
     .frame(minWidth: 620, minHeight: 420)
     .searchable(text: $search, placement: .toolbar, prompt: "Search your games")
     .toolbar {
+      ToolbarItem(placement: .navigation) {
+        Button {
+          openWindow(id: "plugins")
+        } label: {
+          Label("Plugins", systemImage: "puzzlepiece.extension")
+        }
+        .help("Lens, Album, Tap, Mods and the other plugins: what they do, and on or off")
+      }
       ToolbarItem(placement: .primaryAction) {
         Button {
           adding = true
@@ -101,6 +110,7 @@ struct LibraryView: View {
     }
     .onAppear {
       model.windowOpened()
+      model.refreshPlugins()  // Mods and Chronicle in the details follow their plugin
       // For screenshots and checks: WARP_SELECT=<title id> opens that game's details.
       if let id = ProcessInfo.processInfo.environment["WARP_SELECT"]?.lowercased(),
          let g = model.library.games.first(where: { $0.titleId == id }) {
