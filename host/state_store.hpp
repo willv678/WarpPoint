@@ -32,6 +32,11 @@ class StateStore {
 
   std::optional<std::string> base(const std::string& device, const std::string& key) const;
   void setBase(const std::string& device, const std::string& key, const std::string& hash);
+  // Where on the Mac the base was agreed ("nxnative", "emulator"; "" when not recorded:
+  // every base from before 1.2, which were all the emulator's).
+  void clearBase(const std::string& device, const std::string& key);
+  std::string baseSide(const std::string& device, const std::string& key) const;
+  void setBaseSide(const std::string& device, const std::string& key, const std::string& side);
 
   std::optional<Conflict> conflict(const std::string& device, const std::string& key) const;
   void setConflict(const std::string& device, const std::string& key, const Conflict& c);
@@ -55,6 +60,7 @@ class StateStore {
   std::filesystem::path file_;
   std::string hostId_;
   std::map<Key, std::string> bases_;
+  std::map<Key, std::string> sides_;
   std::map<Key, Conflict> conflicts_;
   std::map<std::string, Device> devices_;
 };

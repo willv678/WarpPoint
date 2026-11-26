@@ -23,11 +23,13 @@ constexpr int kFormatVersion = 1;
 //   "hostId": "a1b2...",
 //   "devices":   { "<switch id>": { "name": "Will's Switch", "lastAddress": "192.168.1.5" } },
 //   "bases":     { "<switch id>": { "<unit key>": "<hash>" } },
+//   "sides":     { "<switch id>": { "<unit key>": "nxnative" } },   // where the base was agreed (1.2)
 //   "conflicts": { "<switch id>": { "<unit key>": { "hostHash": "...", "remoteHash": "..." } } }
 // }
 bool StateStore::load(std::string& error) {
   hostId_.clear();
   bases_.clear();
+  sides_.clear();
   conflicts_.clear();
   devices_.clear();
 
@@ -58,6 +60,10 @@ bool StateStore::load(std::string& error) {
     const json devices = j.value("devices", json::object());
     const json bases = j.value("bases", json::object());
     const json conflicts = j.value("conflicts", json::object());
+    const json sides = j.value("sides", json::object());
+    for (const auto& [device, units] : sides.items()) {
+      for (const auto& [key, side] : units.items()) sides_[{device, key}] = side.get<std::string>();
+    }
     for (const auto& [id, d] : devices.items()) {
       devices_[id] = {d.value("name", ""), d.value("lastAddress", "")};
     }
@@ -75,6 +81,7 @@ bool StateStore::load(std::string& error) {
     // Valid JSON with the wrong shape, e.g. a number where a hash should be.
     hostId_.clear();
     bases_.clear();
+    sides_.clear();
     conflicts_.clear();
     devices_.clear();
     error = file_.string() + " is malformed: " + e.what();
@@ -94,6 +101,9 @@ bool StateStore::save(std::string& error) const {
   }
   for (const auto& [k, hash] : bases_) {
     j["bases"][k.first][k.second] = hash;
+  }
+  for (const auto& [k, side] : sides_) {
+    if (!side.empty()) j["sides"][k.first][k.second] = side;
   }
   for (const auto& [k, c] : conflicts_) {
     j["conflicts"][k.first][k.second] = {{"hostHash", c.hostHash}, {"remoteHash", c.remoteHash}};
@@ -131,6 +141,21 @@ std::optional<std::string> StateStore::base(const std::string& device,
 void StateStore::setBase(const std::string& device, const std::string& key,
                          const std::string& hash) {
   bases_[{device, key}] = hash;
+}
+
+void StateStore::clearBase(const std::string& device, const std::string& key) {
+  bases_.erase({device, key});
+}
+
+std::string StateStore::baseSide(const std::string& device, const std::string& key) const {
+  const auto it = sides_.find({device, key});
+  return it == sides_.end() ? "" : it->second;
+}
+
+void StateStore::setBaseSide(const std::string& device, const std::string& key,
+                             const std::string& side) {
+  if (side.empty()) sides_.erase({device, key});
+  else sides_[{device, key}] = side;
 }
 
 std::optional<StateStore::Conflict> StateStore::conflict(const std::string& device,

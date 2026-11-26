@@ -69,12 +69,13 @@ void saveLastResults(const std::filesystem::path& dataDir, const std::vector<Uni
   json all = readJson(file);
   const std::string at = nowUtc();
   for (const auto& r : reports) {
+    const std::string here = r.local.empty() ? local : r.local;
     all[r.key] = {{"action", actionName(r.action)},
                   {"ok", r.quiet || (r.ok && !r.skipped)},
-                  {"text", r.quiet     ? "only in " + local + ", not on " + console + " yet"
+                  {"text", r.quiet     ? "only in " + here + ", not on " + console + " yet"
                            : r.skipped ? "skipped: " + r.message
                            : !r.ok   ? "failed: " + r.message
-                                     : describeAction(r.action, local, console)},
+                                     : describeAction(r.action, here, console)},
                   {"at", at}};
   }
   writeJson(file, all);

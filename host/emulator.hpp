@@ -2,6 +2,8 @@
 // One place, so the CLI and the app agree.
 #pragma once
 #include "config.hpp"
+#include "mac_store.hpp"
+#include "nxnative_store.hpp"
 #include "ryujinx_store.hpp"
 #include "sync_engine.hpp"
 
@@ -12,6 +14,10 @@ namespace WarpPoint {
 
 // Ryujinx-family emulators are the only kind for now (1.0: Astris).
 std::shared_ptr<RyujinxStore> openEmulator(const Config& config);
+// The nxnative apps installed on this Mac, as the settings say (null when turned off).
+std::shared_ptr<NxNativeStore> openNxNative(const Config& config);
+// Every save on this Mac: the emulator's and the nxnative apps' (see mac_store.hpp).
+std::shared_ptr<MacStore> openLocal(const Config& config);
 // The emulator app is open (it may just be sitting on its game list).
 bool emulatorRunning();
 

@@ -37,6 +37,7 @@ std::vector<UnitReport> SyncEngine::runPass(const std::vector<std::string>& keys
 UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
                                 const UnitStatus& sw) {
   UnitReport r{key, SyncAction::None, true, false, {}};
+  r.local = local_.nameFor(key);
   if (!mac.error.empty() || !sw.error.empty()) {
     r.ok = false;
     r.skipped = true;
@@ -46,10 +47,26 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
 
   const std::string h = currentHash(mac);
   const std::string s = currentHash(sw);
+  // The base belongs to the place on the Mac it was agreed with. A save that now lives
+  // elsewhere (a new nxnative app for a game played in Astris) starts over: an empty
+  // place gets the other side's save, two different saves are a conflict.
+  const std::string side = local_.sideOf(key);
+  const std::string agreedAt = state_.baseSide(device_, key);
+  const bool moved = !side.empty() && (agreedAt.empty() ? side != "emulator" : agreedAt != side);
+  if (moved) {
+    // Forget the old place's history for good, so a conflict recorded now (and the
+    // player's answer to it) is about this place.
+    state_.clearBase(device_, key);
+    state_.setBaseSide(device_, key, side);
+  }
   r.action = planSync(h, s, state_.base(device_, key));
+  auto remember = [&](const std::string& hash) {
+    state_.setBase(device_, key, hash);
+    state_.setBaseSide(device_, key, side);
+  };
 
   if (r.action == SyncAction::None) {
-    if (!h.empty()) state_.setBase(device_, key, h);
+    if (!h.empty()) remember(h);
     state_.clearConflict(device_, key);
     return r;
   }
@@ -68,7 +85,8 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
   }
   if (mac.busy || sw.busy) {
     r.skipped = true;
-    r.message = mac.busy ? "the emulator is open; close it to sync" : "in use on the Switch";
+    r.message = mac.busy ? "the game is running in " + r.local + "; close it to sync"
+                         : "in use on the Switch";
     return r;
   }
   if (r.action == SyncAction::Push && !remoteWritable_) {
@@ -89,7 +107,7 @@ UnitReport SyncEngine::syncUnit(const std::string& key, const UnitStatus& mac,
     r.message = error;
     return r;
   }
-  state_.setBase(device_, key, hash);
+  remember(hash);
   state_.clearConflict(device_, key);
   return r;
 }

@@ -16,6 +16,7 @@
 #include <chrono>
 #include <fstream>
 #include <map>
+#include <set>
 #include <cstdio>
 #include <thread>
 
@@ -83,14 +84,31 @@ bool AppCore::start(std::string& error) {
     Config c;
     std::string e;
     loadConfig(dataDir / "config.json", c, e);  // fresh: picks up new links
-    return std::static_pointer_cast<UnitStore>(openEmulator(c));
+    return std::static_pointer_cast<UnitStore>(openLocal(c));
   };
   // Fresh from the settings each time (the emulator's folder can change in Settings).
-  cfg.emulatorBusy = [dataDir] {
+  // The nxnative apps are looked for every 30 s, not on every check (every 2 s).
+  struct AppList {
+    std::vector<std::filesystem::path> apps;
+    std::chrono::steady_clock::time_point at{};
+    bool any = false;
+  };
+  auto appList = std::make_shared<AppList>();
+  cfg.emulatorBusy = [dataDir, appList] {
     Config c;
     std::string e;
     loadConfig(dataDir / "config.json", c, e);
-    return openEmulator(c)->gameRunning();
+    if (openEmulator(c)->gameRunning()) return true;
+    const auto now = std::chrono::steady_clock::now();
+    if (!appList->any || now - appList->at > std::chrono::seconds(30)) {
+      appList->apps.clear();
+      if (const auto nx = openNxNative(c)) {
+        for (const auto& a : nx->apps()) appList->apps.push_back(a.app);
+      }
+      appList->at = now;
+      appList->any = true;
+    }
+    return anyAppRunning(appList->apps);
   };
   cfg.keepBackupsNow = [dataDir] {
     Config c;
@@ -126,9 +144,11 @@ void AppCore::push(const AutoSyncEvent& e) {
     j["skipped"] = r.skipped;
     j["message"] = r.message;  // why it was skipped or failed
     j["quiet"] = r.quiet;
+    const std::string local = r.local.empty() ? e.local : r.local;
+    j["local"] = local;
     j["text"] = r.skipped ? std::string("skipped")
                 : !r.ok   ? std::string("failed")
-                          : describeAction(r.action, e.local, e.console);
+                          : describeAction(r.action, local, e.console);
   }
   std::lock_guard<std::mutex> lock(mutex_);
   events_.push_back(j.dump());
@@ -187,15 +207,41 @@ std::string userOf(const std::string& key) { return key.substr(key.rfind('/') + 
 
 }  // namespace
 
+namespace {
+
+json nxAppJson(const NxNativeApp& a, bool running) {
+  std::error_code ec;
+  bool hasSave = false;
+  for (std::filesystem::directory_iterator it(a.saveDir(), ec), end; !ec && it != end;
+       it.increment(ec)) {
+    hasSave = true;
+    break;
+  }
+  return {{"name", a.name},
+          {"path", a.app.string()},
+          {"appTitleId", hex64(a.appTitleId)},
+          {"saveTitleId", hex64(a.saveTitleId)},
+          {"saveIdSource", a.saveIdSource},
+          {"savePath", a.saveDir().string()},
+          {"cloudFolder", a.cloudFolder},
+          {"running", running},
+          {"hasSave", hasSave}};
+}
+
+}  // namespace
+
 // [{"key","titleId","name","publisher","icon","onConsole","inEmulator",
 //   "status": "conflict" | "synced" | "consoleOnly" | "emulatorOnly" | "problem" | "new",
-//   "lastText","lastAt"}], plus who's who: {"console","consoleSeen","emulator",
-//   "emulatorOpen","consolePresent","games":[...]}
+//   "lastText","lastAt", "macSide": "emulator" | "nxnative", "macName",
+//   "nxnative": {app} (when an nxnative app has the game), "canUseEmulator"}],
+//   plus who's who: {"console","consoleSeen","emulator","emulatorOpen","consolePresent",
+//   "games":[...]}. "inEmulator" means "on this Mac", in Astris or in the game's app.
 std::string AppCore::gamesJson() {
   Config config;
   std::string error;
   loadConfig(dataDir_ / "config.json", config, error);
-  const auto emu = openEmulator(config);
+  const auto mac = openLocal(config);
+  auto* emu = mac->emulator();
 
   // What the console has, as last seen (the newest file, if several consoles).
   std::map<std::string, bool> onConsole;
@@ -214,10 +260,26 @@ std::string AppCore::gamesJson() {
       }
     }
   }
-  std::map<std::string, bool> inEmulator;
+  // On this Mac: in the emulator's list, or a save in the game's nxnative app.
+  std::map<std::string, bool> onMac;
+  std::set<std::string> inEmulatorList;
   std::vector<UnitRef> refs;
-  if (emu->list(refs, error)) {
-    for (const auto& r : refs) inEmulator[r.key] = true;
+  if (mac->list(refs, error)) {
+    for (const auto& r : refs) {
+      if (mac->nxApp(r.key)) {
+        if (mac->saveFolder(r.key)) onMac[r.key] = true;
+        else if (onConsole.count(r.key)) onMac[r.key] = false;  // installed, save on its way
+      } else {
+        onMac[r.key] = true;
+      }
+    }
+  }
+  if (emu) {
+    std::string e2;
+    std::vector<UnitRef> er;
+    if (emu->list(er, e2)) {
+      for (const auto& r : er) inEmulatorList.insert(r.key);
+    }
   }
   StateStore state(dataDir_ / "state.json");
   state.load(error);
@@ -227,16 +289,17 @@ std::string AppCore::gamesJson() {
 
   // Linked users' saves only: those are the ones WarpPoint can sync.
   std::map<std::string, bool> keys;
+  const std::string nxUser = config.nxnativeUser();
   for (const auto& [k, v] : onConsole) {
-    if (config.users.count(userOf(k))) keys[k] = true;
+    if (config.users.count(userOf(k)) || (!nxUser.empty() && userOf(k) == nxUser)) keys[k] = true;
   }
-  for (const auto& [k, v] : inEmulator) keys[k] = true;
+  for (const auto& [k, v] : onMac) keys[k] = true;
 
   TitleCache titles(dataDir_ / "titles");
   json games = json::array();
   for (const auto& [key, unused] : keys) {
-    json g = {{"key", key}, {"onConsole", onConsole.count(key) > 0},
-              {"inEmulator", inEmulator.count(key) > 0}};
+    const bool here = onMac.count(key) && onMac[key];
+    json g = {{"key", key}, {"onConsole", onConsole.count(key) > 0}, {"inEmulator", here}};
     addGame(g, titles, key);
     const auto rec = titles.get(titleIdOfKey(key));
     g["publisher"] = rec ? rec->publisher : "";
@@ -247,19 +310,29 @@ std::string AppCore::gamesJson() {
     g["ignored"] = config.ignored.count(key) > 0;
     if (config.ignored.count(key)) status = "ignored";
     else if (conflicted.count(key)) status = "conflict";
-    else if (!g["inEmulator"].get<bool>()) status = "consoleOnly";
+    else if (!here) status = "consoleOnly";
     else if (!g["onConsole"].get<bool>()) status = "emulatorOnly";
     else if (l.empty()) status = "new";
     else if (!l.value("ok", true)) status = "problem";
     else status = "synced";
     g["status"] = status;
-    const auto folder = g["inEmulator"].get<bool>() ? emu->saveFolder(key) : std::nullopt;
+    g["macSide"] = mac->sideOf(key);
+    g["macName"] = mac->nameFor(key);
+    if (const auto* a = mac->nxAppAny(key)) {
+      g["nxnative"] = nxAppJson(*a, mac->nxnative()->running(*a));
+      if (rec == std::nullopt || !rec->found) g["name"] = a->name;  // the app knows its name
+    }
+    // Astris is a choice for a game an nxnative app has when Astris is set up for its user.
+    g["canUseEmulator"] = emu && config.users.count(userOf(key)) > 0 && mac->nxAppAny(key);
+    g["emulatorHasSave"] = inEmulatorList.count(key) > 0;
+    const auto folder = here ? mac->saveFolder(key) : std::nullopt;
     g["savePath"] = folder ? folder->string() : "";
     g["backupsPath"] = (dataDir_ / "backups" / key).string();
     games.push_back(g);
   }
   return json{{"console", consoleName}, {"consoleSeen", consoleSeen},
-              {"emulator", emu->displayName()}, {"emulatorOpen", emulatorRunning_()},
+              {"emulator", emu ? emu->displayName() : "Astris"},
+              {"mac", mac->displayName()}, {"emulatorOpen", emulatorRunning_()},
               {"consolePresent", consolePresent_.load()}, {"keepBackups", config.keepBackups},
               {"games", games}}.dump();
 }
@@ -290,14 +363,14 @@ bool AppCore::restore(const std::string& key, const std::string& backupId, std::
     error = "that backup is gone";
     return false;
   }
-  auto emu = openEmulator(config);
+  auto emu = openLocal(config);
   const auto st = emu->status({{key}});
   if (st.size() != 1 || !st[0].error.empty()) {
     error = st.empty() ? "can't read the emulator's save" : st[0].error;
     return false;
   }
   if (st[0].busy) {
-    error = "the game is running in " + emu->displayName() + "; stop it first";
+    error = "the game is running in " + emu->nameFor(key) + "; stop it first";
     return false;
   }
   if (st[0].exists && st[0].hash == it->hash) return true;  // already that version
@@ -388,6 +461,14 @@ std::string AppCore::setupJson() {
   json links = json::object();
   for (const auto& [sw, e] : config.users) links[sw] = e;
 
+  json nx = {{"enabled", config.nxnative.enabled},
+             {"user", config.nxnativeUser()},
+             {"userChosen", !config.nxnative.user.empty()},
+             {"apps", json::array()}};
+  if (const auto store = openNxNative(config)) {
+    for (const auto& a : store->apps()) nx["apps"].push_back(nxAppJson(a, store->running(a)));
+  }
+
   return json{{"emulator", {{"name", emu->displayName()}, {"path", emu->root().string()},
                             {"found", found}}},
               {"console", console.value("name", "")},
@@ -396,7 +477,8 @@ std::string AppCore::setupJson() {
               {"emulatorProfiles", profiles},
               {"links", links},
               {"keepBackups", config.keepBackups},
-              {"needsSetup", config.users.empty()}}
+              {"nxnative", nx},
+              {"needsSetup", config.users.empty() && config.nxnativeUser().empty()}}
       .dump();
 }
 
@@ -427,6 +509,75 @@ bool AppCore::setLink(const std::string& consoleUser, const std::string& emulato
   lock.unlock();
   sync_.syncNow();
   return true;
+}
+
+bool AppCore::changeConfig(const std::function<bool(Config&, std::string&)>& change,
+                           bool syncAfter, std::string& error) {
+  FileLock lock(dataDir_ / "sync.lock");
+  if (!takeLock(lock, error)) return false;
+  Config config;
+  if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  if (!change(config, error)) return false;
+  if (!saveConfig(dataDir_ / "config.json", config, error)) return false;
+  lock.unlock();
+  if (syncAfter) sync_.syncNow();
+  return true;
+}
+
+namespace {
+bool parseTitleId(const std::string& s, uint64_t& out) {
+  if (s.size() != 16 || s.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+    return false;
+  }
+  out = std::strtoull(s.c_str(), nullptr, 16);
+  return true;
+}
+}  // namespace
+
+bool AppCore::setNxNativeUser(const std::string& consoleUser, std::string& error) {
+  if (!consoleUser.empty() &&
+      (consoleUser.size() != 32 || consoleUser.find_first_not_of("0123456789abcdef") != std::string::npos)) {
+    error = "not a user id";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    c.nxnative.user = consoleUser;
+    return true;
+  }, true, error);
+}
+
+bool AppCore::setNxNativeEnabled(bool enabled, std::string& error) {
+  return changeConfig([&](Config& c, std::string&) {
+    c.nxnative.enabled = enabled;
+    return true;
+  }, true, error);
+}
+
+bool AppCore::setKeepInEmulator(const std::string& titleId, bool keep, std::string& error) {
+  uint64_t id = 0;
+  if (!parseTitleId(titleId, id)) {
+    error = "not a title id";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    if (keep) c.nxnative.keepInEmulator.insert(id);
+    else c.nxnative.keepInEmulator.erase(id);
+    return true;
+  }, true, error);
+}
+
+bool AppCore::setNxNativeSaveId(const std::string& appTitleId, const std::string& saveTitleId,
+                                std::string& error) {
+  uint64_t app = 0, save = 0;
+  if (!parseTitleId(appTitleId, app) || (!saveTitleId.empty() && !parseTitleId(saveTitleId, save))) {
+    error = "not a title id";
+    return false;
+  }
+  return changeConfig([&](Config& c, std::string&) {
+    if (saveTitleId.empty()) c.nxnative.saveIds.erase(app);
+    else c.nxnative.saveIds[app] = save;
+    return true;
+  }, true, error);
 }
 
 bool AppCore::setKeepBackups(size_t keep, std::string& error) {
@@ -476,7 +627,16 @@ bool AppCore::bringToEmulator(const std::string& key, std::string& error) {
     error = "open WarpPoint on your Switch first";
     return false;
   }
-  if (emulatorRunning_()) {
+  Config config;
+  loadConfig(dataDir_ / "config.json", config, error);
+  error.clear();
+  const auto mac = openLocal(config);
+  if (const auto* a = mac->nxApp(key)) {
+    if (mac->nxnative()->running(*a)) {
+      error = "quit " + a->name + " first";
+      return false;
+    }
+  } else if (emulatorRunning_()) {
     error = "quit the emulator first: it keeps its list of saves in memory while it's open";
     return false;
   }

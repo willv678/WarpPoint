@@ -56,6 +56,37 @@ bool warp_core_resolve(WarpCore* core, const char* device, const char* key, bool
   return false;
 }
 
+bool warp_core_set_nxnative_user(WarpCore* core, const char* consoleUser, char** error) {
+  std::string e;
+  if (core->core.setNxNativeUser(consoleUser ? consoleUser : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_set_nxnative_enabled(WarpCore* core, bool enabled, char** error) {
+  std::string e;
+  if (core->core.setNxNativeEnabled(enabled, e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_set_keep_in_emulator(WarpCore* core, const char* titleId, bool keep, char** error) {
+  std::string e;
+  if (core->core.setKeepInEmulator(titleId ? titleId : "", keep, e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
+                                    const char* saveTitleId, char** error) {
+  std::string e;
+  if (core->core.setNxNativeSaveId(appTitleId ? appTitleId : "", saveTitleId ? saveTitleId : "", e)) {
+    return true;
+  }
+  setError(error, e);
+  return false;
+}
+
 char* warp_core_games(WarpCore* core) { return dup(core->core.gamesJson()); }
 
 char* warp_core_backups(WarpCore* core, const char* key) {

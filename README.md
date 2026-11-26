@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  Keeps your Nintendo Switch saves and your Mac's Switch emulator in sync, on its own.<br>
+  Keeps your Nintendo Switch saves and your Mac's Switch games in sync, on its own.<br>
   Play on the Switch, pick up on the Mac, then go back. Same save.
 </p>
 
@@ -21,15 +21,19 @@ are on the same Wi-Fi they find each other and copy each game's save to whicheve
 There are no folders to pick and nothing to open. Close a game on one side, and a few seconds later
 its save is on the other.
 
-Version 1.0 works with Astris (and other Ryujinx-based emulators) on an Apple Silicon Mac, and a
-Switch running [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere). More is on the way.
-Each emulator and each console plugs into the same sync engine, so Windows, Linux, more emulators
-(nxnative ports included) and more consoles are planned. See the [roadmap](#roadmap).
+Version 1.2 works with Astris (and other Ryujinx-based emulators) and with
+[nxnative](https://github.com/seedds/nxnative) ports on an Apple Silicon Mac, and a Switch running
+[Atmosphère](https://github.com/Atmosphere-NX/Atmosphere). Each Mac-side place and each console
+plugs into the same sync engine, so Windows, Linux, more emulators and more consoles can follow.
+See the [roadmap](#roadmap).
 
 ## What it does
 
 - **Syncs both ways by itself.** Close a game on the Switch and its save lands in Astris. Stop a
   game in Astris and its save goes to the Switch.
+- **Works with nxnative ports too (new in 1.2).** A game you've packed with nxnative runs as its
+  own Mac app, and WarpPoint syncs it with your Switch the same way. Quit the app and its save goes
+  to the Switch; close the game on the Switch and the app has it next time you open it.
 - **Asks when it isn't sure.** If a save changed on both sides since they last matched, WarpPoint
   lets you pick which one to keep.
 - **Backs up first.** Before it replaces a save anywhere, it keeps a copy on the Mac. It holds the
@@ -45,7 +49,7 @@ Each emulator and each console plugs into the same sync engine, so Windows, Linu
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.0.1.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.2.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -55,13 +59,14 @@ Each emulator and each console plugs into the same sync engine, so Windows, Linu
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.0.1.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.2.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
 
-Back on the Mac, a setup window walks you through the rest. It finds Astris, waits for the Switch,
-and asks which Astris profile goes with which Switch user.
+Back on the Mac, a setup window walks you through the rest. It finds Astris and any nxnative
+apps, waits for the Switch, and asks which Astris profile goes with which Switch user (and whose
+saves the nxnative apps hold). No Astris? nxnative apps alone are enough.
 
 Rather not have anything running in the background? Delete
 `atmosphere/contents/4200000000005750/` and open **WarpPoint** from the homebrew menu whenever you
@@ -92,6 +97,35 @@ and start it at boot.
   <img src="docs/images/overlay.jpg" width="300" alt="The WarpPoint overlay on a Switch: Ready, Mac: Will's MacBook Pro, Last synced 13 min ago, Sync now, Syncing On, WarpPoint running On, Start at boot On">
 </p>
 
+## nxnative ports
+
+[nxnative](https://github.com/seedds/nxnative) turns a Switch game you own into a native Mac app.
+WarpPoint 1.2 finds those apps on its own and treats each one as the Mac-side home of that game's
+save. Nothing to set up beyond picking, once, which Switch user the apps' saves belong to.
+
+- **Found automatically.** Any nxnative app in `/Applications` or `~/Applications` (or one folder
+  below) shows up in the library with an **nxnative** badge, under the game's own name and icon.
+- **The right save, even for Switch 2 Editions.** An nxnative app is named after its own title ID,
+  which for a Switch 2 Edition differs from the save the console keeps (Xenoblade Chronicles DE's
+  app is `0400FF500E34A001`, its Switch save is `0100FF500E34A000`). WarpPoint reads the app's own
+  control data (`SaveDataOwnerId` in `control.nacp`) to pair them, so no table is needed.
+- **A fresh install just works.** Install the app, and the next sync copies your Switch save into
+  it, even if you've never opened it.
+- **Same safety rules.** The app's save is only touched while the app is closed. A new save is
+  built next to the old one and swapped in with a single rename, the way nxnative commits its own
+  saves. The copy being replaced is backed up first, and can be restored from the library.
+- **Astris and nxnative side by side.** If a game is in both, WarpPoint syncs the Switch with the
+  nxnative app, and you can switch it back to Astris in the game's details. When a game changes
+  places, WarpPoint compares the two saves fresh: an empty app gets the Switch's save, and two
+  different saves ask you which one to keep. It never guesses from the old place's history.
+- **nxnative's own iCloud saves.** If a game has nxnative's cloud saves turned on, WarpPoint says so
+  in the library and leaves nxnative's `.sync` / `.dmsync` files alone. The app sends WarpPoint's
+  save to iCloud on its next start, since only the local copy changed.
+
+Tested on a Switch 1 with Fire Emblem: Three Houses (a mid-battle bookmark carried both ways) and
+Xenoblade Chronicles: Definitive Edition, whose Switch 2 Edition app on the Mac shares the Switch
+1 game's save. `warp nxnative` lists the apps WarpPoint found and the save each one maps to.
+
 ## How light is it?
 
 Light enough to forget about.
@@ -105,7 +139,7 @@ Light enough to forget about.
 Measured on an M2 Pro MacBook Pro and a launch-day Switch. The Mac app only does real work during
 a sync, when it reads the saves on both sides to see what changed.
 
-## Limits of 1.0
+## Limits
 
 - The Switch has to be awake to sync. A sleeping Switch catches up when it wakes.
 - WarpPoint can't create a save on the Switch yet. A game you've only played on the Mac waits until
@@ -113,7 +147,12 @@ a sync, when it reads the saves on both sides to see what changed.
 - Adding a new game's save to Astris needs Astris to be closed, because Astris keeps its list of
   saves in memory while it runs. Saves it already has sync with Astris open.
 - Very large saves (tens of MB) may not fit in a single write on the Switch.
-- Mac only, and Ryujinx-family emulators only, for now.
+- Mac only, and Ryujinx-family emulators and nxnative apps only, for now.
+- An nxnative app's main player is synced. Extra local players (nxnative's `save_userN` folders)
+  are left alone.
+- A Switch 2 Edition can upgrade a save when it loads it. A save played in the Switch 2 Edition
+  app only goes back to a console that has the same edition's data (see the note in
+  [docs/NXNATIVE_SUPPORT.md](docs/NXNATIVE_SUPPORT.md)).
 
 ## Roadmap
 
@@ -122,7 +161,8 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Background module and Tesla overlay on the Switch (1.0)
 - [ ] Create a save on the Switch for a game only played on the Mac
 - [ ] Very large saves (TotK-size) written to the Switch in pieces
-- [ ] nxnative ports and more emulators
+- [x] nxnative ports, found and synced like emulator games (1.2)
+- [ ] More emulators
 - [ ] Windows and Linux
 - [ ] A signed and notarized Mac app
 
@@ -134,11 +174,11 @@ Mac                                                   Switch
 │ Menu bar app (Swift)                     │          │ Background module (C++)   │
 │   │  C interface: host/capi/warp_core.h  │   Wi-Fi  │   reads and writes saves  │
 │ Engine (C++): AutoSync → SyncEngine      │◄────────►│   through the console's   │
-│   ├── Astris store (save index + folders)│  TCP     │   own save service, the   │
-│   └── Switch store (talks to the Switch) │  + UDP   │   one JKSV uses           │
-└──────────────────────────────────────────┘          │ Tesla overlay: status and │
-                                                      │   controls, via files     │
-                                                      └───────────────────────────┘
+│   ├── Mac store: picks one per game      │  TCP     │   own save service, the   │
+│   │    ├── Astris (save index + folders) │  + UDP   │   one JKSV uses           │
+│   │    └── nxnative apps (save/ folders) │          │ Tesla overlay: status and │
+│   └── Switch store (talks to the Switch) │          │   controls, via files     │
+└──────────────────────────────────────────┘          └───────────────────────────┘
 ```
 
 - Both sides refer to a save by name, `game/<title id>/<user id>`, and each side looks up where
@@ -151,10 +191,16 @@ Mac                                                   Switch
 - Astris keeps each save in a numbered folder, with a committed copy (`0`) and a scratch copy
   (`1`), plus a save index (`imkvdb.arc`) that maps games to folders. WarpPoint writes the scratch
   copy first, then the committed one, and keeps the index in the emulator's own sort order.
-- On the Mac, a running game shows up as the lock file Astris holds open in its save folder. On
-  the Switch, WarpPoint asks the system which game is running.
+- An nxnative app keeps its save as plain files in
+  `~/Library/Application Support/nxnative/<app title id>/save/`, in the console's own format.
+  WarpPoint reads `save/` (never the game's scratch copy, `save.work/`), and writes by swapping a
+  whole new `save/` in with one `renamex_np(RENAME_SWAP)`.
+- On the Mac, a running game shows up as the lock file Astris holds open in its save folder, or as
+  a process running from inside an nxnative app. On the Switch, WarpPoint asks the system which
+  game is running.
 
-Adding an emulator means writing one new "store" class in `host/`. Adding a console means
+Adding an emulator means writing one new "store" class in `host/` (`nxnative_store.cpp` is the
+newest example). Adding a console means
 speaking the same protocol, defined in `common/messages.hpp`.
 
 ## Build from source

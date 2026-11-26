@@ -26,6 +26,8 @@ struct UnitReport {
   // Nothing wrong and nothing to do yet: e.g. a game only on the Mac, whose save the
   // console can't create. UIs leave these out of "recent activity".
   bool quiet = false;
+  // Where on the Mac this save lives ("Astris", "Xenoblade Chronicles (nxnative)").
+  std::string local = {};
 };
 
 class SyncEngine {

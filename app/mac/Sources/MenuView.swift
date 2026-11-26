@@ -57,7 +57,9 @@ struct MenuView: View {
             }
           }
           HStack {
-            Button("Keep \(model.localName)") { model.resolve(c, keepLocal: true) }
+            Button("Keep \(model.library.games.first { $0.key == c.key }?.macShort ?? model.localName)") {
+              model.resolve(c, keepLocal: true)
+            }
             Button("Keep \(model.console ?? "Switch")") { model.resolve(c, keepLocal: false) }
           }
           .controlSize(.small)

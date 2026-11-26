@@ -19,7 +19,15 @@ struct Setup: Codable {
     let name: String
   }
 
+  struct NxNative: Codable {
+    var enabled: Bool = true
+    var user: String = ""  // the console user whose saves the apps hold
+    var userChosen: Bool = false
+    var apps: [NxApp] = []
+  }
+
   var emulator = Emulator()
+  var nxnative = NxNative()
   var console: String = ""
   var consolePresent: Bool = false
   var consoleUsers: [ConsoleUser] = []

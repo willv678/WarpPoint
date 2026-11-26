@@ -68,6 +68,7 @@ int usage() {
                "       warp sync [GAME...]\n"
                "       warp resolve GAME mac|switch\n"
                "       warp watch\n"
+               "       warp nxnative                       (the nxnative apps found here)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -300,7 +301,7 @@ std::optional<std::vector<std::string>> resolveGames(Session& s,
         return std::nullopt;
       }
       std::vector<UnitRef> mine;
-      if (emulatorStore().list(mine, error)) all.insert(all.end(), mine.begin(), mine.end());
+      if (openLocal(g_config)->list(mine, error)) all.insert(all.end(), mine.begin(), mine.end());
       std::set<uint64_t> ids;
       for (const auto& r : all) ids.insert(titleIdOf(r.key));
       fetchNames(s, {ids.begin(), ids.end()}, false);
@@ -326,7 +327,8 @@ std::optional<std::vector<std::string>> resolveGames(Session& s,
     std::set<std::string> found;
     for (const auto& r : all) {
       const std::string user = r.key.substr(r.key.rfind('/') + 1);
-      if (titleIdOf(r.key) == id && (!linkedOnly || g_config.users.count(user))) {
+      const bool linked = g_config.users.count(user) || user == g_config.nxnativeUser();
+      if (titleIdOf(r.key) == id && (!linkedOnly || linked)) {
         found.insert(r.key);
       }
     }
@@ -395,11 +397,12 @@ std::string describe(SyncAction a, const std::string& local, const std::string& 
 }
 
 int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
-  if (g_config.users.empty()) {
+  if (g_config.users.empty() && g_config.nxnativeUser().empty()) {
     std::fprintf(stderr, "No users linked yet. Run `warp users`, then `warp link`.\n");
     return 1;
   }
-  auto emu = emulatorStore();
+  auto local = openLocal(g_config);
+  auto& emu = *local;
   std::string error;
   if (keys.empty()) {
     std::vector<UnitRef> refs;
@@ -420,10 +423,10 @@ int cmdSync(Session& s, StateStore& state, std::vector<std::string> keys) {
   const auto cache = titleCache();
   int failed = 0;
   for (const auto& r : reports) {
-    const std::string what = r.quiet     ? "only in " + emu.displayName()
+    const std::string what = r.quiet     ? "only in " + r.local
                              : r.skipped ? "skipped"
                              : !r.ok     ? "FAILED"
-                                         : describe(r.action, emu.displayName(), s.store->displayName());
+                                         : describe(r.action, r.local, s.store->displayName());
     // Name the user only when it isn't the obvious one.
     const std::string who = g_config.users.size() > 1 ? " (" + r.key.substr(r.key.rfind('/') + 1, 8) + ")" : "";
     std::printf("  %s%s%s%s\n", padded(cache.nameOf(titleIdOf(r.key)) + who + ":", 30).c_str(),
@@ -447,7 +450,7 @@ int cmdResolve(Session& s, StateStore& state, const std::vector<std::string>& ke
     return 1;
   }
   std::printf("Keeping %s's copy.\n",
-              mac ? emulatorStore().displayName().c_str() : s.agent.name.c_str());
+              mac ? openLocal(g_config)->nameFor(resolved.front()).c_str() : s.agent.name.c_str());
   return cmdSync(s, state, resolved);
 }
 
@@ -459,9 +462,9 @@ int cmdWatch() {
     std::string error;
     Config c;
     if (loadConfig(dataDir() / "config.json", c, error)) g_config = c;  // pick up new links
-    return std::static_pointer_cast<UnitStore>(openEmulator(g_config));
+    return std::static_pointer_cast<UnitStore>(openLocal(g_config));
   };
-  const auto probe = openEmulator(g_config);
+  const auto probe = openLocal(g_config);
   cfg.emulatorBusy = [probe] { return probe->gameRunning(); };
   cfg.ignored = [] {
     Config c;
@@ -482,7 +485,8 @@ int cmdWatch() {
         const auto& r = e.report;
         const std::string what = r.skipped ? "skipped"
                                  : !r.ok   ? "FAILED"
-                                           : describe(r.action, e.local, e.console);
+                                           : describe(r.action, r.local.empty() ? e.local : r.local,
+                                                      e.console);
         std::printf("  %s%s%s%s\n", padded(titleCache().nameOf(titleIdOf(r.key)) + ":", 30).c_str(),
                     what.c_str(), r.message.empty() ? "" : ": ", r.message.c_str());
         break;
@@ -506,6 +510,42 @@ int cmdWatch() {
   while (!g_interrupted) std::this_thread::sleep_for(std::chrono::milliseconds(200));
   std::printf("\nStopping (finishing any sync in progress)...\n");
   sync.stop();
+  return 0;
+}
+
+int cmdNxNative() {
+  const auto nx = openNxNative(g_config);
+  if (!nx) {
+    std::printf("nxnative support is turned off in the settings.\n");
+    return 0;
+  }
+  if (nx->apps().empty()) {
+    std::printf("No nxnative apps in /Applications or ~/Applications.\n");
+    return 0;
+  }
+  const std::string user = nx->consoleUser();
+  std::printf("nxnative apps (their saves belong to console user %s):\n",
+              user.empty() ? "(none chosen: link a user first)" : user.c_str());
+  for (const auto& a : nx->apps()) {
+    std::string hash, error;
+    streamNxNativeSave(a.saveDir(), nullptr, hash, error);
+    char app[17], save[17];
+    std::snprintf(app, sizeof(app), "%016llx", static_cast<unsigned long long>(a.appTitleId));
+    std::snprintf(save, sizeof(save), "%016llx", static_cast<unsigned long long>(a.saveTitleId));
+    std::printf("\n  %s\n    app        %s\n    app id     %s\n    save id    %s (from %s)\n"
+                "    save       %s%s\n",
+                a.name.c_str(), a.app.c_str(), app, save, a.saveIdSource.c_str(),
+                a.saveDir().c_str(), !error.empty() ? (" (" + error + ")").c_str()
+                                     : hash.empty() ? " (none yet)" : "");
+    if (nx->running(a)) std::printf("    running now\n");
+    if (!a.cloudFolder.empty()) {
+      std::printf("    nxnative cloud saves ON (%s): the app sends WarpPoint's save there at its\n"
+                  "    next start\n", a.cloudFolder.c_str());
+    }
+    if (g_config.nxnative.keepInEmulator.count(a.saveTitleId)) {
+      std::printf("    kept in the emulator (settings): this app isn't synced\n");
+    }
+  }
   return 0;
 }
 
@@ -535,6 +575,7 @@ int main(int argc, char** argv) {
   }
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();
+  if (cmd == "nxnative") return cmdNxNative();
   if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
   const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||

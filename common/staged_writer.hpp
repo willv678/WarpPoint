@@ -35,6 +35,13 @@ class StagedWriter : public UnitWriter {
 
   const std::filesystem::path& staging() const { return staging_; }
 
+  // Where a received file is written. Default: staging/"files"/path. A writer for a
+  // case-insensitive disk whose saves may hold names that differ only in case can
+  // stage each file under a name of its own and place it in install().
+  virtual std::filesystem::path stagedPath(const std::string& path) {
+    return staging_ / "files" / path;
+  }
+
  private:
   bool fail(std::string why);
 

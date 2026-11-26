@@ -96,8 +96,8 @@ struct LibraryView: View {
         model.setIgnored(game, true)
       }
       Button("Cancel", role: .cancel) {}
-    } message: { _ in
-      Text("Nothing is deleted: its saves stay in \(model.library.emulator) and on your Switch. WarpPoint just stops copying between them. You can add it back with +.")
+    } message: { game in
+      Text("Nothing is deleted: its saves stay in \(game.macShort) and on your Switch. WarpPoint just stops copying between them. You can add it back with +.")
     }
     .onAppear { model.windowOpened() }
     .onDisappear { model.windowClosed() }
@@ -144,7 +144,7 @@ struct LibraryView: View {
         .frame(width: 8, height: 8)
       Text(seen)
       Text("·").foregroundStyle(.tertiary)
-      Text("\(myGames.count) game\(myGames.count == 1 ? "" : "s") in sync with \(lib.emulator)")
+      Text("\(myGames.count) game\(myGames.count == 1 ? "" : "s") in sync with \(lib.mac)")
       Spacer()
       if let message = model.libraryMessage {
         Text(message).foregroundStyle(.secondary).lineLimit(1)
@@ -203,12 +203,15 @@ struct AddGameSheet: View {
   private var notSyncing: [Game] { matching(games.filter { $0.ignored }) }
   private var pickedGame: Game? { games.first { $0.key == picked } }
   private var console: String { model.library.console.isEmpty ? "your Switch" : model.library.console }
-  private var emulator: String { model.library.emulator }
+  private var emulator: String { pickedGame?.macShort ?? model.library.emulator }
 
   /// Why "Bring" can't run right now, if it can't. (Syncing a game again never waits.)
   private var blocker: String? {
     if pickedGame?.ignored == true { return nil }
     if !model.library.consolePresent { return "Open WarpPoint on your Switch first." }
+    if let g = pickedGame, g.isNative {
+      return g.nxnative?.running == true ? "Quit \(emulator) first." : nil
+    }
     if model.library.emulatorOpen {
       return "Quit \(emulator) first: it keeps its list of saves in memory while it's open."
     }
@@ -219,7 +222,7 @@ struct AddGameSheet: View {
     VStack(alignment: .leading, spacing: 14) {
       VStack(alignment: .leading, spacing: 4) {
         Text("Add a game from \(console)").font(.title2.weight(.semibold))
-        Text("WarpPoint copies the game's save into \(emulator), then keeps the two in sync.")
+        Text("WarpPoint copies the game's save into \(model.library.mac), then keeps the two in sync. Games with an nxnative app go to the app.")
           .foregroundStyle(.secondary)
       }
       TextField("Search \(games.count) games", text: $search)
@@ -308,15 +311,25 @@ private struct GameTile: View {
         .multilineTextAlignment(.center)
         .lineLimit(2)
         .frame(height: 34, alignment: .top)
+      if game.isNative {
+        NativeBadge().padding(.top, -4)
+      }
     }
     .contentShape(Rectangle())
-    .help(StatusBadge.text(game.status, model: model))
+    .help(StatusBadge.text(game.status, model: model, place: game.macName))
     .contextMenu {
       Button("Sync Now") { model.syncNow() }
         .disabled(model.console == nil)
       Divider()
       Button("Show Save in Finder") { reveal(game.savePath) }
         .disabled(game.savePath.isEmpty)
+      if let app = game.nxnative {
+        Button("Open \(app.name)") {
+          NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app.path),
+                                             configuration: NSWorkspace.OpenConfiguration())
+        }
+        .disabled(app.running)
+      }
       Button("Show Backups in Finder") { reveal(game.backupsPath) }
         .disabled(!FileManager.default.fileExists(atPath: game.backupsPath))
       Divider()
@@ -372,16 +385,30 @@ struct StatusBadge: View {
   }
 
   @MainActor
-  static func text(_ status: String, model: WarpModel) -> String {
+  static func text(_ status: String, model: WarpModel, place: String? = nil) -> String {
     let console = model.library.console.isEmpty ? "the Switch" : model.library.console
     switch status {
     case "synced": return "In sync"
     case "consoleOnly": return "Only on \(console)"
-    case "emulatorOnly": return "Only in \(model.library.emulator)"
+    case "emulatorOnly": return "Only in \(place ?? model.library.emulator)"
     case "conflict": return "Changed on both sides: pick one"
     case "problem": return "Didn't sync last time"
     default: return "Not synced yet"
     }
+  }
+}
+
+/// "nxnative": the game's save lives in its native Mac app, not the emulator.
+struct NativeBadge: View {
+  var body: some View {
+    Label("nxnative", systemImage: "macbook")
+      .labelStyle(.titleAndIcon)
+      .font(.caption2.weight(.semibold))
+      .padding(.horizontal, 6)
+      .padding(.vertical, 2)
+      .foregroundStyle(.white)
+      .background(Capsule().fill(Color.indigo))
+      .help("Synced with the game's nxnative app on this Mac")
   }
 }
 

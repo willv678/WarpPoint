@@ -6,7 +6,15 @@
 //   "users": { "<switch user id>": "<emulator user id>" },
 //   "keepBackups": 4,                                   // 0 = keep every backup
 //   "switchAddress": "192.168.1.5",                     // optional: skip discovery
-//   "ignored": ["game/<titleId>/<user>", ...]           // saves WarpPoint leaves alone
+//   "ignored": ["game/<titleId>/<user>", ...],          // saves WarpPoint leaves alone
+//   "nxnative": {                                       // nxnative ports (1.2), all optional
+//     "enabled": true,
+//     "user": "<switch user id>",          // whose saves the apps hold; default: the first linked
+//     "saveIds": { "<app title id>": "<console save title id>" },  // overrides control.nacp
+//     "keepInEmulator": ["<console save title id>", ...],  // games synced with the emulator
+//                                                          // even though an app has them
+//     "appFolders": ["/Volumes/Games/Apps"]               // besides /Applications, ~/Applications
+//   }
 // }
 #pragma once
 #include <cstddef>
@@ -14,6 +22,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace WarpPoint {
 
@@ -24,6 +33,20 @@ struct Config {
   size_t keepBackups = 4;
   std::string switchAddress;
   std::set<std::string> ignored;  // "Stop Syncing": never copied either way
+
+  struct NxNative {
+    bool enabled = true;
+    std::string user;                     // "" = the first linked console user
+    std::map<uint64_t, uint64_t> saveIds;  // app title id -> console save title id
+    std::set<uint64_t> keepInEmulator;     // console save title ids
+    std::vector<std::filesystem::path> appFolders;
+  } nxnative;
+
+  // The console user whose saves the nxnative apps hold ("" = nobody yet).
+  std::string nxnativeUser() const {
+    if (!nxnative.user.empty()) return nxnative.user;
+    return users.empty() ? std::string() : users.begin()->first;
+  }
 };
 
 // A missing file gives the defaults. A file that can't be parsed is an error and is

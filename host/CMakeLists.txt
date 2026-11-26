@@ -6,6 +6,8 @@ add_library(warp_host_core STATIC
   backup_store.cpp
   discovery.cpp
   emulator.cpp
+  mac_store.cpp
+  nxnative_store.cpp
   file_lock.cpp
   planner.cpp
   remote_store.cpp
@@ -24,3 +26,7 @@ target_link_libraries(warp_host_core PUBLIC warp_common warp_net PRIVATE warp_wa
 # `warp`: the Mac command line (for now a developer tool: find, list, pull).
 add_executable(warp warp_main.cpp)
 target_link_libraries(warp PRIVATE warp_host_core warp_warnings)
+if(APPLE)
+  # Reading app bundles' Info.plist and other apps' preferences (nxnative ports).
+  target_link_libraries(warp_host_core PUBLIC "-framework CoreFoundation")
+endif()

@@ -55,6 +55,17 @@ class AppCore {
   // Point at the emulator's data folder; refused if it isn't one.
   bool setEmulatorPath(const std::string& path, std::string& error);
 
+  // nxnative ports (1.2). Whose saves the apps hold ("" = the first linked user).
+  bool setNxNativeUser(const std::string& consoleUser, std::string& error);
+  bool setNxNativeEnabled(bool enabled, std::string& error);
+  // Keep a game (console save title id, 16 hex) in the emulator even though an
+  // nxnative app has it, or (keep = false) sync it with the app again.
+  bool setKeepInEmulator(const std::string& titleId, bool keep, std::string& error);
+  // Which console save an app's game uses, when its control data gets it wrong
+  // ("" = from the control data again).
+  bool setNxNativeSaveId(const std::string& appTitleId, const std::string& saveTitleId,
+                         std::string& error);
+
   // "Stop Syncing" (ignored = true) or start again. Nothing is deleted either way.
   bool setIgnored(const std::string& key, bool ignored, std::string& error);
 
@@ -68,6 +79,9 @@ class AppCore {
   void push(const AutoSyncEvent& e);
 
   bool takeLock(class FileLock& lock, std::string& error);
+  // Load the settings under the sync lock, change them, save them.
+  bool changeConfig(const std::function<bool(struct Config&, std::string&)>& change,
+                    bool syncAfter, std::string& error);
 
   std::filesystem::path dataDir_;
   std::function<bool()> emulatorRunning_;

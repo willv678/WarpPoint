@@ -78,7 +78,7 @@ namespace {
 
 using namespace WarpPoint;
 
-constexpr const char* kVersion = "1.0.0";
+constexpr const char* kVersion = "1.2.0";
 
 // Small socket buffers: a background program can't afford the app's defaults.
 const SocketInitConfig kSocketConfig = {

@@ -20,7 +20,7 @@ bool StagedWriter::beginFile(const std::string& path, uint64_t size) {
   if (out_.is_open()) return fail("file " + current_ + " was not finished");
   if (!isSafeRelativePath(path)) return fail("unsafe path in save: " + path);
   if (!seen_.insert(path).second) return fail("file sent twice: " + path);
-  const fs::path dest = staging_ / "files" / path;
+  const fs::path dest = stagedPath(path);
   std::error_code ec;
   fs::create_directories(dest.parent_path(), ec);
   out_.open(dest, std::ios::binary | std::ios::trunc);

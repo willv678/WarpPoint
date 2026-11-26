@@ -12,8 +12,12 @@ struct SetupView: View {
 
   private var setup: Setup { model.setup }
 
+  @State private var nxUser = ""  // the console user whose saves the nxnative apps hold
+
   private var linked: Bool { pending.values.contains { !$0.isEmpty } }
-  private var ready: Bool { setup.emulator.found && linked }
+  private var hasApps: Bool { setup.nxnative.enabled && !setup.nxnative.apps.isEmpty }
+  /// Astris with a linked user, or nxnative apps with their user chosen (or both).
+  private var ready: Bool { (setup.emulator.found && linked) || (hasApps && !nxUser.isEmpty) }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 20) {
@@ -26,13 +30,18 @@ struct SetupView: View {
         }
       }
 
-      step(1, done: setup.emulator.found, title: setup.emulator.name) {
+      step(1, done: setup.emulator.found || hasApps, title: hasApps ? "\(setup.emulator.name) and nxnative" : setup.emulator.name) {
         if setup.emulator.found {
-          Text("Found its saves.").foregroundStyle(.secondary)
-        } else {
+          Text("Found \(setup.emulator.name)'s saves.").foregroundStyle(.secondary)
+        } else if !hasApps {
           Text("Couldn't find it. Install Astris and open it once, or choose its data folder.")
             .foregroundStyle(.secondary)
           Button("Choose Folder…") { chooseFolder() }
+        }
+        if hasApps {
+          Text("Found \(setup.nxnative.apps.count) nxnative app\(setup.nxnative.apps.count == 1 ? "" : "s"): \(setup.nxnative.apps.map(\.name).joined(separator: ", ")).")
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
       }
 
@@ -49,10 +58,20 @@ struct SetupView: View {
       }
 
       step(3, done: linked, title: "Whose saves go where") {
-        Text("Pick the \(setup.emulator.name) profile for each Switch user you play as.")
+        Text(setup.emulator.found
+             ? "Pick the \(setup.emulator.name) profile for each Switch user you play as."
+             : "Pick the Switch user you play as.")
           .foregroundStyle(.secondary)
-        UserLinks(setup: setup, choice: { pending[$0] ?? "" }, choose: { pending[$0] = $1 })
-          .disabled(setup.emulatorProfiles.isEmpty)
+        if setup.emulator.found {
+          UserLinks(setup: setup, choice: { pending[$0] ?? "" }, choose: { pending[$0] = $1 })
+            .disabled(setup.emulatorProfiles.isEmpty)
+        }
+        if hasApps, !setup.consoleUsers.isEmpty {
+          Picker("nxnative apps' saves belong to", selection: $nxUser) {
+            Text("Choose…").tag("")
+            ForEach(setup.usersByActivity) { u in Text(u.label).tag(u.id) }
+          }
+        }
       }
 
       step(4, done: true, title: "Run in the background") {
@@ -109,6 +128,9 @@ struct SetupView: View {
               let profile = setup.emulatorProfiles.first {
       pending = [top.id: profile.id]
     }
+    if nxUser.isEmpty {
+      nxUser = setup.nxnative.user.isEmpty ? (setup.usersByActivity.first?.id ?? "") : setup.nxnative.user
+    }
   }
 
   private func chooseFolder() {
@@ -122,7 +144,11 @@ struct SetupView: View {
   }
 
   private func finish() {
-    for user in setup.consoleUsers {
+    if hasApps, !nxUser.isEmpty, let failure = model.setNxNativeUser(nxUser) {
+      error = failure
+      return
+    }
+    for user in setup.consoleUsers where setup.emulator.found {
       if let failure = model.setLink(user.id, pending[user.id] ?? "") {
         error = failure
         return

@@ -2,6 +2,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -37,6 +39,31 @@ bool loadConfig(const fs::path& file, Config& out, std::string& error) {
     for (const auto& k : j.value("ignored", json::array())) {
       if (k.is_string()) out.ignored.insert(k.get<std::string>());
     }
+    const json nx = j.value("nxnative", json::object());
+    auto tid = [](const std::string& s, uint64_t& out) {
+      if (s.size() != 16 || s.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+        return false;
+      }
+      out = std::strtoull(s.c_str(), nullptr, 16);
+      return true;
+    };
+    out.nxnative.enabled = nx.value("enabled", true);
+    out.nxnative.user = nx.value("user", "");
+    // Named copies: looping over j.value(...) directly would use a destroyed temporary.
+    const json saveIds = nx.value("saveIds", json::object());
+    const json keep = nx.value("keepInEmulator", json::array());
+    const json folders = nx.value("appFolders", json::array());
+    for (const auto& [app, save] : saveIds.items()) {
+      uint64_t a = 0, s = 0;
+      if (save.is_string() && tid(app, a) && tid(save.get<std::string>(), s)) out.nxnative.saveIds[a] = s;
+    }
+    for (const auto& t : keep) {
+      uint64_t id = 0;
+      if (t.is_string() && tid(t.get<std::string>(), id)) out.nxnative.keepInEmulator.insert(id);
+    }
+    for (const auto& f : folders) {
+      if (f.is_string()) out.nxnative.appFolders.emplace_back(f.get<std::string>());
+    }
   } catch (const json::exception& e) {
     error = file.string() + " is malformed: " + e.what();
     return false;
@@ -57,6 +84,21 @@ bool saveConfig(const fs::path& file, const Config& c, std::string& error) {
   for (const auto& [sw, emu] : c.users) j["users"][sw] = emu;
   if (!c.switchAddress.empty()) j["switchAddress"] = c.switchAddress;
   if (!c.ignored.empty()) j["ignored"] = c.ignored;
+  {
+    auto hex = [](uint64_t v) {
+      char buf[17];
+      std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(v));
+      return std::string(buf);
+    };
+    const auto& n = c.nxnative;
+    json nx = json::object();
+    if (!n.enabled) nx["enabled"] = false;
+    if (!n.user.empty()) nx["user"] = n.user;
+    for (const auto& [a, s] : n.saveIds) nx["saveIds"][hex(a)] = hex(s);
+    for (const auto& t : n.keepInEmulator) nx["keepInEmulator"].push_back(hex(t));
+    for (const auto& f : n.appFolders) nx["appFolders"].push_back(f.string());
+    if (!nx.empty()) j["nxnative"] = nx;
+  }
 
   std::error_code ec;
   fs::create_directories(file.parent_path(), ec);

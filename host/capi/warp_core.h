@@ -60,6 +60,19 @@ bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error);
 /* The emulator's data folder (the one with bis/ and system/ in it). */
 bool warp_core_set_emulator_path(WarpCore* core, const char* path, char** error);
 
+/* nxnative ports (1.2). setup's "nxnative": {"enabled","user","userChosen","apps":[{"name",
+ * "path","appTitleId","saveTitleId","saveIdSource","savePath","cloudFolder","running",
+ * "hasSave"}]}. The library's games add "macSide" ("emulator" | "nxnative"), "macName",
+ * "nxnative" (the app, when one has the game), "canUseEmulator", "emulatorHasSave". */
+/* Whose saves the nxnative apps hold; "" or NULL = the first linked console user. */
+bool warp_core_set_nxnative_user(WarpCore* core, const char* consoleUser, char** error);
+bool warp_core_set_nxnative_enabled(WarpCore* core, bool enabled, char** error);
+/* Sync this game (console save title id) with the emulator instead of its nxnative app. */
+bool warp_core_set_keep_in_emulator(WarpCore* core, const char* titleId, bool keep, char** error);
+/* Override which console save an app uses; "" or NULL saveTitleId = from its control data. */
+bool warp_core_set_nxnative_save_id(WarpCore* core, const char* appTitleId,
+                                    const char* saveTitleId, char** error);
+
 /* Stop syncing a save (ignored = true) or start again. Nothing is deleted. */
 bool warp_core_set_ignored(WarpCore* core, const char* key, bool ignored, char** error);
 

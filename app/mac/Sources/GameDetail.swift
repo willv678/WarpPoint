@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The inspector beside the grid: one game's status, actions and backups.
@@ -8,13 +9,15 @@ struct GameDetail: View {
   @State private var confirmRestore: Backup?
 
   private var console: String { model.library.console.isEmpty ? "Switch" : model.library.console }
-  private var emulator: String { model.library.emulator }
+  /// This game's place on the Mac: "Astris" or its nxnative app's name.
+  private var emulator: String { game.macShort }
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 18) {
         header
         status
+        nxnativeSection
         actions
         if let message = model.libraryMessage, message.contains(game.name) || message.hasPrefix("Restore") {
           Text(message).font(.callout).foregroundStyle(.secondary)
@@ -53,14 +56,14 @@ struct GameDetail: View {
     VStack(alignment: .leading, spacing: 8) {
       HStack(spacing: 6) {
         StatusBadge(status: game.status)
-        Text(StatusBadge.text(game.status, model: model)).font(.headline)
+        Text(StatusBadge.text(game.status, model: model, place: game.macName)).font(.headline)
       }
       if !game.lastText.isEmpty, let at = WarpDates.parse(game.lastAt) {
         Text(lastSync(at)).font(.callout).foregroundStyle(.secondary)
       }
       VStack(alignment: .leading, spacing: 4) {
         place(console, has: game.onConsole)
-        place(emulator, has: game.inEmulator)
+        place(game.macName, has: game.inEmulator)
       }
       .padding(.top, 2)
     }
@@ -90,10 +93,12 @@ struct GameDetail: View {
           Label("Bring to \(emulator)", systemImage: "arrow.down.circle")
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!model.library.consolePresent || model.library.emulatorOpen)
+        .disabled(!model.library.consolePresent || blockedByOpenApp)
         if !model.library.consolePresent {
           Text("Open WarpPoint on your Switch first.").font(.caption).foregroundStyle(.secondary)
-        } else if model.library.emulatorOpen {
+        } else if game.isNative, game.nxnative?.running == true {
+          Text("Quit \(emulator) first.").font(.caption).foregroundStyle(.secondary)
+        } else if !game.isNative, model.library.emulatorOpen {
           Text("Quit \(emulator) first: it keeps its list of saves in memory while it's open.")
             .font(.caption).foregroundStyle(.secondary)
         }
@@ -109,6 +114,58 @@ struct GameDetail: View {
           Button("Keep \(console)") { model.resolve(c, keepLocal: false) }
         }
         Text("The other copy is backed up first.").font(.caption).foregroundStyle(.secondary)
+      }
+    }
+  }
+
+  private var blockedByOpenApp: Bool {
+    game.isNative ? game.nxnative?.running == true : model.library.emulatorOpen
+  }
+
+  /// The game's nxnative app: where it is, whether it's open, nxnative's own cloud sync,
+  /// and (when Astris has the game too) which of the two WarpPoint syncs.
+  @ViewBuilder private var nxnativeSection: some View {
+    if let app = game.nxnative {
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 6) {
+          NativeBadge()
+          Text(app.running ? "Running now" : "Mac app").font(.callout)
+            .foregroundStyle(.secondary)
+        }
+        if game.canUseEmulator {
+          Picker("Sync with", selection: Binding(
+            get: { game.isNative ? "nxnative" : "emulator" },
+            set: { model.setUseEmulator(game, $0 == "emulator") })) {
+            Text(app.name).tag("nxnative")
+            Text(model.library.emulator).tag("emulator")
+          }
+          .pickerStyle(.segmented)
+          Text(game.isNative
+               ? "WarpPoint syncs \(console) with the Mac app. \(model.library.emulator)'s copy\(game.emulatorHasSave ? "" : ", if any,") is left as it is."
+               : "WarpPoint syncs \(console) with \(model.library.emulator). The Mac app's save is left as it is.")
+            .font(.caption).foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        if game.isNative, !app.cloudFolder.isEmpty {
+          Label {
+            Text("nxnative's own cloud saves are on for this game. That's fine: after WarpPoint copies a save in, the app sends it to iCloud the next time it starts. If you also play on an iPhone, let each sync finish before switching.")
+          } icon: {
+            Image(systemName: "icloud").foregroundStyle(.orange)
+          }
+          .font(.caption)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+        HStack {
+          Button("Open \(app.name)") {
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app.path),
+                                               configuration: NSWorkspace.OpenConfiguration())
+          }
+          .disabled(app.running)
+          Button("Show App") {
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.path)])
+          }
+        }
+        .controlSize(.small)
       }
     }
   }
@@ -138,7 +195,8 @@ struct GameDetail: View {
           Spacer()
           Button("Restore…") { confirmRestore = b }
             .controlSize(.small)
-            .disabled(model.library.emulatorOpen && !game.inEmulator)
+            .disabled(game.isNative ? game.nxnative?.running == true
+                                    : model.library.emulatorOpen && !game.inEmulator)
         }
       }
     }

@@ -148,6 +148,28 @@ final class WarpModel: ObservableObject {
     return call { warp_core_set_emulator_path(core, path, &$0) }
   }
 
+  func setNxNativeUser(_ consoleUser: String) -> String? {
+    defer { refreshSetup(); refreshLibrary() }
+    return call { warp_core_set_nxnative_user(core, consoleUser, &$0) }
+  }
+
+  func setNxNativeEnabled(_ on: Bool) -> String? {
+    defer { refreshSetup(); refreshLibrary() }
+    return call { warp_core_set_nxnative_enabled(core, on, &$0) }
+  }
+
+  /// Sync this game with Astris instead of its nxnative app (or back).
+  func setUseEmulator(_ game: Game, _ useEmulator: Bool) {
+    let saveId = game.nxnative?.saveTitleId ?? game.titleId
+    if let failure = call({ warp_core_set_keep_in_emulator(core, saveId, useEmulator, &$0) }) {
+      libraryMessage = "Couldn't: \(failure)"
+    } else {
+      let place = useEmulator ? library.emulator : (game.nxnative?.name ?? "its nxnative app")
+      libraryMessage = "\(game.name) now syncs with \(place)."
+    }
+    refreshLibrary()
+  }
+
   private func call(_ body: (inout UnsafeMutablePointer<CChar>?) -> Bool) -> String? {
     var error: UnsafeMutablePointer<CChar>?
     return body(&error) ? nil : (take(error) ?? "something went wrong")

@@ -1,6 +1,19 @@
 import AppKit
 import Foundation
 
+/// An nxnative port of a game: a Mac app with the game's save in its own folder.
+struct NxApp: Codable, Hashable {
+  let name: String
+  let path: String
+  let appTitleId: String
+  let saveTitleId: String
+  let saveIdSource: String  // "control data", "setting" or "app id"
+  let savePath: String
+  let cloudFolder: String  // nxnative's own iCloud sync; "" = off
+  let running: Bool
+  let hasSave: Bool
+}
+
 /// One save in the library (a game, for the linked user).
 struct Game: Codable, Identifiable, Hashable {
   let key: String
@@ -16,7 +29,20 @@ struct Game: Codable, Identifiable, Hashable {
   let ignored: Bool  // "Stop Syncing": WarpPoint leaves it alone
   var savePath: String = ""
   var backupsPath: String = ""
+  /// Where on this Mac the save lives: "emulator" or "nxnative".
+  let macSide: String
+  /// That place's name: "Astris", or "Xenoblade Chronicles (nxnative)".
+  let macName: String
+  /// The game's nxnative app, when one is installed (even if Astris is chosen).
+  let nxnative: NxApp?
+  /// Astris can be chosen instead of the app (it's set up for this user).
+  let canUseEmulator: Bool
+  let emulatorHasSave: Bool
   var id: String { key }
+
+  var isNative: Bool { macSide == "nxnative" }
+  /// Short name of the Mac side for buttons: "Astris" or the app's name.
+  var macShort: String { isNative ? (nxnative?.name ?? macName) : macName }
 }
 
 /// Everything the library window shows, as the engine reports it.
@@ -24,6 +50,8 @@ struct Library: Codable {
   var console: String = ""
   var consoleSeen: String = ""
   var emulator: String = "Astris"
+  /// Everything on this Mac: "Astris", "Astris and nxnative", "nxnative".
+  var mac: String = "Astris"
   var emulatorOpen: Bool = false
   var consolePresent: Bool = false
   var keepBackups: Int = 4

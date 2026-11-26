@@ -20,7 +20,7 @@
 namespace {
 
 constexpr u64 kProgramId = 0x4200000000005750;
-constexpr const char* kVersion = "1.0.0";
+constexpr const char* kVersion = "1.2.0";
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
 constexpr const char* kModuleDir = "sdmc:/atmosphere/contents/4200000000005750";
 

@@ -51,6 +51,19 @@ class UnitStore {
 
   // What to call this side when talking to people: "Astris", "Will's Switch".
   virtual std::string displayName() const { return "this device"; }
+  // The name of the place this one save lives, when a store holds saves from several
+  // places (the Mac: Astris, or a game's own nxnative app).
+  virtual std::string nameFor(const std::string& key) const {
+    (void)key;
+    return displayName();
+  }
+  // Which of those places holds the save ("" when there is only one). The sync's
+  // memory of the last agreed version belongs to that place: when a save moves to
+  // another place, the two are compared afresh, never on the old place's history.
+  virtual std::string sideOf(const std::string& key) const {
+    (void)key;
+    return "";
+  }
 
   // Every save this store has, by key.
   virtual bool list(std::vector<UnitRef>& out, std::string& error) = 0;

@@ -12,6 +12,20 @@ std::shared_ptr<RyujinxStore> openEmulator(const Config& config) {
                                         [] { return openFilesOf(kEmulatorProcesses); });
 }
 
+std::shared_ptr<NxNativeStore> openNxNative(const Config& config) {
+  if (!config.nxnative.enabled) return nullptr;
+  auto dirs = defaultNxNativeAppDirs();
+  dirs.insert(dirs.end(), config.nxnative.appFolders.begin(), config.nxnative.appFolders.end());
+  return std::make_shared<NxNativeStore>(
+      findNxNativeApps(dirs, defaultNxNativeSupportRoot(), config.nxnative.saveIds),
+      config.nxnativeUser());
+}
+
+std::shared_ptr<MacStore> openLocal(const Config& config) {
+  return std::make_shared<MacStore>(openEmulator(config), openNxNative(config),
+                                    config.nxnative.keepInEmulator);
+}
+
 bool emulatorRunning() { return processRunning(kEmulatorProcesses); }
 
 std::string describeAction(SyncAction a, const std::string& local, const std::string& remote) {
