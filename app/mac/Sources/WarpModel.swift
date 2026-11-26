@@ -479,4 +479,16 @@ final class WarpModel: ObservableObject {
     defer { warp_free(p) }
     return String(cString: p)
   }
+
+  // MARK: - Save previews
+
+  /// What a game's save slots hold, read from its save folder on the Mac (reads a few KB).
+  func savePreview(_ titleId: String, folder: String) -> SavePreviewData {
+    guard let raw = take(warp_core_save_preview(core, titleId, folder)),
+          let data = raw.data(using: .utf8),
+          let preview = try? JSONDecoder().decode(SavePreviewData.self, from: data) else {
+      return SavePreviewData()
+    }
+    return preview
+  }
 }

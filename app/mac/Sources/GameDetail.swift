@@ -7,15 +7,30 @@ struct GameDetail: View {
   @ObservedObject var model: WarpModel
   @State private var backups: [Backup] = []
   @State private var confirmRestore: Backup?
+  @State private var preview = SavePreviewData()
 
   private var console: String { model.library.console.isEmpty ? "Switch" : model.library.console }
   /// This game's place on the Mac: "Astris" or its nxnative app's name.
   private var emulator: String { game.macShort }
 
+  /// The card's width, and the room its content has inside the padding. The content is
+  /// held to that width, so a long label wraps instead of pushing past the card's edge.
+  static let width: CGFloat = 340
+  private static let padding: CGFloat = 16
+  private static let contentWidth = width - 2 * padding
+
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 18) {
+    ScrollView(.vertical) {
+      VStack(alignment: .leading, spacing: 16) {
         header
+        if preview.supported {
+          SavePreviewSection(preview: preview,
+                             source: game.isNative ? "the Mac app's save" : "\(emulator)'s save")
+        }
+        if LiveSection.isRunning(game, model) {
+          LiveSection(game: game, model: model)
+        }
+        Divider()
         status
         nxnativeSection
         actions
@@ -28,11 +43,13 @@ struct GameDetail: View {
         Divider()
         backupList
       }
-      .padding(18)
+      .frame(width: Self.contentWidth, alignment: .leading)
+      .padding(Self.padding)
     }
-    .onAppear(perform: loadBackups)
-    .onChange(of: game) { loadBackups() }
-    .onChange(of: model.lastSync) { loadBackups() }
+    .frame(width: Self.width)
+    .onAppear(perform: load)
+    .onChange(of: game) { load() }
+    .onChange(of: model.lastSync) { load() }
     .alert(item: $confirmRestore) { b in
       Alert(title: Text("Restore this backup to \(emulator)?"),
             message: Text("Your current \(game.name) save in \(emulator) is backed up first, so you can undo this. The next sync carries it to \(console)."),
@@ -42,14 +59,21 @@ struct GameDetail: View {
   }
 
   private func loadBackups() { backups = model.backups(for: game.key) }
+  private func load() {
+    loadBackups()
+    preview = model.savePreview(game.titleId, folder: game.savePath)
+  }
 
   private var header: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      GameArt(path: game.icon, size: 128)
-        .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
-      Text(game.name).font(.title2.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-      if !game.publisher.isEmpty {
-        Text(game.publisher).foregroundStyle(.secondary)
+    HStack(alignment: .center, spacing: 12) {
+      GameArt(path: game.icon, size: 72)
+        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(game.name).font(.title3.weight(.semibold))
+          .fixedSize(horizontal: false, vertical: true)
+        if !game.publisher.isEmpty {
+          Text(game.publisher).font(.callout).foregroundStyle(.secondary)
+        }
       }
     }
   }
@@ -135,15 +159,21 @@ struct GameDetail: View {
           NativeBadge()
           Text(app.running ? "Running now" : "Mac app").font(.callout)
             .foregroundStyle(.secondary)
+          Spacer(minLength: 0)
         }
         if game.canUseEmulator {
-          Picker("Sync with", selection: Binding(
-            get: { game.isNative ? "nxnative" : "emulator" },
-            set: { model.setUseEmulator(game, $0 == "emulator") })) {
-            Text(app.name).tag("nxnative")
-            Text(model.library.emulator).tag("emulator")
+          // A radio group, not a segmented control: an app's full name fits on its own line.
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Sync \(console) with").font(.callout)
+            Picker("Sync with", selection: Binding(
+              get: { game.isNative ? "nxnative" : "emulator" },
+              set: { model.setUseEmulator(game, $0 == "emulator") })) {
+              Text("\(app.name) (Mac app)").tag("nxnative")
+              Text(model.library.emulator).tag("emulator")
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
           }
-          .pickerStyle(.segmented)
           Text(game.isNative
                ? "WarpPoint syncs \(console) with the Mac app. \(model.library.emulator)'s copy\(game.emulatorHasSave ? "" : ", if any,") is left as it is."
                : "WarpPoint syncs \(console) with \(model.library.emulator). The Mac app's save is left as it is.")
@@ -172,12 +202,12 @@ struct GameDetail: View {
           .fixedSize(horizontal: false, vertical: true)
         }
         HStack {
-          Button("Open \(app.name)") {
+          Button("Open App") {
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: app.path),
                                                configuration: NSWorkspace.OpenConfiguration())
           }
           .disabled(app.running)
-          Button("Show App") {
+          Button("Show in Finder") {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: app.path)])
           }
         }
@@ -252,7 +282,8 @@ private struct BackupNote: View {
   let save: (String) -> Void
   @State private var text = ""
   var body: some View {
-    TextField("Add a note", text: $text)
+    TextField("Add a note", text: $text, axis: .vertical)
+      .lineLimit(1...4)
       .textFieldStyle(.plain)
       .font(.caption)
       .foregroundStyle(.primary)
