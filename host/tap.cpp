@@ -184,12 +184,21 @@ std::string tapValue(const TapField& f, const std::vector<uint8_t>& b) {
 
 std::string tapSnapshot(RemoteStore& console, const std::vector<TapProfile>& profiles,
                         const std::string& gameName) {
+  return tapSnapshot(
+      [&](const std::vector<proto::TapEntry>& plan, proto::TapReply& reply, std::string& error) {
+        return console.tap(plan, reply, error);
+      },
+      profiles, gameName);
+}
+
+std::string tapSnapshot(const TapReader& read, const std::vector<TapProfile>& profiles,
+                        const std::string& gameName) {
   json out = {{"game", gameName}, {"titleId", ""}, {"buildId", ""}, {"supported", false},
               {"status", ""}, {"fields", json::array()}};
   std::string error;
   proto::TapReply probe;
   // First ask with nothing to read: just which game and build is running.
-  if (!console.tap({}, probe, error)) {
+  if (!read({}, probe, error)) {
     out["status"] = error;
     return out.dump();
   }
@@ -217,7 +226,7 @@ std::string tapSnapshot(RemoteStore& console, const std::vector<TapProfile>& pro
   std::vector<proto::TapEntry> plan;
   for (const auto& f : it->fields) plan.push_back(f.entry);
   proto::TapReply reply;
-  if (!console.tap(plan, reply, error)) {
+  if (!read(plan, reply, error)) {
     out["status"] = error;
     return out.dump();
   }

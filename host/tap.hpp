@@ -18,6 +18,7 @@
 #include "messages.hpp"
 
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -50,6 +51,11 @@ std::string tapValue(const TapField& f, const std::vector<uint8_t>& bytes);
 // One look at the console's running game: {"game","titleId","buildId","supported",
 // "status","fields":[{"id","label","group","value","note"}]}.
 std::string tapSnapshot(RemoteStore& console, const std::vector<TapProfile>& profiles,
+                        const std::string& gameName);
+
+// The same from any source: read(plan, reply, error) as RemoteStore::tap does.
+using TapReader = std::function<bool(const std::vector<proto::TapEntry>&, proto::TapReply&, std::string&)>;
+std::string tapSnapshot(const TapReader& read, const std::vector<TapProfile>& profiles,
                         const std::string& gameName);
 
 }  // namespace WarpPoint

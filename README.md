@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.5.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.6.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.5.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.6.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -184,6 +184,13 @@ Also in 1.4: the Switch remembers each save's hash until the save changes, so sy
 opens a game's save just as that game starts (which could make the game close with "an error
 occurred"). Passes after the first are about four times faster.
 
+## Labs (1.6)
+
+Developer tools, terminal only. **Divergence** reads the same Tap profile from the game on
+the Switch and from the same game in an nxnative app on this Mac, and shows where they differ.
+`warp lab-run` presses the same buttons on both and stops at the first field that differs.
+See [docs/LABS.md](docs/LABS.md).
+
 ## How light is it?
 
 Light enough to forget about.
@@ -230,7 +237,9 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Warp Split: LiveSplit auto-splitting from Tap (1.4)
 - [x] Warp Lexicon: the game's text in a Mac window, for Look Up and Anki (1.4)
 - [x] Warp Chronicle: notes on backups, and pinned backups kept forever (1.5)
+- [x] Labs: Divergence, the Switch against an nxnative port, field by field (1.6, terminal only)
 - [ ] More Tap profiles: other games, and FE3H's roster, supports and dialogue text
+- [ ] Labs: Tracy, a profiler for retail games on hardware
 - [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)
 - [x] nxnative ports, found and synced like emulator games (1.2)
 - [ ] More emulators

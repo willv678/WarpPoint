@@ -7,6 +7,7 @@ add_library(warp_host_core STATIC
   discovery.cpp
   emulator.cpp
   album.cpp
+  labs.cpp
   lens.cpp
   mods.cpp
   presence.cpp

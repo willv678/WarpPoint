@@ -33,6 +33,7 @@
 #include "file_lock.hpp"
 #include "album.hpp"
 #include "app_core.hpp"
+#include "labs.hpp"
 #include "lens.hpp"
 #include "mods.hpp"
 #include "tap.hpp"
@@ -89,6 +90,10 @@ int usage() {
                "       warp mods TITLE_ID                  (Warp Mods: a game's mod library)\n"
                "       warp mods-add TITLE_ID FOLDER NAME / mods-on|mods-off TITLE_ID NAME\n"
                "       warp mods-apply                     (apply every game's mods now)\n"
+               "       warp lab-launch APP / lab-tap APP / lab-diff APP   (Labs: an nxnative app's\n"
+               "                                           live values, and where they differ from the Switch)\n"
+               "       warp lab-run APP SCRIPT             (Divergence: the same presses on both, stop at the\n"
+               "                                           first field that differs; see docs/LABS.md)\n"
                "       warp tap-dump FILE SIZE REGION OFFSET [HOP...]  (for profile authors)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
@@ -616,6 +621,27 @@ int cmdWatch() {
   return 0;
 }
 
+// Labs: an nxnative app by part of its name.
+std::optional<NxNativeApp> labApp(const std::string& name, std::string& error) {
+  const auto nx = openNxNative(g_config);
+  if (nx) {
+    for (const auto& a : nx->apps()) {
+      if (lower(a.name).find(lower(name)) != std::string::npos) return a;
+    }
+  }
+  error = "no nxnative app called \"" + name + "\" (see `warp nxnative`)";
+  return std::nullopt;
+}
+
+fs::path labCtl(const NxNativeApp& app) { return dataDir() / "labs" / (nxTitleFolder(app.appTitleId) + ".ctl"); }
+
+NxNativeTap labTap(const NxNativeApp& app) {
+  const char* h = std::getenv("HOME");
+  return NxNativeTap(app, labCtl(app),
+                     fs::path(h ? h : ".") / "Library/Logs/nxnative" / (nxTitleFolder(app.appTitleId) + ".log"),
+                     dataDir() / "labs" / "scratch");
+}
+
 int cmdNxNative() {
   const auto nx = openNxNative(g_config);
   if (!nx) {
@@ -685,6 +711,35 @@ int main(int argc, char** argv) {
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();
   if (cmd == "nxnative") return cmdNxNative();
+  if ((cmd == "lab-launch" || cmd == "lab-tap") && args.size() == 2) {
+    std::string e;
+    const auto app = labApp(args[1], e);
+    if (!app) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    if (cmd == "lab-launch") {
+      if (!launchForLabs(*app, labCtl(*app), e)) {
+        std::fprintf(stderr, "%s\n", e.c_str());
+        return 1;
+      }
+      std::printf("Started %s with a Labs control file. Play as usual; `warp lab-tap` reads it.\n",
+                  app->name.c_str());
+      return 0;
+    }
+    NxNativeTap tap = labTap(*app);
+    const auto snap = nlohmann::json::parse(tapSnapshot(
+        [&](const std::vector<proto::TapEntry>& p, proto::TapReply& r, std::string& err) { return tap.read(p, r, err); },
+        tapProfiles(dataDir()), app->name));
+    std::printf("%s (build %s)\n", app->name.c_str(), snap.value("buildId", "").c_str());
+    if (!snap.value("status", "").empty()) std::printf("%s\n", snap.value("status", "").c_str());
+    for (const auto& f : snap["fields"]) {
+      const std::string v = f.contains("value") && f["value"].is_string() ? f["value"].get<std::string>()
+                                                                         : f.value("note", "");
+      std::printf("  %-20s %s\n", f.value("label", "").c_str(), v.c_str());
+    }
+    return 0;
+  }
   if (cmd == "label" && args.size() >= 4 && (args[3] == "pin" || args[3] == "unpin")) {
     std::string note;
     for (size_t i = 4; i < args.size(); ++i) note += (note.empty() ? "" : " ") + args[i];
@@ -735,7 +790,8 @@ int main(int argc, char** argv) {
                      (cmd == "resolve" && args.size() == 3) ||
                      (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4) ||
                      cmd == "reports" || cmd == "album" || cmd == "tap" ||
-                     (cmd == "tap-dump" && args.size() >= 5) || cmd == "mods-apply";
+                     (cmd == "tap-dump" && args.size() >= 5) || cmd == "mods-apply" ||
+                     (cmd == "lab-diff" && args.size() == 2) || (cmd == "lab-run" && args.size() == 3);
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -778,6 +834,81 @@ int main(int argc, char** argv) {
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
   if (cmd == "backups") one(cmdBackups);
+  if (cmd == "lab-diff") {
+    std::string e;
+    const auto app = labApp(args[1], e);
+    if (!app) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    NxNativeTap tap = labTap(*app);
+    const auto profiles = tapProfiles(dataDir());
+    const std::string onSwitch = tapSnapshot(*session->store, profiles, app->name);
+    const std::string onMac = tapSnapshot(
+        [&](const std::vector<proto::TapEntry>& p, proto::TapReply& r, std::string& err) { return tap.read(p, r, err); },
+        profiles, app->name);
+    size_t differ = 0;
+    std::printf("  %-22s %-16s %-16s\n", "", session->agent.name.c_str(), "This Mac");
+    for (const auto& d : compareSnapshots(onSwitch, onMac)) {
+      if (!d.same) ++differ;
+      std::printf("%s %-22s %-16s %-16s\n", d.same ? " " : "*", d.label.c_str(),
+                  d.console.empty() ? "-" : d.console.c_str(), d.mac.empty() ? "-" : d.mac.c_str());
+    }
+    std::printf("%zu field%s differ (*).\n", differ, differ == 1 ? "" : "s");
+  }
+  if (cmd == "lab-run") {
+    std::string e;
+    const auto app = labApp(args[1], e);
+    std::ifstream file(args[2]);
+    std::stringstream text;
+    text << file.rdbuf();
+    std::vector<LabStep> steps;
+    if (!app || !file || !parseLabScript(text.str(), steps, e)) {
+      std::fprintf(stderr, "%s\n", e.empty() ? ("cannot read " + args[2]).c_str() : e.c_str());
+      return 1;
+    }
+    NxNativeTap tap = labTap(*app);
+    if (!tap.ready(e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    BotbaseInput pad;
+    if (!pad.connect(session->address, e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    const auto profiles = tapProfiles(dataDir());
+    int checks = 0;
+    for (size_t i = 0; i < steps.size(); ++i) {
+      const auto& s = steps[i];
+      if (s.kind == LabStep::Wait) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(s.seconds * 1000)));
+      } else if (s.kind == LabStep::Press) {
+        tap.press(s.button);
+        if (!pad.click(s.button, e)) {
+          std::fprintf(stderr, "%s\n", e.c_str());
+          return 1;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+      } else {
+        ++checks;
+        const auto diffs = compareSnapshots(
+            tapSnapshot(*session->store, profiles, app->name),
+            tapSnapshot([&](const std::vector<proto::TapEntry>& p, proto::TapReply& r, std::string& err) {
+              return tap.read(p, r, err);
+            }, profiles, app->name));
+        for (const auto& d : diffs) {
+          if (d.same) continue;
+          std::printf("Check %d (step %zu): first difference is %s: %s on the Switch, %s on this Mac.\n",
+                      checks, i + 1, d.label.c_str(), d.console.empty() ? "unreadable" : d.console.c_str(),
+                      d.mac.empty() ? "unreadable" : d.mac.c_str());
+          return 3;
+        }
+        std::printf("Check %d (step %zu): all %zu fields agree.\n", checks, i + 1, diffs.size());
+      }
+    }
+    std::printf("No differences in %d check%s.\n", checks, checks == 1 ? "" : "s");
+  }
   if (cmd == "mods-apply") {
     // The same as the app does after each sync: AppCore::applyMods, without its sync.
     AppCore core(dataDir());
@@ -837,7 +968,8 @@ int main(int argc, char** argv) {
                   snap.value("buildId", "").c_str());
       if (!snap.value("status", "").empty()) std::printf("%s\n", snap.value("status", "").c_str());
       for (const auto& f : snap["fields"]) {
-        const std::string v = f["value"].is_string() ? f["value"].get<std::string>() : f.value("note", "");
+        const std::string v = f.contains("value") && f["value"].is_string() ? f["value"].get<std::string>()
+                                                                         : f.value("note", "");
         std::printf("  %-20s %s\n", f.value("label", "").c_str(), v.c_str());
       }
     }
