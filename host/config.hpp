@@ -16,7 +16,10 @@
 //     "sendUpgraded": ["<console save title id>", ...],    // send a Switch 2 Edition app's
 //                                                          // saves to the console (a Switch 2)
 //     "appFolders": ["/Volumes/Games/Apps"]               // besides /Applications, ~/Applications
-//   }
+//   },
+//   "plugins": { "lens": false, "mods": true }          // on/off per plugin (see plugins.hpp);
+//                                                       // Album, Split and Presence keep
+//                                                       // their own "enabled" below
 // }
 #pragma once
 #include <cstddef>
@@ -61,6 +64,10 @@ struct Config {
     std::string discordAppId;
     bool showMac = true;  // games running on this Mac too (nxnative ports, Astris), 1.8
   } presence;
+
+  // Plugins turned on or off by hand (plugin id -> on). A plugin not named here has its
+  // default (see PluginCatalog). Album, Split and Presence use their own flags above.
+  std::map<std::string, bool> plugins;
 
   // The console user whose saves the nxnative apps hold ("" = nobody yet).
   std::string nxnativeUser() const {

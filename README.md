@@ -213,6 +213,16 @@ also the quick way to find new Tap fields: search the Mac port's memory, then ch
 the Switch.
 See [docs/LABS.md](docs/LABS.md).
 
+## Plugins
+
+Everything above beyond syncing saves is a plugin. **Plugins…** in the menu (or in the
+Library's toolbar) lists them all, says what each does and how, shows what it still needs,
+and turns it on or off. **Game Data** fetches the small data sheets Tap, Lexicon and Split
+need for the games in your library, and **Get More** lists every pack in this repo's
+[`plugins/`](plugins) folder. Downloads come only from GitHub, are checked against their
+SHA-256, and need no account. `warp plugins` does the same from a terminal. See
+[docs/PLUGINS.md](docs/PLUGINS.md), which also explains how to publish a pack.
+
 ## How light is it?
 
 Light enough to forget about.

@@ -5,6 +5,8 @@
 #include "emulator.hpp"
 #include "file_lock.hpp"
 #include "album.hpp"
+#include "plugin_store.hpp"
+#include "plugins.hpp"
 #include "lens.hpp"
 #include "split.hpp"
 #include "mods.hpp"
@@ -409,6 +411,7 @@ json latestConsole(const std::filesystem::path& dataDir);  // below
 
 std::string AppCore::tapJson() {
   using json = nlohmann::json;
+  if (!pluginOn(dataDir_, "tap")) return json{{"status", "Tap is off. Turn it on in Plugins."}, {"fields", json::array()}}.dump();
   if (!consolePresent_) return json{{"status", "Open WarpPoint on your Switch."}, {"fields", json::array()}}.dump();
   // The console last synced with, at its last address.
   StateStore state(dataDir_ / "state.json");
@@ -510,6 +513,7 @@ bool AppCore::setModEnabled(const std::string& titleId, const std::string& name,
 
 std::vector<AutoSyncEvent> AppCore::applyMods(Session& s) {
   std::vector<AutoSyncEvent> events;
+  if (!pluginOn(dataDir_, "mods")) return events;  // off: leave mods where they are
   ModLibrary lib(dataDir_);
   Config c;
   std::string e;
@@ -614,6 +618,10 @@ void AppCore::splitLoop() {
       status("Waiting for the Switch");
       continue;
     }
+    if (!pluginEnabled(c, "tap")) {
+      status("Needs Tap turned on");
+      continue;
+    }
     const json snap = json::parse(tapJson(), nullptr, false);
     if (!snap.is_object()) continue;
     const uint64_t tid = std::strtoull(snap.value("titleId", "").c_str(), nullptr, 16);
@@ -680,6 +688,10 @@ bool AppCore::labelBackup(const std::string& key, const std::string& backupId,
                           const std::string& note, bool pinned, std::string& error) {
   Config config;
   if (!loadConfig(dataDir_ / "config.json", config, error)) return false;
+  if (!pluginEnabled(config, "chronicle")) {
+    error = "Chronicle is off; turn it on in Plugins to add notes and pins";
+    return false;
+  }
   FileLock lock(dataDir_ / "sync.lock");
   if (!takeLock(lock, error)) return false;
   return BackupStore(dataDir_ / "backups", config.keepBackups).setLabel(key, backupId, note, pinned, error);
@@ -1063,6 +1075,55 @@ void AppCore::macTick() {
   const json j = {{"kind", "presence"}, {"presence", presence_.status()}};
   std::lock_guard<std::mutex> lock(mutex_);
   events_.push_back(j.dump());
+}
+
+std::string AppCore::pluginsJson() {
+  Config config;
+  std::string error;
+  loadConfig(dataDir_ / "config.json", config, error);
+  PluginContext ctx = pluginContext(dataDir_);
+  if (consolePresent_) {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    ctx.playing = playingTitle_;
+  }
+  {
+    std::lock_guard<std::mutex> lock(playingMutex_);
+    ctx.live["presence"] = presenceStatus_;
+    ctx.live["split"] = splitStatus_;
+  }
+  return WarpPoint::pluginsJson(config, ctx);
+}
+
+bool AppCore::setPluginEnabled(const std::string& id, bool on, std::string& error) {
+  // Album, Lens and Mods do their work during a sync: catch up now when turned on.
+  const bool syncAfter = on && (id == "album" || id == "lens" || id == "mods");
+  return changeConfig([&](Config& c, std::string& e) { return WarpPoint::setPluginEnabled(c, id, on, e); },
+                      syncAfter, error);
+}
+
+std::string AppCore::pluginStoreJson(const std::string* fetched, const std::string& fetchError) {
+  return PackStore(dataDir_).storeJson(fetched, fetchError);
+}
+
+bool AppCore::installPack(const std::string& id, const std::string& bytes, std::string& error) {
+  return PackStore(dataDir_).install(id, bytes, error);
+}
+
+bool AppCore::removePack(const std::string& id, std::string& error) {
+  return PackStore(dataDir_).remove(id, error);
+}
+
+std::string AppCore::gameDataWantedJson() {
+  if (!pluginOn(dataDir_, "gamedata")) return "[]";
+  std::set<uint64_t> games;
+  const json lib = json::parse(gamesJson(), nullptr, false);
+  if (lib.is_object() && lib.contains("games") && lib["games"].is_array()) {
+    for (const auto& g : lib["games"]) {
+      const std::string id = g.value("titleId", "");
+      if (!id.empty()) games.insert(std::strtoull(id.c_str(), nullptr, 16));
+    }
+  }
+  return json(PackStore(dataDir_).wantedFor(games)).dump();
 }
 
 }  // namespace WarpPoint

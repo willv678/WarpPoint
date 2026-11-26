@@ -36,6 +36,8 @@
 #include "labs.hpp"
 #include "lens.hpp"
 #include "mods.hpp"
+#include "plugin_store.hpp"
+#include "plugins.hpp"
 #include "tap.hpp"
 
 #include <nlohmann/json.hpp>
@@ -99,6 +101,11 @@ int usage() {
                "       warp lab-run APP SCRIPT             (Divergence: the same presses on both, stop at the\n"
                "                                           first field that differs; see docs/LABS.md)\n"
                "       warp tap-dump FILE SIZE REGION OFFSET [HOP...]  (for profile authors)\n"
+               "       warp plugins [PLUGIN]               (every plugin, on or off, and what it needs)\n"
+               "       warp plugin-on PLUGIN / plugin-off PLUGIN\n"
+               "       warp packs                          (packs installed from the plugin store)\n"
+               "       warp pack-index DIR                 (for pack authors: fill in DIR/index.json's\n"
+               "                                           sha256 and preview; see docs/PLUGINS.md)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
   return 2;
 }
@@ -688,6 +695,44 @@ int cmdNxNative() {
   return 0;
 }
 
+// `warp plugins`: one line each; `warp plugins tap`: the whole description.
+int cmdPlugins(const std::string& which) {
+  const auto list = nlohmann::json::parse(pluginsJson(g_config, pluginContext(dataDir())));
+  bool found = which.empty();
+  auto str = [](const nlohmann::json& j, const char* k) { return j.value(k, std::string()); };
+  for (const auto& p : list) {
+    if (which.empty()) {
+      std::printf("%-10s %-30s %s\n", str(p, "id").c_str(), str(p, "statusText").c_str(),
+                  str(p, "summary").c_str());
+      continue;
+    }
+    if (str(p, "id") != which) continue;
+    found = true;
+    std::printf("%s (%s): %s\n\n%s\n\nHow it works: %s\n\nTurned off: %s\n", str(p, "name").c_str(),
+                str(p, "statusText").c_str(), str(p, "summary").c_str(), str(p, "what").c_str(),
+                str(p, "how").c_str(), str(p, "offNote").c_str());
+    if (!p["needs"].empty()) std::printf("\nNeeds:\n");
+    for (const auto& n : p["needs"]) {
+      const char* mark = n["met"].is_null() ? " ? " : n["met"].get<bool>() ? "yes" : "NO ";
+      std::printf("  [%s] %s\n", mark, str(n, "text").c_str());
+    }
+    if (!p["anyGame"].get<bool>()) {
+      std::printf("\nGames:\n");
+      if (p["games"].empty()) std::printf("  none yet\n");
+      for (const auto& g : p["games"]) {
+        std::printf("  %s (%s)\n", str(g, "name").c_str(), str(g, "titleId").c_str());
+      }
+    }
+    if (!p["commands"].empty()) std::printf("\nCommands:\n");
+    for (const auto& c : p["commands"]) std::printf("  %s\n", c.get<std::string>().c_str());
+  }
+  if (!found) {
+    std::fprintf(stderr, "there's no plugin called \"%s\"; try `warp plugins`\n", which.c_str());
+    return 1;
+  }
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -711,6 +756,38 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "%s\n", error.c_str());
       return 1;
     }
+  }
+  if (cmd == "plugins" && args.size() <= 2) return cmdPlugins(args.size() == 2 ? args[1] : "");
+  if ((cmd == "plugin-on" || cmd == "plugin-off") && args.size() == 2) {
+    std::string e;
+    if (!setPluginEnabled(g_config, args[1], cmd == "plugin-on", e) ||
+        !saveConfig(dataDir() / "config.json", g_config, e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    std::printf("%s is %s.\n", findPlugin(args[1])->name.c_str(), cmd == "plugin-on" ? "on" : "off");
+    return 0;
+  }
+  if (cmd == "packs") {
+    const auto packs = installedPacks(dataDir());
+    if (packs.empty()) std::printf("No packs installed. The Mac app's Plugins window has Get More.\n");
+    for (const auto& [id, p] : packs) {
+      std::printf("%-24s %-10s %s  (%s)\n", id.c_str(), p.version.c_str(), p.name.c_str(), p.file.c_str());
+    }
+    return 0;
+  }
+  if (cmd == "pack-index" && args.size() == 2) {
+    std::string report, e;
+    if (!rebuildPackIndex(args[1], report, e)) {
+      std::fprintf(stderr, "%s\n", e.c_str());
+      return 1;
+    }
+    std::printf("%s", report.empty() ? "index.json was already up to date.\n" : report.c_str());
+    return 0;
+  }
+  if (cmd.rfind("lab-", 0) == 0 && !pluginEnabled(g_config, "labs")) {
+    std::fprintf(stderr, "Labs is off. Turn it on with `warp plugin-on labs` or in the Plugins window.\n");
+    return 1;
   }
   if (cmd == "find") return cmdFind();
   if (cmd == "watch") return cmdWatch();

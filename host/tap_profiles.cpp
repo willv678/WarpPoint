@@ -1,5 +1,6 @@
 // Warp Tap's built-in game profiles (see tap.hpp for the format). Each field here was
-// checked against the game on a real console before it went in.
+// checked against the game on a real console before it went in. Each is also a pack in
+// the plugin store (plugins/tap/); a test keeps the two copies the same.
 namespace WarpPoint {
 
 extern const char* const kBuiltinTapProfiles[] = {

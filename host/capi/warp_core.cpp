@@ -230,6 +230,38 @@ char* warp_core_save_preview(WarpCore* core, const char* titleId, const char* fo
 
 char* warp_core_data_dir(WarpCore* core) { return dup(core->core.dataDir().string()); }
 
+char* warp_core_plugins(WarpCore* core) { return dup(core->core.pluginsJson()); }
+
+bool warp_core_set_plugin_enabled(WarpCore* core, const char* pluginId, bool enabled, char** error) {
+  std::string e;
+  if (core->core.setPluginEnabled(pluginId ? pluginId : "", enabled, e)) return true;
+  setError(error, e);
+  return false;
+}
+
+char* warp_core_plugin_store(WarpCore* core, const char* indexJson, const char* fetchError) {
+  const std::string fetched = indexJson ? indexJson : "";
+  return dup(core->core.pluginStoreJson(indexJson ? &fetched : nullptr, fetchError ? fetchError : ""));
+}
+
+bool warp_core_install_pack(WarpCore* core, const char* packId, const char* bytes, long length,
+                            char** error) {
+  std::string e;
+  const std::string data = bytes && length > 0 ? std::string(bytes, static_cast<size_t>(length)) : "";
+  if (core->core.installPack(packId ? packId : "", data, e)) return true;
+  setError(error, e);
+  return false;
+}
+
+bool warp_core_remove_pack(WarpCore* core, const char* packId, char** error) {
+  std::string e;
+  if (core->core.removePack(packId ? packId : "", e)) return true;
+  setError(error, e);
+  return false;
+}
+
+char* warp_core_game_data_wanted(WarpCore* core) { return dup(core->core.gameDataWantedJson()); }
+
 void warp_free(char* s) { std::free(s); }
 
 }  // extern "C"

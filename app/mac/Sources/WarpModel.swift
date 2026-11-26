@@ -491,4 +491,163 @@ final class WarpModel: ObservableObject {
     }
     return preview
   }
+
+  // MARK: - Plugins
+
+  @Published private(set) var plugins: [Plugin] = []
+  @Published private(set) var pluginStore = PluginStore()
+  @Published private(set) var storeLoading = false
+  @Published private(set) var storeBusy: Set<String> = []  // pack ids installing or removing
+  @Published var storeMessage: String?
+  /// Plugin windows on screen ("live", "lexicon", "reports"): the menu lists those.
+  @Published private(set) var openPluginWindows: Set<String> = []
+
+  func refreshPlugins() {
+    guard let raw = take(warp_core_plugins(core)), let data = raw.data(using: .utf8),
+          let list = try? JSONDecoder().decode([Plugin].self, from: data) else { return }
+    plugins = list
+  }
+
+  func plugin(_ id: String) -> Plugin? { plugins.first { $0.id == id } }
+
+  /// WarpPoint's data folder (tap/ for your own profiles is in there).
+  var dataFolder: URL? { take(warp_core_data_dir(core)).map { URL(fileURLWithPath: $0) } }
+
+  /// On unless the engine says it's off (and on while the list hasn't loaded yet).
+  func pluginOn(_ id: String) -> Bool { plugin(id)?.enabled ?? true }
+
+  func setPluginEnabled(_ id: String, _ on: Bool) -> String? {
+    defer { refreshPlugins(); refreshSetup() }
+    return call { warp_core_set_plugin_enabled(core, id, on, &$0) }
+  }
+
+  func pluginWindowOpened(_ id: String) {
+    openPluginWindows.insert(id)
+    windowOpened()
+  }
+
+  func pluginWindowClosed(_ id: String) {
+    openPluginWindows.remove(id)
+    windowClosed()
+  }
+
+  /// Get More: download index.json from GitHub (or show the last copy, offline).
+  func refreshStore() {
+    guard !storeLoading else { return }
+    storeLoading = true
+    let core = self.core
+    Task {
+      let result = await PluginStoreSource.get(PluginStoreSource.indexURL)
+      let raw: String?
+      switch result {
+      case .success(let data):
+        raw = WarpModel.takeString(warp_core_plugin_store(core, String(decoding: data, as: UTF8.self), ""))
+      case .failure(let error):
+        raw = WarpModel.takeString(warp_core_plugin_store(core, nil, error.localizedDescription))
+      }
+      if let raw, let s = try? JSONDecoder().decode(PluginStore.self, from: Data(raw.utf8)) {
+        pluginStore = s
+      }
+      storeLoading = false
+    }
+  }
+
+  /// The store as last fetched, without going to GitHub (after install or remove).
+  private func reloadStoreOffline() {
+    let fetchError = pluginStore.online ? "" : pluginStore.fetchError
+    guard let raw = take(warp_core_plugin_store(core, nil, fetchError)),
+          var s = try? JSONDecoder().decode(PluginStore.self, from: Data(raw.utf8)) else { return }
+    s.online = pluginStore.online
+    pluginStore = s
+  }
+
+  func installPack(_ pack: PluginStore.Pack) {
+    storeBusy.insert(pack.id)
+    storeMessage = nil
+    let core = self.core
+    Task {
+      let result = await PluginStoreSource.get(PluginStoreSource.fileURL(pack.file))
+      switch result {
+      case .success(let data):
+        var error: UnsafeMutablePointer<CChar>?
+        let ok = data.withUnsafeBytes { buf in
+          warp_core_install_pack(core, pack.id, buf.bindMemory(to: CChar.self).baseAddress,
+                                 buf.count, &error)
+        }
+        storeMessage = ok ? "Installed \(pack.name)."
+                          : "Couldn't install \(pack.name): \(WarpModel.takeString(error) ?? "unknown error")"
+      case .failure(let e):
+        storeMessage = "Couldn't download \(pack.name). \(e.localizedDescription)"
+      }
+      storeBusy.remove(pack.id)
+      reloadStoreOffline()
+      refreshPlugins()
+    }
+  }
+
+  @Published private(set) var gameDataChecked: Date?
+  @Published private(set) var gameDataNote: String?
+  private var gameDataTimer: Timer?
+
+  /// Game Data: from launch, once a day, fetch the plugin list and install or update the
+  /// packs for games in the library. Does nothing while the plugin is off.
+  func startGameData() {
+    guard gameDataTimer == nil else { return }
+    updateGameData()
+    gameDataTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.updateGameData() }
+    }
+  }
+
+  func updateGameData() {
+    refreshPlugins()
+    guard pluginOn("gamedata"), !storeLoading else { return }
+    storeLoading = true
+    let core = self.core
+    Task {
+      let result = await PluginStoreSource.get(PluginStoreSource.indexURL)
+      let raw: String?
+      switch result {
+      case .success(let data):
+        raw = WarpModel.takeString(warp_core_plugin_store(core, String(decoding: data, as: UTF8.self), ""))
+      case .failure(let error):
+        raw = WarpModel.takeString(warp_core_plugin_store(core, nil, error.localizedDescription))
+      }
+      if let raw, let s = try? JSONDecoder().decode(PluginStore.self, from: Data(raw.utf8)) {
+        pluginStore = s
+      }
+      storeLoading = false
+      gameDataChecked = Date()
+      guard case .success = result else {
+        gameDataNote = "Couldn't check: \(pluginStore.fetchError)"
+        return
+      }
+      let wanted = (WarpModel.takeString(warp_core_game_data_wanted(core))
+        .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) }) ?? []
+      var done: [String] = []
+      for id in wanted {
+        guard let pack = pluginStore.packs.first(where: { $0.id == id }) else { continue }
+        guard case .success(let data) = await PluginStoreSource.get(PluginStoreSource.fileURL(pack.file)) else { continue }
+        var error: UnsafeMutablePointer<CChar>?
+        let ok = data.withUnsafeBytes { buf in
+          warp_core_install_pack(core, pack.id, buf.bindMemory(to: CChar.self).baseAddress, buf.count, &error)
+        }
+        _ = WarpModel.takeString(error)
+        if ok { done.append(pack.name) }
+      }
+      gameDataNote = done.isEmpty ? "Up to date." : "Installed or updated \(done.joined(separator: ", "))."
+      reloadStoreOffline()
+      refreshPlugins()
+    }
+  }
+
+  func removePack(id: String, name: String) {
+    if let failure = call({ warp_core_remove_pack(core, id, &$0) }) {
+      storeMessage = "Couldn't remove \(name): \(failure)"
+    } else {
+      storeMessage = "Removed \(name)."
+    }
+    reloadStoreOffline()
+    refreshPlugins()
+  }
 }

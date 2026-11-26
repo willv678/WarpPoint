@@ -18,8 +18,11 @@ add_executable(warp_tests
   test_mods.cpp
   test_split.cpp
   test_save_preview.cpp
+  test_plugins.cpp
 )
 target_include_directories(warp_tests PRIVATE third_party/doctest)
+# The repo itself, for tests that check plugins/ and docs/ against the code.
+target_compile_definitions(warp_tests PRIVATE WARP_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 target_link_libraries(warp_tests PRIVATE warp_agent warp_host_core warp_warnings Threads::Threads)
 
 add_test(NAME warp_tests COMMAND warp_tests)

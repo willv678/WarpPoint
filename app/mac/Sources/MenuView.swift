@@ -32,6 +32,24 @@ struct MenuView: View {
     }
     .padding(14)
     .frame(width: 330)
+    .onAppear { model.refreshPlugins() }
+  }
+
+  /// Live Game Info and Lexicon when the game on the Switch has a profile for them,
+  /// Crash Reports when there's a new one, and any of them while its window is open.
+  private var pluginWindows: [(id: String, title: String)] {
+    let open = model.openPluginWindows
+    var list: [(id: String, title: String)] = []
+    if open.contains("live") || (model.plugin("tap")?.active ?? false) {
+      list.append(("live", "Live Game Info…"))
+    }
+    if open.contains("lexicon") || (model.plugin("lexicon")?.active ?? false) {
+      list.append(("lexicon", "Lexicon…"))
+    }
+    if open.contains("reports") || model.newCrashes > 0 {
+      list.append(("reports", model.newCrashes > 0 ? "Crash Reports (\(model.newCrashes) new)…" : "Crash Reports…"))
+    }
+    return list
   }
 
   private var header: some View {
@@ -118,19 +136,21 @@ struct MenuView: View {
         openWindow(id: "library")
         NSApp.activate()  // a menu bar app's window should come to the front
       }
-      MenuButton("Lexicon…") {
-        openWindow(id: "lexicon")
+      MenuButton("Plugins…") {
+        openWindow(id: "plugins")
         NSApp.activate()
       }
-      MenuButton("Live Game Info…") {
-        openWindow(id: "live")
-        NSApp.activate()
+      // Plugin windows only while they're open or have something to show.
+      if !pluginWindows.isEmpty {
+        Divider().padding(.vertical, 2)
+        ForEach(pluginWindows, id: \.id) { w in
+          MenuButton(w.title) {
+            openWindow(id: w.id)
+            NSApp.activate()
+          }
+        }
+        Divider().padding(.vertical, 2)
       }
-      MenuButton(model.newCrashes > 0 ? "Crash Reports (\(model.newCrashes) new)…" : "Crash Reports…") {
-        openWindow(id: "reports")
-        NSApp.activate()
-      }
-      MenuButton("Show Backups and Data in Finder") { model.showDataFolder() }
       MenuButton("Settings…") {
         openSettings()
         NSApp.activate()
