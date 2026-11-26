@@ -39,6 +39,8 @@
 #include "tap.hpp"
 
 #include <nlohmann/json.hpp>
+#include "game_icons.hpp"
+#include "mac_playing.hpp"
 #include "presence.hpp"
 #include "remote_store.hpp"
 #include "ryujinx_store.hpp"
@@ -55,6 +57,7 @@
 #include <set>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -85,6 +88,7 @@ int usage() {
                "       warp nxnative                       (the nxnative apps found here)\n"
                "       warp reports                        (Warp Lens: crashes on the Switch)\n"
                "       warp presence-test DISCORD_APP_ID   (Warp Presence: show a test game for 20 s)\n"
+               "       warp presence-mac [DISCORD_APP_ID]  (Warp Presence: the game on this Mac; with an ID, show it 30 s)\n"
                "       warp album                          (Warp Album: copy new captures now)\n"
                "       warp tap                            (Warp Tap: the running game's live numbers)\n"
                "       warp mods TITLE_ID                  (Warp Mods: a game's mod library)\n"
@@ -773,6 +777,41 @@ int main(int argc, char** argv) {
     }
     for (const auto& c : lib.compose(id).conflicts) std::printf("  conflict: %s\n", c.c_str());
     if (cmd != "mods") std::printf("Applied at the next sync (or now with `warp mods-apply`).\n");
+    return 0;
+  }
+  if (cmd == "presence-mac" && args.size() <= 2) {
+    // What Presence would show for this Mac right now; with an ID, shown in Discord
+    // for 30 s too.
+    Config c;
+    std::string e;
+    loadConfig(dataDir() / "config.json", c, e);
+    TitleCache titles = titleCache();
+    MacGameWatcher watcher;
+    const auto g = watcher.poll(c, [&titles](uint64_t id) {
+      const auto rec = titles.get(id);
+      return rec && rec->found ? rec->name : std::string();
+    });
+    Activity a = choosePresence({}, g, true);
+    GameIcons icons;
+    a.largeImage = icons.urlFor(a.iconId);
+    if (a.key.empty()) {
+      std::printf("Nothing playing on this Mac.\n");
+      return 0;
+    }
+    std::printf("%s%s%s\n", a.details.c_str(), a.state.empty() ? "" : " - ", a.state.c_str());
+    if (a.start) {
+      const auto mins = (static_cast<int64_t>(std::time(nullptr)) - a.start) / 60;
+      std::printf("  started %lld min ago\n", static_cast<long long>(mins));
+    }
+    std::printf("  picture: %s\n", a.largeImage.empty() ? "none (the app's icon)" : a.largeImage.c_str());
+    if (args.size() == 2) {
+      Presence p;
+      p.show(true, args[1], a);
+      std::printf("%s\n", p.status().c_str());
+      if (p.status().rfind("Showing", 0) != 0) return 1;
+      std::this_thread::sleep_for(std::chrono::seconds(30));
+      p.show(true, args[1], Activity{});
+    }
     return 0;
   }
   if (cmd == "presence-test" && args.size() == 2) {

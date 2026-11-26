@@ -67,7 +67,8 @@ struct SettingsView: View {
         Text("New captures from your Switch's album land here after each sync, in a folder per game. Nothing on the Switch is changed.")
           .font(.caption).foregroundStyle(.secondary)
       }
-      DiscordSettings(setup: setup, set: { error = model.setPresence(enabled: $0, appId: $1) })
+      DiscordSettings(setup: setup, set: { error = model.setPresence(enabled: $0, appId: $1) },
+                      setMac: { error = model.setPresenceMac($0) })
       SplitSettings(setup: setup, set: { error = model.setSplit(enabled: $0, host: $1, port: $2) })
       Section("General") {
         Toggle("Open WarpPoint when you log in", isOn: $model.openAtLogin)
@@ -163,16 +164,20 @@ struct NxNativeSettings: View {
   }
 }
 
-/// Warp Presence: the Switch's game in Discord.
+/// Warp Presence: the Switch's game in Discord, and games on this Mac.
 struct DiscordSettings: View {
   let setup: Setup
   let set: (Bool, String) -> Void
+  let setMac: (Bool) -> Void
   @State private var appId = ""
 
   var body: some View {
     Section {
       Toggle("Show what I'm playing on the Switch", isOn: Binding(
         get: { setup.presence.enabled }, set: { set($0, appId) }))
+      Toggle("Show games I play on this Mac", isOn: Binding(
+        get: { setup.presence.showMac }, set: { setMac($0) }))
+        .disabled(!setup.presence.enabled)
       TextField("Discord Application ID", text: $appId)
         .onSubmit { set(setup.presence.enabled, appId) }
         .onAppear { appId = setup.presence.discordAppId }
@@ -182,7 +187,7 @@ struct DiscordSettings: View {
     } header: {
       Text("Discord")
     } footer: {
-      Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Nothing leaves this Mac except to the Discord app.")
+      Text("Discord shows activity under an app you own: make one at discord.com/developers/applications (call it \"Nintendo Switch\"), copy its Application ID here, and press Return. Discord then shows \"Playing Nintendo Switch\" with the game's name. Games on this Mac (nxnative ports and Astris) show too, \"on Mac\" or \"in Astris\", when nothing is playing on the Switch. The game's picture comes from tinfoil.media: WarpPoint asks it once per game whether it has one, sending only the game's id.")
         .font(.caption).foregroundStyle(.secondary)
     }
   }

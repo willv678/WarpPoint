@@ -10,12 +10,49 @@
 // (discord.com/developers/applications, a minute's work): its name is what Discord
 // says you're playing ("Nintendo Switch"), and WarpPoint fills in the game. So the
 // Application ID is a setting, and Presence is off until it's there.
+//
+// Games on this Mac show too (1.8): an nxnative port ("on Mac") or a game in Astris
+// ("in Astris"); see mac_playing.hpp for how they're found. Priority: the Switch
+// first, then the Mac (choosePresence).
 #pragma once
 #include <cstdint>
 #include <chrono>
+#include <optional>
 #include <string>
 
 namespace WarpPoint {
+
+// What Discord should show. key "" = nothing; the same key keeps the elapsed time.
+struct Activity {
+  std::string key;      // "switch:0100...", "mac:0100...", "emulator:Astris"
+  std::string details;  // the first line: the game ("Fire Emblem: Three Houses")
+  std::string state;    // the second line: "on Will's Switch", "on Mac", "in Astris"
+  int64_t start = 0;    // elapsed time from (Unix seconds); 0 = from when it first showed
+  uint64_t iconId = 0;  // the title id whose picture to show (0 = none)
+  std::string largeImage;  // the picture's link (game_icons.hpp); "" = the app's icon
+};
+
+// The Switch's running game, from its beacon (titleId 0 = none, or no console).
+struct SwitchPlaying {
+  std::string console;
+  uint64_t titleId = 0;
+  std::string name;
+};
+
+// A game running on this Mac (mac_playing.hpp finds it).
+struct MacGame {
+  uint64_t titleId = 0;  // 0 = an emulator is open but which game isn't certain
+  std::string name;      // the game's name; "" with titleId 0
+  std::string where;     // "on Mac" (an nxnative port) or "in Astris"
+  std::string app;       // the emulator's name, for "Astris" with no game
+  int64_t startedAt = 0; // Unix seconds the app (or the game in it) started; 0 = unknown
+  uint64_t iconId = 0;   // whose picture: a Switch 2 Edition port shows its base game's
+};
+
+// The rule: the Switch's game if one is running there; else the Mac's (when showMac);
+// else nothing. Within the Mac, mac_playing.hpp prefers a port to an emulator.
+Activity choosePresence(const SwitchPlaying& sw, const std::optional<MacGame>& mac,
+                        bool showMac);
 
 class DiscordIpc {
  public:
@@ -47,15 +84,15 @@ class Presence {
   // Discord at most every 30 s while something is playing.
   void update(bool enabled, const std::string& appId, const std::string& console,
               uint64_t titleId, const std::string& name);
+  // The same for any activity (choosePresence's). Sends only when it changed.
+  void show(bool enabled, const std::string& appId, const Activity& activity);
   // "Showing Xenoblade Chronicles in Discord", "Discord isn't open", "Off", ...
   std::string status() const { return status_; }
 
  private:
   DiscordIpc ipc_;
   std::string appId_;
-  uint64_t shown_ = 0;  // what Discord shows now (0 = nothing)
-  std::string shownName_;
-  int64_t startedAt_ = 0;
+  Activity shown_;  // what Discord shows now (key "" = nothing)
   std::chrono::steady_clock::time_point nextTry_{};
   std::string status_ = "Off";
 };

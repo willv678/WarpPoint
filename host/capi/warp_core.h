@@ -86,6 +86,9 @@ bool warp_core_set_split(WarpCore* core, bool enabled, const char* host, int por
  * "name","titleId","icon","image","message"} say what was copied. */
 bool warp_core_set_album(WarpCore* core, bool enabled, const char* folder, char** error);
 bool warp_core_set_presence(WarpCore* core, bool enabled, const char* discordAppId, char** error);
+/* Show games running on this Mac too (setup's "presence": {"showMac"}), after the Switch's.
+ * Events {"kind":"presence","presence"} carry the status when only it changed. */
+bool warp_core_set_presence_mac(WarpCore* core, bool showMac, char** error);
 /* Backups to keep per save (0 = all). */
 bool warp_core_set_keep_backups(WarpCore* core, int keep, char** error);
 /* The emulator's data folder (the one with bis/ and system/ in it). */

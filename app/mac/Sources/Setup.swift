@@ -29,6 +29,7 @@ struct Setup: Codable {
   struct PresenceSettings: Codable {
     var enabled: Bool = false
     var discordAppId: String = ""
+    var showMac: Bool = true
     var status: String = "Off"
   }
 

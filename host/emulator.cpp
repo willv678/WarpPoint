@@ -28,6 +28,8 @@ std::shared_ptr<MacStore> openLocal(const Config& config) {
 
 bool emulatorRunning() { return processRunning(kEmulatorProcesses); }
 
+const std::vector<std::string>& emulatorProcessNames() { return kEmulatorProcesses; }
+
 std::string describeAction(SyncAction a, const std::string& local, const std::string& remote) {
   switch (a) {
     case SyncAction::None: return "in sync";
