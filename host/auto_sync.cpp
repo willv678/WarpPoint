@@ -115,6 +115,11 @@ void AutoSync::syncKeys(const std::vector<std::string>& keys) {
   requested_ = true;
 }
 
+std::optional<Peer> AutoSync::console() const {
+  std::lock_guard<std::mutex> lock(consoleMutex_);
+  return current_;
+}
+
 void AutoSync::emit(AutoSyncEvent e) {
   if (cfg_.onEvent) cfg_.onEvent(e);
 }
@@ -133,6 +138,7 @@ void AutoSync::loop() {
   int failures = 0;          // in a row: the first retry comes quickly
 
   while (!stop_) {
+    owed_ = pending && console && !gameWasRunning && failures == 0;
     // Wait for a beacon a little at a time so stop() is quick.
     if (auto peer = discovery_.listen(250)) {
       const bool isNew = !console || console->deviceId != peer->deviceId;
@@ -141,6 +147,10 @@ void AutoSync::loop() {
         notBefore = {};
       }
       console = peer;
+      {
+        std::lock_guard<std::mutex> lock(consoleMutex_);
+        current_ = peer;
+      }
       lastBeacon = Clock::now();
       if (isNew) {
         emit({AutoSyncEvent::Kind::ConsoleFound, peer->name, "", {}, ""});
@@ -150,6 +160,10 @@ void AutoSync::loop() {
     }
     const auto now = Clock::now();
     if (console && now - lastBeacon > cfg_.consoleTimeout) {
+      {
+        std::lock_guard<std::mutex> lock(consoleMutex_);
+        current_.reset();
+      }
       emit({AutoSyncEvent::Kind::ConsoleLost, console->name, "", {}, ""});
       if (cfg_.onPlaying) cfg_.onPlaying(console->name, 0);
       playing = 0;
@@ -190,6 +204,8 @@ void AutoSync::loop() {
       if (done) {
         pending = false;
         failures = 0;
+      } else if (lockBusy_) {
+        notBefore = Clock::now() + std::chrono::seconds(1);  // a transfer is pausing for it
       } else {
         ++failures;
         notBefore = Clock::now() + (failures == 1 ? std::min(cfg_.retryAfter, cfg_.firstRetryAfter)
@@ -201,7 +217,11 @@ void AutoSync::loop() {
 
 bool AutoSync::runPass(const Peer& console) {
   FileLock lock(cfg_.dataDir / "sync.lock");
-  if (!lock.tryLock()) return false;  // a `warp` command is busy: try again shortly
+  if (!lock.tryLock()) {  // a `warp` command or a WarpDrop transfer is busy: shortly
+    lockBusy_ = true;
+    return false;
+  }
+  lockBusy_ = false;
 
   auto local = cfg_.makeLocal ? cfg_.makeLocal() : nullptr;
   const std::string localName = local ? local->displayName() : "";

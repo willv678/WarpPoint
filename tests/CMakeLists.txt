@@ -25,6 +25,8 @@ add_executable(warp_tests
   test_save_preview.cpp
   ${WARP_SAVE_PREVIEW_TESTS}
   test_plugins.cpp
+  test_drop.cpp
+  ../switch/common/switch_files.cpp
 )
 target_include_directories(warp_tests PRIVATE third_party/doctest ../switch/common ${CMAKE_CURRENT_SOURCE_DIR})
 # The repo itself, for tests that check plugins/ and docs/ against the code.

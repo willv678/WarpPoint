@@ -111,6 +111,13 @@ class AutoSync {
 
   uint16_t port() const { return discovery_.port(); }
 
+  // WarpDrop: the console around now (from its beacons), or nullopt.
+  std::optional<Peer> console() const;
+  // WarpDrop: a pass is due but found the sync lock taken (a transfer holds it). The
+  // transfer then pauses and lets the pass go first. Not set for retries after a pass
+  // failed for another reason (no emulator set up, say), so those don't stall transfers.
+  bool passWaiting() const { return owed_ && lockBusy_; }
+
  private:
   void loop();
   // true = done (successfully or with per-save problems); false = try again later.
@@ -124,6 +131,10 @@ class AutoSync {
   std::atomic<bool> requested_{false};
   std::mutex extraMutex_;
   std::vector<std::string> extraKeys_;
+  mutable std::mutex consoleMutex_;
+  std::optional<Peer> current_;            // guarded by consoleMutex_
+  std::atomic<bool> owed_{false};          // a pass is pending and would run now
+  std::atomic<bool> lockBusy_{false};      // the last try found the sync lock taken
 };
 
 }  // namespace WarpPoint

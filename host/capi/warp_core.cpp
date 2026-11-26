@@ -279,6 +279,26 @@ bool warp_core_set_tip_seen(WarpCore* core, const char* tipId, char** error) {
   return false;
 }
 
+char* warp_core_drop_classify(WarpCore* core, const char* requestJson) {
+  return dup(core->core.dropClassify(requestJson ? requestJson : "{}"));
+}
+
+char* warp_core_drop_send(WarpCore* core, const char* requestJson) {
+  return dup(core->core.dropSend(requestJson ? requestJson : "{}"));
+}
+
+char* warp_core_drop_queue(WarpCore* core) { return dup(core->core.dropQueueJson()); }
+
+bool warp_core_drop_cancel(WarpCore* core, const char* id) { return core->core.dropCancel(id ? id : ""); }
+
+bool warp_core_drop_choose(WarpCore* core, const char* id, const char* choice, bool wholeBatch) {
+  return core->core.dropChoose(id ? id : "", choice ? choice : "", wholeBatch);
+}
+
+bool warp_core_drop_retry(WarpCore* core, const char* id) { return core->core.dropRetry(id ? id : ""); }
+
+void warp_core_drop_clear(WarpCore* core) { core->core.dropClear(); }
+
 void warp_free(char* s) { std::free(s); }
 
 }  // extern "C"

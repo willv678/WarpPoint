@@ -36,6 +36,9 @@ add_library(warp_host_core STATIC
   config.cpp
   plugins.cpp
   plugin_store.cpp
+  drop_classify.cpp
+  drop_queue.cpp
+  app_drop.cpp
 )
 target_include_directories(warp_host_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/capi)
 # nlohmann/json: Mac-side only, never compiled for the Switch.

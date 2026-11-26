@@ -64,4 +64,33 @@ class UserSource {
   virtual bool users(std::vector<proto::ConsoleUser>& out) = 0;
 };
 
+// WarpDrop: one file being received, resumable. Destroying it without finish() keeps
+// what arrived, so a later write of the same file carries on from there.
+class FileWriter {
+ public:
+  virtual ~FileWriter() = default;
+  virtual uint64_t have() const = 0;  // bytes already there: the host sends from here
+  virtual bool write(const uint8_t* data, size_t len) = 0;
+  // Check the whole file's SHA-256 and size, then put it in place.
+  virtual bool finish(const std::string& sha256) = 0;
+  virtual std::string error() const = 0;
+};
+
+// WarpDrop (cap "files"): the SD card, for files the Mac sends. Paths are relative to
+// the card's root and already checked by isSafeRelativePath; the source applies the
+// write rules (sdWritePathAllowed) itself.
+class FileSource {
+ public:
+  virtual ~FileSource() = default;
+  virtual bool stat(const std::string& path, proto::FileStat& out, std::string& error) = 0;
+  virtual bool list(const std::string& path, std::vector<proto::FileEntry>& out,
+                    std::string& error) = 0;
+  virtual bool makeDir(const std::string& path, std::string& error) = 0;
+  // nullptr with error (and code: Exists, BadRequest or Io) when the write can't start.
+  virtual std::unique_ptr<FileWriter> write(const proto::FilesWrite& req, proto::ErrorCode& code,
+                                            std::string& error) = 0;
+  // Forget a partly received file (the Mac cancelled it).
+  virtual bool discard(const std::string& path, const std::string& sha256, std::string& error) = 0;
+};
+
 }  // namespace WarpPoint

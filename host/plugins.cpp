@@ -256,6 +256,27 @@ std::vector<PluginInfo> makeCatalog() {
   labs.docs = "docs/LABS.md";
   c.push_back(labs);
 
+  PluginInfo drop;
+  drop.id = "drop";
+  drop.name = "Drop";
+  drop.icon = "tray.and.arrow.down";
+  drop.since = "1.12";
+  drop.summary = "Drag files onto the menu bar UFO to send them to the Switch's SD card.";
+  drop.what =
+      "Homebrew, overlays, themes, cheats, payloads or any other file: drop it on the UFO and "
+      "it lands in the right folder on the Switch, with no FTP client, card reader or IP "
+      "address. Mods go to the Mods library, Tap profiles and saves stay on this Mac.";
+  drop.how =
+      "WarpPoint works out what each file is and where it belongs, and shows that in a Send "
+      "window where you can change it. Files go over the same Wi-Fi link as syncing, in a queue "
+      "that waits for the Switch and carries on after a lost connection or a restart. The "
+      "Switch checks every file's checksum before putting it in place, never overwrites "
+      "without asking, and only takes files from a Mac it is paired with.";
+  drop.offNote = "Dropping on the UFO does nothing, and queued files wait. Nothing on the Switch changes.";
+  drop.needs = {{"switch", "files", "WarpPoint 1.12 or later on the Switch"}};
+  drop.games = "any";
+  c.push_back(drop);
+
   return c;
 }
 
@@ -263,6 +284,7 @@ std::vector<PluginInfo> makeCatalog() {
 std::string capVersion(const std::string& cap) {
   if (cap == "reports" || cap == "album") return "1.3";
   if (cap == "tap" || cap == "mods") return "1.4";
+  if (cap == "files") return "1.12";
   return "";
 }
 

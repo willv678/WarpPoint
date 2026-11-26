@@ -150,6 +150,21 @@ char* warp_core_game_data_wanted(WarpCore* core);
 bool warp_core_tip_seen(WarpCore* core, const char* tipId);
 bool warp_core_set_tip_seen(WarpCore* core, const char* tipId, char** error);
 
+/* WarpDrop (see AppCore::dropClassify / dropSend in host/app_core.hpp). classify: what
+ * dropped files are and where they'd go; send: queue them (SD card) or handle them here
+ * (mods, Tap profiles, saves). The queue: {"status","statusText","console","items":[...]};
+ * events {"kind":"drop"} say it changed, {"kind":"dropDone","message","ok"} that a batch
+ * finished. classify reads the files' first bytes; it doesn't touch the network. */
+char* warp_core_drop_classify(WarpCore* core, const char* requestJson);
+char* warp_core_drop_send(WarpCore* core, const char* requestJson);
+char* warp_core_drop_queue(WarpCore* core);
+/* id "" or NULL: everything not finished. */
+bool warp_core_drop_cancel(WarpCore* core, const char* id);
+/* choice: "replace", "keepBoth" or "skip"; wholeBatch keeps it for the rest of the drop. */
+bool warp_core_drop_choose(WarpCore* core, const char* id, const char* choice, bool wholeBatch);
+bool warp_core_drop_retry(WarpCore* core, const char* id);
+void warp_core_drop_clear(WarpCore* core);
+
 void warp_free(char* s);
 
 #ifdef __cplusplus

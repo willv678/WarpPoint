@@ -51,6 +51,17 @@ enum class Msg : uint8_t {
   UpdateOffer = 49,    // host -> agent: the Switch files this Mac has (version) (cap "update")
   UpdateState = 50,    // agent -> host: module version, and whether the player asked to update
   UpdateReq = 51,      // host -> agent: install these files (version), then a unit stream
+  // 52-59: pairing.
+  // WarpDrop (cap "files"): files on the SD card. Refused unless the session is trusted.
+  FilesStatReq = 60,     // host -> agent: path ("" = the SD card itself)
+  FilesStat = 61,        // agent -> host: FileStat
+  FilesListReq = 62,     // host -> agent: a folder's path
+  FilesList = 63,        // agent -> host: its entries (at most kMaxFileEntries)
+  FilesMkdirReq = 64,    // host -> agent: make this folder (and its parents)
+  FilesDone = 65,        // agent -> host: done (FilesMkdirReq, FilesDiscardReq)
+  FilesWriteReq = 66,    // host -> agent: FilesWrite. Then Chunk* FileEnd, or Abort
+  FilesWriteReady = 67,  // agent -> host: u64 bytes it already has (send from there)
+  FilesDiscardReq = 68,  // host -> agent: path, sha256: drop a partly sent file
 };
 
 enum class ErrorCode : uint16_t {
@@ -61,6 +72,8 @@ enum class ErrorCode : uint16_t {
   Changed = 5,  // compare-and-swap failed: the unit changed since it was listed
   Io = 6,
   Integrity = 7,  // hash or size mismatch
+  NotTrusted = 60,  // "files": this session isn't trusted (the Mac isn't paired)
+  Exists = 61,      // "files": something is already there and replacing wasn't allowed
 };
 
 // Names a save. Only a name: each side decides for itself where and how the save
@@ -250,6 +263,43 @@ bool decodeReport(const std::vector<uint8_t>& p, std::string& name, bool& trunca
 // FileEnd, UnitEnd and Committed carry a single hex hash string.
 std::vector<uint8_t> encodeHash(const std::string& hash);
 bool decodeHash(const std::vector<uint8_t>& p, std::string& hash);
+
+// --- WarpDrop (cap "files") ---
+// Paths are relative to the SD card's root ("switch/foo/foo.nro"): never absolute, no
+// "..". The agent decides what may be written (see sdWritePathAllowed in paths.hpp).
+// A write is resumable: the agent keeps a partly received file next to its destination,
+// named by the file's SHA-256, and FilesWriteReady says how much of it is there. The
+// host sends the rest as Chunk frames, then FileEnd with the whole file's SHA-256; the
+// agent checks it and puts the file in place (Committed), or says why not (Error).
+// Abort instead of FileEnd keeps what arrived, for later; nothing is sent back.
+constexpr size_t kMaxFileEntries = 1024;
+
+struct FileStat {
+  bool exists = false;
+  bool isDir = false;
+  uint64_t size = 0;
+  uint64_t freeBytes = 0;  // free space on the SD card
+};
+
+struct FileEntry {
+  std::string name;
+  bool isDir = false;
+  uint64_t size = 0;
+};
+
+struct FilesWrite {
+  std::string path;
+  uint64_t size = 0;
+  std::string sha256;    // the whole file's, 64 lower-case hex
+  bool replace = false;  // a file already at path may be replaced
+};
+
+std::vector<uint8_t> encode(const FileStat& m);
+bool decode(const std::vector<uint8_t>& p, FileStat& m);
+std::vector<uint8_t> encode(const std::vector<FileEntry>& entries);
+bool decode(const std::vector<uint8_t>& p, std::vector<FileEntry>& entries);
+std::vector<uint8_t> encode(const FilesWrite& m);
+bool decode(const std::vector<uint8_t>& p, FilesWrite& m);
 
 // --- UDP discovery (not framed) ---
 // "WPT2" | u8 kind | u16 version | kind-specific fields

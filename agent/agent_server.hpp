@@ -19,11 +19,15 @@ struct AgentIdentity {
 
 using LogFn = std::function<void(const std::string&)>;
 
+// files: WarpDrop's SD card access (cap "files"). Every files request is refused unless
+// the session is trusted (sessionTrusted in agent_server.cpp). trustForTests stands in
+// for pairing in tests; Switch builds ignore it.
 // Serve one session until the host disconnects or breaks the protocol.
 // Returns true for a clean disconnect. titles may be null (no "titles" cap).
 bool serveSession(Stream& stream, UnitStore& store, const AgentIdentity& identity,
                   const LogFn& log, TitleSource* titles = nullptr, UserSource* users = nullptr,
                   ReportSource* reports = nullptr, AlbumSource* album = nullptr,
-                  TapSource* tap = nullptr, UpdateSource* update = nullptr);
+                  TapSource* tap = nullptr, UpdateSource* update = nullptr,
+                  FileSource* files = nullptr, bool trustForTests = false);
 
 }  // namespace WarpPoint

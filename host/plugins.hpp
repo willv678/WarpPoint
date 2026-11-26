@@ -1,6 +1,6 @@
 // WarpPoint's plugins, described in one place.
 //
-// Lens, Album, Presence, Tap, Mods, Split, Lexicon, Chronicle and Labs are compiled
+// Lens, Album, Presence, Tap, Mods, Split, Lexicon, Chronicle, Labs and Drop are compiled
 // into WarpPoint. The catalog below is the one description of each: what it does, how
 // it works, what it needs, which games it covers and whether it's on. The Mac app's
 // Plugins window, `warp plugins` and docs/PLUGINS.md all read from it (a test checks
