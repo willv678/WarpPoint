@@ -235,8 +235,15 @@ bool AutoSync::runPass(const Peer& console) {
   StateStore state(cfg_.dataDir / "state.json");
   std::string error;
   if (!state.load(error)) return fail(error);
-  auto session = openSession(console.address, console.port, state.hostId(), cfg_.hostName, error);
+  auto session = openSession(console.address, console.port, state.hostId(), cfg_.hostName, error,
+                             cfg_.dataDir / "pairs");
   if (!session) return fail(error);
+  if (session->needsPairing) {
+    // Nothing works until the player pairs this Mac; say so once per pass, not as a failure.
+    emit({AutoSyncEvent::Kind::NeedsPairing, session->agent.name, localName, {},
+          "Pair this Mac with " + session->agent.name + " to sync"});
+    return false;
+  }
   state.setDevice(session->agent.deviceId, {session->agent.name, console.address});
 
   std::vector<UnitRef> refs;

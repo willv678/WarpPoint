@@ -42,6 +42,7 @@ struct LibraryView: View {
     VStack(spacing: 0) {
       banner
       ForEach(conflicts) { conflictBanner($0) }
+      if model.pairing != .none { pairingBanner }
       if model.switchUpdate.available { switchUpdateBanner(model.switchUpdate) }
       // The details float over the grid as a card, so the grid never reflows (a
       // narrower grid would re-pick its columns and every tile would jump).
@@ -217,6 +218,39 @@ struct LibraryView: View {
     .padding(.horizontal, 20)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+
+  /// Pairing: the Switch only talks to Macs the player paired in its overlay.
+  private var pairingBanner: some View {
+    HStack(spacing: 10) {
+      switch model.pairing {
+      case .needed(let console):
+        Image(systemName: "lock.shield.fill").foregroundStyle(.orange)
+        Text("Pair this Mac with **\(console.isEmpty ? "your Switch" : console)**. It won't sync, send files or update until you do.")
+        Spacer()
+        Button("Pair\u{2026}") { model.startPairing() }
+      case .waiting:
+        ProgressView().controlSize(.small)
+        Text("Asking the Switch\u{2026}")
+        Spacer()
+      case .code(let code, let console):
+        Image(systemName: "number.square.fill").foregroundStyle(.blue)
+        Text("On \(console), open the WarpPoint overlay. If it shows **\(code)**, choose **Pair**.")
+        Spacer()
+        ProgressView().controlSize(.small)
+      case .failed(let message):
+        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+        Text(message).lineLimit(2)
+        Spacer()
+        Button("Try Again") { model.startPairing() }
+      case .none:
+        EmptyView()
+      }
+    }
+    .font(.callout)
+    .padding(.horizontal, 20)
+    .padding(.vertical, 9)
+    .background(Color.orange.opacity(0.10))
   }
 
   /// This app has newer Switch files: how to put them on the Switch.

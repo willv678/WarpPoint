@@ -20,7 +20,7 @@
 namespace {
 
 constexpr u64 kProgramId = 0x4200000000005750;
-constexpr const char* kVersion = "1.10.0";
+constexpr const char* kVersion = "1.12.0";
 constexpr const char* kDataDir = "sdmc:/config/warppoint";
 constexpr const char* kModuleDir = "sdmc:/atmosphere/contents/4200000000005750";
 
@@ -80,6 +80,9 @@ struct Status {
   std::string updateOffer;   // a newer version the Mac has, or ""
   bool updateWanted = false;
   std::string updateStatus;  // "", "installing 1.x", "installed 1.x", "failed: ...", "updated to 1.x"
+  std::string pairCode;      // a Mac waiting for the player's answer: its code ("123 456")
+  std::string pairHost;      // and its name
+  int pairedMacs = 0;
 };
 
 std::string field(const std::string& json, const std::string& key) {
@@ -119,6 +122,9 @@ Status readStatus() {
   s.updateOffer = field(json, "updateOffer");
   s.updateWanted = field(json, "updateWanted") == "true";
   s.updateStatus = field(json, "updateStatus");
+  s.pairCode = field(json, "pairCode");
+  s.pairHost = field(json, "pairHost");
+  s.pairedMacs = std::atoi(field(json, "pairedMacs").c_str());
   return s;
 }
 
@@ -161,6 +167,40 @@ class MainGui : public tsl::Gui {
     syncing_ = new tsl::elm::ToggleListItem("Syncing", true, "On", "Paused");
     syncing_->setStateChangedListener([](bool on) { request(on ? "resume" : "pause"); });
     list->addItem(syncing_);
+
+    // Pairing: a Mac asking shows its name and code here; the player decides.
+    list->addItem(new tsl::elm::CategoryHeader("Pairing"));
+    list->addItem(new tsl::elm::CustomDrawer([this](tsl::gfx::Renderer* r, s32 x, s32 y, s32, s32) {
+      r->drawString(pairLine1_.c_str(), false, x + 20, y + 30, 19, r->a(tsl::style::color::ColorText));
+      r->drawString(pairLine2_.c_str(), false, x + 20, y + 62, 26, r->a(tsl::style::color::ColorHighlight));
+    }), 80);
+    pairYes_ = new tsl::elm::ListItem("Paired Macs");
+    pairYes_->setClickListener([this](u64 keys) {
+      if (!(keys & HidNpadButton_A)) return false;
+      if (pairPending_) {
+        request("pair-yes");
+        pairYes_->setValue("Pairing\u2026");
+      }
+      return true;
+    });
+    list->addItem(pairYes_);
+    pairNo_ = new tsl::elm::ListItem("Forget paired Macs");
+    pairNo_->setClickListener([this](u64 keys) {
+      if (!(keys & HidNpadButton_A)) return false;
+      if (pairPending_) {
+        request("pair-no");
+        pairNo_->setValue("Refused");
+      } else if (forgetArmed_) {
+        request("unpair-all");
+        forgetArmed_ = false;
+        pairNo_->setValue("Forgotten");
+      } else {
+        forgetArmed_ = true;  // a second press confirms
+        pairNo_->setValue("Press again");
+      }
+      return true;
+    });
+    list->addItem(pairNo_);
 
     list->addItem(new tsl::elm::CategoryHeader("Update"));
     update_ = new tsl::elm::ListItem("Check for update");
@@ -226,6 +266,7 @@ class MainGui : public tsl::Gui {
     }
     if (syncing_ && s.read && syncing_->getState() == s.paused) syncing_->setState(!s.paused);
     followUpdate(s);
+    followPairing(s);
 
     if (!on) {
       line1_ = "Off";
@@ -299,7 +340,35 @@ class MainGui : public tsl::Gui {
     }
   }
 
+  void followPairing(const Status& s) {
+    if (!pairYes_) return;
+    const bool pending = !s.pairCode.empty();
+    if (pending != pairPending_) {
+      pairPending_ = pending;
+      forgetArmed_ = false;
+      pairYes_->setText(pending ? "Pair" : "Paired Macs");
+      pairYes_->setValue("");
+      pairNo_->setText(pending ? "Don't pair" : "Forget paired Macs");
+      pairNo_->setValue("");
+    }
+    if (pending) {
+      pairLine1_ = (s.pairHost.empty() ? std::string("A Mac") : s.pairHost) + " wants to pair";
+      pairLine2_ = "Code " + s.pairCode;
+    } else {
+      // Never an empty line: Tesla leaves the old text on screen when given "".
+      pairLine1_ = s.pairedMacs == 0 ? "No Mac paired yet" : "This Switch trusts";
+      pairLine2_ = s.pairedMacs == 0 ? "Pair from WarpPoint on your Mac"
+                                     : std::to_string(s.pairedMacs) + (s.pairedMacs == 1 ? " Mac" : " Macs");
+      pairYes_->setValue(std::to_string(s.pairedMacs));
+    }
+  }
+
   std::string line1_, line2_, line3_;
+  std::string pairLine1_, pairLine2_;
+  tsl::elm::ListItem* pairYes_ = nullptr;
+  tsl::elm::ListItem* pairNo_ = nullptr;
+  bool pairPending_ = false;
+  bool forgetArmed_ = false;
   tsl::elm::ListItem* update_ = nullptr;
   std::string offer_;
   bool updateAsked_ = false;

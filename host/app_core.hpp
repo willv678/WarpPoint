@@ -30,6 +30,7 @@ class AppCore {
 
   bool start(std::string& error);
   void stop() {
+    if (pairThread_.joinable()) pairThread_.join();
     if (drop_) drop_->stop();
     splitStop_ = true;
     if (splitThread_.joinable()) splitThread_.join();
@@ -96,6 +97,9 @@ class AppCore {
   // last pass learned: {"console","canUpdate","package","module","wanted","status","error"}.
   void setSwitchPackage(const std::string& dir);
   std::string switchUpdateJson();
+  // Pair this Mac with the console on the network: events "pairCode" (show the code;
+  // the player confirms in the Switch overlay), then "paired" or "pairFailed".
+  bool startPairing(std::string& error);
 
   // Warp Album: copy the Switch's screenshots and videos into folder ("" = ~/Pictures/WarpPoint).
   bool setAlbum(bool enabled, const std::string& folder, std::string& error);
@@ -164,6 +168,8 @@ class AppCore {
   void dropClear();
 
  private:
+  std::atomic<bool> pairing_{false};
+  std::thread pairThread_;
   std::mutex updateMutex_;
   std::string switchPackageDir_;
   std::string switchInfo_;  // JSON from the last pass, for the app

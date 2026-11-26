@@ -228,6 +228,10 @@ final class WarpModel: ObservableObject {
   /// The Switch side's version and whether this app has newer files for it.
   @Published private(set) var switchUpdate = SwitchUpdateInfo()
 
+  /// Pairing this Mac with the Switch (needed once; the Switch refuses unpaired Macs).
+  @Published var pairing: PairingState = .none
+  @Published var pairingDone: String?
+
   /// The Switch files this app carries, for copying by hand (older modules).
   var switchPackageFolder: URL? {
     Bundle.main.resourceURL?.appendingPathComponent("SwitchPackage")
@@ -376,6 +380,18 @@ final class WarpModel: ObservableObject {
       waitingForEmulator = false
     case "waiting":
       waitingForEmulator = true
+    case "needsPairing":
+      if case .waiting = pairing {} else if case .code = pairing {} else {
+        pairing = .needed(console: s("console"))
+      }
+    case "pairCode":
+      pairing = .code(s("code"), console: s("console"))
+    case "paired":
+      pairing = .none
+      pairingDone = "Paired with \(s("console"))."
+      refreshLibrary()
+    case "pairFailed":
+      pairing = .failed(s("message"))
     case "update":
       recent.insert(RecentSync(name: "Your Switch", text: s("message"), icon: "",
                                ok: !s("message").hasPrefix("Couldn't"), date: Date()), at: 0)
@@ -719,5 +735,26 @@ struct SwitchUpdateInfo: Codable {
       if p != q { return p < q ? -1 : 1 }
     }
     return 0
+  }
+}
+
+// MARK: - Pairing
+
+/// Where pairing this Mac with the Switch stands (engine events needsPairing, pairCode, paired, pairFailed).
+enum PairingState: Equatable {
+  case none
+  case needed(console: String)
+  case waiting
+  case code(String, console: String)
+  case failed(String)
+}
+
+extension WarpModel {
+  func startPairing() {
+    pairing = .waiting
+    var error: UnsafeMutablePointer<CChar>?
+    if !warp_core_start_pairing(core, &error) {
+      pairing = .failed(take(error) ?? "Couldn't start pairing")
+    }
   }
 }

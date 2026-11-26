@@ -232,6 +232,13 @@ char* warp_core_data_dir(WarpCore* core) { return dup(core->core.dataDir().strin
 
 char* warp_core_plugins(WarpCore* core) { return dup(core->core.pluginsJson()); }
 
+bool warp_core_start_pairing(WarpCore* core, char** error) {
+  std::string e;
+  if (core->core.startPairing(e)) return true;
+  setError(error, e);
+  return false;
+}
+
 void warp_core_set_switch_package(WarpCore* core, const char* dir) {
   core->core.setSwitchPackage(dir ? dir : "");
 }

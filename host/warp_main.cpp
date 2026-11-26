@@ -35,6 +35,8 @@
 #include "app_core.hpp"
 #include "labs.hpp"
 #include "switch_package.hpp"
+#include "drop_classify.hpp"
+#include "sha256.hpp"
 #include "lens.hpp"
 #include "mods.hpp"
 #include "plugin_store.hpp"
@@ -100,6 +102,8 @@ int usage() {
                "       warp mods-apply                     (apply every game's mods now)\n"
                "       warp lab-launch APP / lab-tap APP / lab-diff APP   (Labs: an nxnative app's\n"
                "                                           live values, and where they differ from the Switch)\n"
+               "       warp send FILE...                   (WarpDrop: files to the Switch's SD card)\n"
+               "       warp pair                           (pair this Mac with the Switch; confirm in its overlay)\n"
                "       warp switch-update [PACKAGE_DIR]   (update the Switch side; choose Update in its overlay)\n"
                "       warp lab-run APP SCRIPT             (Divergence: the same presses on both, stop at the\n"
                "                                           first field that differs; see docs/LABS.md)\n"
@@ -209,7 +213,7 @@ std::optional<Session> connect(const std::string& ipFlag, StateStore& state) {
   }
 
   std::string error;
-  auto opened = openSession(address, port, state.hostId(), net::hostName(), error);
+  auto opened = openSession(address, port, state.hostId(), net::hostName(), error, dataDir() / "pairs");
   if (!opened) {
     std::fprintf(stderr, "%s\n", error.c_str());
     return std::nullopt;
@@ -219,6 +223,9 @@ std::optional<Session> connect(const std::string& ipFlag, StateStore& state) {
   for (const auto& c : s.agent.caps) caps += (caps.empty() ? "" : ", ") + c;
   std::printf("Connected to %s (%s), can: %s\n", s.agent.name.c_str(), address.c_str(),
               caps.c_str());
+  if (s.needsPairing) {
+    std::printf("This Mac isn't paired with %s yet: run `warp pair`.\n", s.agent.name.c_str());
+  }
   state.setDevice(s.agent.deviceId, {s.agent.name, address});
   return opened;
 }
@@ -633,6 +640,8 @@ int cmdWatch() {
       case K::Crash: std::printf("Crash on %s: %s\n", e.console.c_str(), e.message.c_str()); break;
       case K::Album: std::printf("Copied %s into %s\n", e.message.c_str(), e.image.c_str()); break;
       case K::Mods: std::printf("Mods for %s: %s\n", e.program.c_str(), e.message.c_str()); break;
+      case K::Update: std::printf("%s\n", e.message.c_str()); break;
+      case K::NeedsPairing: std::printf("%s: run `warp pair`.\n", e.message.c_str()); break;
     }
     std::fflush(stdout);
   };
@@ -930,7 +939,8 @@ int main(int argc, char** argv) {
                      cmd == "reports" || cmd == "album" || cmd == "tap" ||
                      (cmd == "tap-dump" && args.size() >= 5) || cmd == "mods-apply" ||
                      (cmd == "lab-diff" && args.size() == 2) || (cmd == "lab-run" && args.size() == 3) ||
-                     (cmd == "switch-update" && args.size() <= 2);
+                     (cmd == "switch-update" && args.size() <= 2) || cmd == "pair" ||
+                     (cmd == "send" && args.size() >= 2);
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -994,6 +1004,85 @@ int main(int argc, char** argv) {
                   d.console.empty() ? "-" : d.console.c_str(), d.mac.empty() ? "-" : d.mac.c_str());
     }
     std::printf("%zu field%s differ (*).\n", differ, differ == 1 ? "" : "s");
+  }
+  if (cmd == "send") {
+    // WarpDrop from a terminal: plain files only, to where the classifier puts them.
+    if (!session->can("files")) {
+      std::fprintf(stderr, "%s can't take files (update WarpPoint on it).\n", session->agent.name.c_str());
+      return 1;
+    }
+    int failures = 0;
+    for (size_t i = 1; i < args.size(); ++i) {
+      const fs::path src = fs::absolute(args[i]);
+      std::error_code ec;
+      if (!fs::is_regular_file(src, ec)) {
+        std::fprintf(stderr, "%s: not a file (send folders from the app)\n", args[i].c_str());
+        ++failures;
+        continue;
+      }
+      DropProbe probe;
+      probe.name = src.filename().string();
+      probe.sourceDir = src.parent_path().string();
+      {
+        std::ifstream in(src, std::ios::binary);
+        probe.head.resize(256 * 1024);
+        in.read(probe.head.data(), static_cast<std::streamsize>(probe.head.size()));
+        probe.head.resize(static_cast<size_t>(in.gcount()));
+      }
+      const DropPlan plan = classifyDrop(probe, DropContext{});
+      if (plan.side != DropSide::Switch || plan.needsGame || plan.dest.empty()) {
+        std::fprintf(stderr, "%s: send this one from the app (it needs a choice)\n", probe.name.c_str());
+        ++failures;
+        continue;
+      }
+      std::ifstream in(src, std::ios::binary);
+      std::vector<uint8_t> data((std::istreambuf_iterator<char>(in)), {});
+      proto::FilesWrite req{plan.dest, data.size(), sha256Hex(data.data(), data.size()), false};
+      proto::ErrorCode code{};
+      std::string e;
+      const std::string folder = fs::path(plan.dest).parent_path().string();
+      if (!folder.empty()) session->store->filesMkdir(folder, code, e);
+      uint64_t have = 0;
+      if (!session->store->filesWriteBegin(req, have, code, e)) {
+        std::fprintf(stderr, "%s: %s\n", probe.name.c_str(), e.c_str());
+        ++failures;
+        continue;
+      }
+      bool ok = true;
+      for (uint64_t at = have; at < data.size() && ok; at += 64 * 1024) {
+        ok = session->store->filesChunk(data.data() + at, std::min<uint64_t>(64 * 1024, data.size() - at));
+      }
+      if (!ok || !session->store->filesWriteEnd(req.sha256, code, e)) {
+        std::fprintf(stderr, "%s: %s\n", probe.name.c_str(), e.empty() ? "connection lost" : e.c_str());
+        ++failures;
+        continue;
+      }
+      std::printf("Sent %s to sdmc:/%s\n", probe.name.c_str(), plan.dest.c_str());
+    }
+    return failures ? 1 : 0;
+  }
+  if (cmd == "pair") {
+    if (session->proven) {
+      std::printf("This Mac is already paired with %s.\n", session->agent.name.c_str());
+      return 0;
+    }
+    StateStore state(dataDir() / "state.json");
+    std::string e;
+    state.load(e);
+    const bool ok = pairSession(*session, state.hostId(), net::hostName(), dataDir() / "pairs",
+                                [&](const std::string& code) {
+                                  std::printf("Code: %s\nOn %s, open the WarpPoint overlay, check it shows the "
+                                              "same code, and choose Pair.\n",
+                                              code.c_str(), session->agent.name.c_str());
+                                  std::fflush(stdout);
+                                },
+                                e);
+    if (!ok) {
+      std::fprintf(stderr, "Not paired: %s\n", e.c_str());
+      return 1;
+    }
+    std::printf("Paired with %s.\n", session->agent.name.c_str());
+    return 0;
   }
   if (cmd == "switch-update") {
     // The package: an argument, $WARP_SWITCH_PACKAGE, or the installed app's.

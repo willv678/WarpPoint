@@ -54,6 +54,7 @@ const char* kindName(AutoSyncEvent::Kind k) {
     case K::Album: return "album";
     case K::Mods: return "mods";
     case K::Update: return "update";
+    case K::NeedsPairing: return "needsPairing";
   }
   return "?";
 }
@@ -436,7 +437,8 @@ std::string AppCore::tapJson() {
     if (d.name == console.value("name", "")) address = d.lastAddress;
   }
   if (address.empty()) return json{{"status", "WarpPoint hasn't synced with the Switch yet."}, {"fields", json::array()}}.dump();
-  auto session = openSession(address, proto::kAgentTcpPort, state.hostId(), net::hostName() + " (Tap)", error);
+  auto session = openSession(address, proto::kAgentTcpPort, state.hostId(), net::hostName() + " (Tap)", error,
+                             dataDir_ / "pairs");
   if (!session) return json{{"status", "Can't reach the Switch: " + error}, {"fields", json::array()}}.dump();
   if (!session->can("tap")) {
     return json{{"status", "Update WarpPoint on the Switch to 1.4 for Tap."}, {"fields", json::array()}}.dump();
@@ -1273,4 +1275,52 @@ bool AppCore::setTipSeen(const std::string& id, std::string& error) {
   }, false, error);
 }
 
+// ---- Pairing this Mac with the console ----
+
+bool AppCore::startPairing(std::string& error) {
+  if (pairing_.exchange(true)) {
+    error = "pairing is already in progress";
+    return false;
+  }
+  const auto peer = sync_.console();
+  if (!peer) {
+    pairing_ = false;
+    error = "no Switch found on this network: turn it on, with WarpPoint running";
+    return false;
+  }
+  if (pairThread_.joinable()) pairThread_.join();
+  pairThread_ = std::thread([this, peer = *peer]() {
+    auto send = [this](const json& j) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      events_.push_back(j.dump());
+    };
+    StateStore state(dataDir_ / "state.json");
+    std::string error;
+    state.load(error);
+    FileLock lock(dataDir_ / "sync.lock");
+    bool ok = false;
+    // The pairing wait can take a couple of minutes: keep syncs from colliding with it.
+    bool held = false;
+    for (int i = 0; i < 50 && !(held = lock.tryLock()); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    if (held) {
+      auto s = openSession(peer.address, peer.port, state.hostId(), net::hostName(), error, dataDir_ / "pairs");
+      if (s && s->proven) {
+        ok = true;  // already paired
+      } else if (s) {
+        ok = pairSession(*s, state.hostId(), net::hostName(), dataDir_ / "pairs",
+                         [&](const std::string& code) {
+                           send({{"kind", "pairCode"}, {"code", code}, {"console", s->agent.name}});
+                         },
+                         error);
+      }
+    } else {
+      error = "a sync is running; try again in a moment";
+    }
+    send(ok ? json{{"kind", "paired"}, {"console", peer.name}}
+            : json{{"kind", "pairFailed"}, {"message", error}});
+    pairing_ = false;
+    if (ok) sync_.syncNow();
+  });
+  return true;
+}
 }  // namespace WarpPoint

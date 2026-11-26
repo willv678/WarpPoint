@@ -131,6 +131,11 @@ char* warp_core_plugins(WarpCore* core);
 /* Updating the Switch side: where this app's Switch files are (Resources/SwitchPackage),
    and what the last sync learned: {"console","canUpdate","package","module","wanted","status","error"}. */
 void warp_core_set_switch_package(WarpCore* core, const char* dir);
+
+/* Pair this Mac with the console on the network. Events follow: "pairCode" {code,
+   console} while the player confirms in the Switch overlay, then "paired" or
+   "pairFailed" {message}. "needsPairing" arrives when a sync finds this Mac unpaired. */
+bool warp_core_start_pairing(WarpCore* core, char** error);
 char* warp_core_switch_update(WarpCore* core);
 bool warp_core_set_plugin_enabled(WarpCore* core, const char* pluginId, bool enabled, char** error);
 /* The plugin store. indexJson: plugins/index.json as just downloaded, or NULL when the

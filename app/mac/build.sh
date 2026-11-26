@@ -20,7 +20,7 @@ swiftc -O -swift-version 5 -parse-as-library -target arm64-apple-macos14.0 \
   -import-objc-header "$MAC/Support/bridging.h" -I "$ROOT/host/capi" \
   "$MAC"/Sources/*.swift \
   -L "$BUILD/host" -L "$BUILD/common" -L "$BUILD/net" \
-  -lwarp_host_core -lwarp_common -lwarp_net -lcurl -lc++ -framework SystemConfiguration \
+  -lwarp_host_core -lwarp_common -lwarp_monocypher -lwarp_net -lcurl -lc++ -framework SystemConfiguration \
   -o "$APP/Contents/MacOS/WarpPoint"
 
 # The matching Switch files, so the app can update the Switch from the overlay

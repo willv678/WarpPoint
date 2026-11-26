@@ -438,7 +438,8 @@ void DropQueue::runSession(const Peer& console) {
   StateStore state(hooks_.dataDir / "state.json");
   std::string error;
   state.load(error);
-  auto session = openSession(console.address, console.port, state.hostId(), hooks_.hostName, error);
+  auto session = openSession(console.address, console.port, state.hostId(), hooks_.hostName, error,
+                             hooks_.dataDir / "pairs");
   if (!session) {
     status("waiting", "Can't reach " + console.name + " right now. Trying again shortly.", false);
     return later(hooks_.retryAfter);

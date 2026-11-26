@@ -51,7 +51,7 @@ See the [roadmap](#roadmap).
 
 **On the Mac** (Apple Silicon, macOS 14 or later)
 
-1. Download `WarpPoint-1.11.0.dmg` from [Releases](../../releases) and drag WarpPoint into
+1. Download `WarpPoint-1.12.0.dmg` from [Releases](../../releases) and drag WarpPoint into
    Applications.
 2. Open it. The app isn't notarized by Apple yet, so macOS will block it the first time. Go to
    **System Settings → Privacy & Security** and click **Open Anyway**.
@@ -61,7 +61,7 @@ See the [roadmap](#roadmap).
 **On the Switch** (Atmosphère, plus [Tesla](https://github.com/WerWolv/Tesla-Menu) or another
 overlay menu for the overlay)
 
-1. Unzip `WarpPoint-Switch-1.11.0.zip` onto the root of the SD card. It adds the background module
+1. Unzip `WarpPoint-Switch-1.12.0.zip` onto the root of the SD card. It adds the background module
    (`atmosphere/contents/4200000000005750/`, set to start at boot), the overlay
    (`switch/.overlays/warppoint.ovl`) and the app (`switch/warppoint.nro`).
 2. Restart the Switch.
@@ -71,6 +71,14 @@ apps, waits for the Switch, and asks which Astris profile goes with which Switch
 saves the nxnative apps hold). Its Extras step lists the plugins (crash reports, screenshots,
 live game info, mods and more) with a switch for each; the defaults are fine to keep. No
 Astris? nxnative apps alone are enough.
+
+**Pairing (1.12).** The Switch only talks to Macs you've paired. The first time, the Library
+shows **Pair this Mac**: click it, open the WarpPoint overlay on the Switch, check that it shows
+the same 6-digit code as the Mac, and choose **Pair**. That's it, once per Mac. Under the hood
+it's an X25519 key exchange (the code proves nobody in between swapped keys) and a
+challenge-response with the shared key on every connection after that; an unpaired Mac on the
+same Wi-Fi gets nothing: no saves, no files, no updates. `warp pair` does the same from a
+terminal, and the overlay can forget every paired Mac.
 
 **Updating the Switch side (1.10).** Each Mac app carries the Switch files that match it. When
 they're newer than what's on your Switch, the Library says so, and the WarpPoint overlay shows
@@ -295,11 +303,17 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Labs: Divergence, the Switch against an nxnative port, field by field (1.6, terminal only)
 - [x] FE3H dialogue in Lexicon (1.7, found with Labs on the Mac port, checked on a Switch)
 - [x] Update the Switch side from the Mac, through the overlay (1.10)
-- [ ] WarpDrop: drag files onto the UFO to send them to the Switch's SD card (Drop plugin;
-  the Switch takes files only from a paired Mac)
+- [x] Pairing: the Switch only serves Macs you paired, with a 6-digit code (1.12)
+- [x] WarpDrop: drag files onto the UFO to send them to the Switch's SD card (1.12; only to a
+  paired Mac's Switch; `warp send` from a terminal)
+- [x] Rich Discord presence from live game state and the latest save (1.12; FE3H: chapter,
+  turn, battle prep or exploring)
+- [ ] WarpDrop phase 2: Send to Mac from the Switch; Finder integration
+- [x] Shaders: capture on the Switch with a SaltyNX plugin, read out by the module (spike,
+  `docs/SHADERS_SPIKE2.md`; working on FE3H, not yet turned into Astris cache entries)
 - [ ] More Tap profiles: other games, and FE3H's roster and supports
 - [ ] Labs: Tracy, a profiler for retail games on hardware
-- [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)
+- [ ] Shader pre-warming for Astris from those captures
 - [x] nxnative ports, found and synced like emulator games (1.2)
 - [ ] More emulators
 - [ ] Windows and Linux

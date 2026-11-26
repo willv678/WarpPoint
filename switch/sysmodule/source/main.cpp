@@ -20,6 +20,8 @@
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
 #include "switch_update.hpp"
+#include "switch_pairing.hpp"
+#include "switch_shaders.hpp"
 #include "switch_titles.hpp"
 
 #include <switch.h>
@@ -86,7 +88,7 @@ namespace {
 
 using namespace WarpPoint;
 
-constexpr const char* kVersion = "1.10.0";
+constexpr const char* kVersion = "1.12.0";
 
 // Small socket buffers: a background program can't afford the app's defaults.
 const SocketInitConfig kSocketConfig = {
@@ -190,6 +192,7 @@ std::string jsonEscape(const std::string& s) {
 }
 
 WarpPoint::SwitchUpdater* g_updater = nullptr;
+WarpPoint::SwitchTrust* g_trust = nullptr;
 
 void writeStatus(bool online, bool paused, uint32_t generation) {
   std::string host, activity;
@@ -213,6 +216,7 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
                "\"lastActivity\":\"%s\",\"lastActivityAt\":%lld,\"lastSyncAt\":%lld,"
                "\"generation\":%u,"
                "\"updateOffer\":\"%s\",\"updateWanted\":%s,\"updateStatus\":\"%s\","
+               "\"pairCode\":\"%s\",\"pairHost\":\"%s\",\"pairedMacs\":%d,"
                "\"updatedAt\":%lld}\n",
                kVersion, online ? "true" : "false", paused ? "true" : "false",
                jsonEscape(host).c_str(), connected ? "true" : "false", jsonEscape(activity).c_str(),
@@ -220,6 +224,9 @@ void writeStatus(bool online, bool paused, uint32_t generation) {
                jsonEscape(g_updater ? g_updater->offer() : "").c_str(),
                g_updater && g_updater->wanted() ? "true" : "false",
                jsonEscape(g_updater ? g_updater->status() : "").c_str(),
+               jsonEscape(g_trust ? g_trust->pendingCode() : "").c_str(),
+               jsonEscape(g_trust ? g_trust->pendingHost() : "").c_str(),
+               g_trust ? g_trust->pairedCount() : 0,
                static_cast<long long>(std::time(nullptr)));
   std::fclose(f);
   std::remove(path("status.json").c_str());
@@ -323,8 +330,16 @@ int main(int, char**) {
     cfg.users = &users;
     cfg.identity.caps.push_back("users");
   }
+  // Pairing: only a Mac the player paired in the overlay gets saves, files or updates.
+  static WarpPoint::SwitchTrust trust(kDataDir);
+  g_trust = &trust;
+  cfg.trust = &trust;
+  cfg.identity.caps.push_back("auth");
+  // Warp Shaders: copies the capture plugin's ring out of the game (through dmnt:cht),
+  // only while a game with the plugin installed runs.
+  static WarpPoint::SwitchShaders shaders(logLine);
   // WarpDrop: files from the Mac onto the SD card. Every request is refused until the
-  // session is trusted (sessionTrusted in agent/agent_server.cpp: pairing).
+  // session is proven (pairing).
   static WarpPoint::SwitchFiles files;
   cfg.files = &files;
   cfg.identity.caps.push_back("files");
@@ -379,12 +394,21 @@ int main(int, char**) {
       logLine("a game closed: telling the Mac to sync");
     }
     lastGame = game;
+    shaders.poll(game);
 
     const std::string request = readRequest();
     if (request == "sync") {
       ++generation;
       runtime.bumpGeneration();
       logLine("Sync now (from the overlay)");
+    } else if (request == "pair-yes" || request == "pair-no") {
+      trust.answer(request == "pair-yes");
+      logLine(request == "pair-yes" ? "pairing accepted (from the overlay)" : "pairing refused (from the overlay)");
+      statusCountdown = 0;
+    } else if (request == "unpair-all") {
+      trust.forgetAll();
+      logLine("forgot every paired Mac (from the overlay)");
+      statusCountdown = 0;
     } else if (request == "update") {
       updater.want();
       ++generation;
