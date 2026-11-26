@@ -13,13 +13,18 @@ using json = nlohmann::json;
 
 namespace {
 
-constexpr int kFormatVersion = 1;
+// 2 (1.2): bases record where on the Mac they were agreed ("sides"). Written as 2 so an
+// older WarpPoint on the same Mac refuses the file ("unknown format version") instead of
+// reading a base agreed with an nxnative app as one agreed with Astris, and pushing
+// Astris's stale save over the console's. Format 1 files are still read.
+constexpr int kFormatVersion = 2;
+constexpr int kOldestReadable = 1;
 
 }  // namespace
 
 // File layout:
 // {
-//   "format": 1,
+//   "format": 2,
 //   "hostId": "a1b2...",
 //   "devices":   { "<switch id>": { "name": "Will's Switch", "lastAddress": "192.168.1.5" } },
 //   "bases":     { "<switch id>": { "<unit key>": "<hash>" } },
@@ -50,7 +55,8 @@ bool StateStore::load(std::string& error) {
     return false;
   }
   try {
-    if (j.value("format", 0) != kFormatVersion) {
+    const int format = j.value("format", 0);
+    if (format < kOldestReadable || format > kFormatVersion) {
       error = file_.string() + " has an unknown format version";
       return false;
     }

@@ -11,6 +11,8 @@
 //   warp sync [GAME...]           sync every save the emulator has (or just these games;
 //                                 a game the emulator doesn't have yet is created)
 //   warp resolve GAME mac|switch  settle a conflict, then sync that save
+//   warp backups GAME             list a save's backups
+//   warp restore GAME ID mac|switch  put a backup back on one side (current copy kept)
 //   warp watch                    sync automatically (what the menu bar app does):
 //                                 whenever the Switch app appears and whenever a game
 //                                 stops in the emulator. Ctrl-C to stop.
@@ -67,6 +69,8 @@ int usage() {
                "       warp link SWITCH_USER EMULATOR_USER\n"
                "       warp sync [GAME...]\n"
                "       warp resolve GAME mac|switch\n"
+               "       warp backups GAME\n"
+               "       warp restore GAME BACKUP_ID mac|switch\n"
                "       warp watch\n"
                "       warp nxnative                       (the nxnative apps found here)\n"
                "GAME: part of a game's name, or a save key game/<titleId>/<userId>\n");
@@ -454,6 +458,77 @@ int cmdResolve(Session& s, StateStore& state, const std::vector<std::string>& ke
   return cmdSync(s, state, resolved);
 }
 
+int cmdBackups(Session&, const std::string& key) {
+  BackupStore backups(dataDir() / "backups", g_config.keepBackups);
+  const auto list = backups.list(key);
+  std::printf("%s: %zu backup%s\n", key.c_str(), list.size(), list.size() == 1 ? "" : "s");
+  for (const auto& b : list) {
+    std::printf("  %s  %-6s %-15s %s  %llu files, %llu bytes\n", b.id.c_str(), b.side.c_str(),
+                b.reason.c_str(), b.hash.substr(0, 12).c_str(),
+                static_cast<unsigned long long>(b.files), static_cast<unsigned long long>(b.bytes));
+  }
+  return 0;
+}
+
+// Put a backup back on one side. The copy it replaces is backed up first, and the
+// restored version is then the newest, so the next sync carries it to the other side.
+int cmdRestore(Session& s, StateStore& state, const std::string& key, const std::string& id,
+               const std::string& side) {
+  if (side != "mac" && side != "switch") return usage();
+  BackupStore backups(dataDir() / "backups", g_config.keepBackups);
+  const auto list = backups.list(key);
+  const auto it = std::find_if(list.begin(), list.end(), [&](const BackupInfo& b) {
+    return b.id == id || (id.size() >= 8 && b.id.rfind(id, 0) == 0);
+  });
+  if (it == list.end()) {
+    std::fprintf(stderr, "No backup %s for %s. See `warp backups`.\n", id.c_str(), key.c_str());
+    return 1;
+  }
+  std::shared_ptr<UnitStore> local;
+  UnitStore* to = s.store.get();
+  if (side == "mac") {
+    local = openLocal(g_config);
+    to = local.get();
+  } else if (!hasCap(s.agent, "write")) {
+    std::fprintf(stderr, "This Switch's WarpPoint can't write saves.\n");
+    return 1;
+  }
+  const auto st = to->status({{key}});
+  if (st.size() != 1 || !st[0].error.empty()) {
+    std::fprintf(stderr, "Can't read the save there: %s\n", st.empty() ? "?" : st[0].error.c_str());
+    return 1;
+  }
+  if (st[0].busy) {
+    std::fprintf(stderr, "The game is running there; close it first.\n");
+    return 1;
+  }
+  if (st[0].exists && st[0].hash == it->hash) {
+    std::printf("Already that version.\n");
+    return 0;
+  }
+  std::string error, hash;
+  if (st[0].exists) {
+    auto keep = backups.begin(key, side, "before-restore", error);
+    if (!keep || !to->read({key}, *keep, hash, error) || !keep->commit(hash)) {
+      if (error.empty() && keep) error = keep->error();
+      std::fprintf(stderr, "Couldn't back up the current save, nothing changed: %s\n", error.c_str());
+      return 1;
+    }
+  }
+  auto writer = to->write({key}, st[0].exists ? st[0].hash : "", error);
+  if (!writer || !streamFolder(backups.filesDir(key, it->id), writer.get(), hash, error) ||
+      !writer->commit(it->hash)) {
+    if (writer && error.empty()) error = writer->error();
+    std::fprintf(stderr, "Restore failed: %s\n", error.c_str());
+    return 1;
+  }
+  state.clearConflict(s.agent.deviceId, key);
+  std::printf("Restored %s's save from %s (%s).\n",
+              side == "mac" ? to->nameFor(key).c_str() : s.agent.name.c_str(), it->id.c_str(),
+              it->reason.c_str());
+  return 0;
+}
+
 std::atomic<bool> g_interrupted{false};
 
 int cmdWatch() {
@@ -579,7 +654,8 @@ int main(int argc, char** argv) {
   if (cmd == "link") return args.size() == 3 ? cmdLink(args[1], args[2]) : usage();
   const bool known = cmd == "list" || cmd == "names" || cmd == "users" || cmd == "sync" ||
                      ((cmd == "status" || cmd == "pull") && args.size() == 2) ||
-                     (cmd == "resolve" && args.size() == 3);
+                     (cmd == "resolve" && args.size() == 3) ||
+                     (cmd == "backups" && args.size() == 2) || (cmd == "restore" && args.size() == 4);
   if (!known) return usage();
 
   // One sync at a time: wait for the menu bar app (or `warp watch`) to finish its pass.
@@ -603,9 +679,10 @@ int main(int argc, char** argv) {
   int rc = 0;
   // status and pull act on one save, so any user's; sync and resolve only on linked users.
   std::optional<std::vector<std::string>> keys;
-  if (cmd == "status" || cmd == "pull" || cmd == "resolve" || (cmd == "sync" && args.size() > 1)) {
+  if (cmd == "status" || cmd == "pull" || cmd == "resolve" || cmd == "backups" ||
+      cmd == "restore" || (cmd == "sync" && args.size() > 1)) {
     const std::vector<std::string> what =
-        cmd == "resolve" ? std::vector<std::string>{args[1]}
+        (cmd == "resolve" || cmd == "restore") ? std::vector<std::string>{args[1]}
                          : std::vector<std::string>(args.begin() + 1, args.end());
     keys = resolveGames(*session, what, cmd == "sync" || cmd == "resolve");
     if (!keys) return 1;
@@ -620,6 +697,10 @@ int main(int argc, char** argv) {
   if (cmd == "users") rc = cmdUsers(*session);
   if (cmd == "sync") rc = cmdSync(*session, state, keys ? *keys : std::vector<std::string>{});
   if (cmd == "resolve") rc = cmdResolve(*session, state, *keys, args[2]);
+  if (cmd == "backups") one(cmdBackups);
+  if (cmd == "restore") {
+    for (const auto& k : *keys) rc |= cmdRestore(*session, state, k, args[2], args[3]);
+  }
   if (!state.save(error)) std::fprintf(stderr, "warning: %s\n", error.c_str());
   return rc;
 }

@@ -456,3 +456,20 @@ TEST_CASE("library: nxnative games show where they live, and can be kept in the 
   setenv("WARPPOINT_NXNATIVE_APPS", "/nonexistent/warppoint-tests/apps", 1);
   setenv("WARPPOINT_NXNATIVE_DATA", "/nonexistent/warppoint-tests/data", 1);
 }
+
+TEST_CASE("state: 1.2 writes format 2 (older apps refuse it) and still reads format 1") {
+  TempDir data;
+  std::string error;
+  writeFile(data / "state.json",
+            R"({"format": 1, "hostId": "abcd", "bases": {"sw": {")" + kFe3hKey + R"(": "h1"}}})");
+  StateStore s(data / "state.json");
+  REQUIRE_MESSAGE(s.load(error), error);
+  CHECK(s.base("sw", kFe3hKey) == "h1");
+  CHECK(s.baseSide("sw", kFe3hKey).empty());  // pre-1.2: the emulator's
+  REQUIRE(s.save(error));
+  CHECK(nlohmann::json::parse(readFile(data / "state.json"))["format"] == 2);
+
+  writeFile(data / "state.json", R"({"format": 3})");
+  StateStore future(data / "state.json");
+  CHECK_FALSE(future.load(error));
+}
