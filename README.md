@@ -283,6 +283,8 @@ a sync, when it reads the saves on both sides to see what changed.
 - [x] Labs: Divergence, the Switch against an nxnative port, field by field (1.6, terminal only)
 - [x] FE3H dialogue in Lexicon (1.7, found with Labs on the Mac port, checked on a Switch)
 - [x] Update the Switch side from the Mac, through the overlay (1.10)
+- [ ] WarpDrop: drag files onto the UFO to send them to the Switch's SD card (Drop plugin;
+  the Switch takes files only from a paired Mac)
 - [ ] More Tap profiles: other games, and FE3H's roster and supports
 - [ ] Labs: Tracy, a profiler for retail games on hardware
 - [ ] Shader pre-warming for emulators (on hold: nxnative ports already ship their shaders)

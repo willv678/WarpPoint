@@ -154,6 +154,7 @@ bool AppCore::start(std::string& error) {
     if (!c.album.enabled) return std::nullopt;
     return c.album.folder.empty() ? Album::defaultFolder() : c.album.folder;
   };
+  drop().start();  // WarpDrop: sleeps until a file is queued and the Switch is around
   return sync_.start(cfg, error);
 }
 
@@ -185,6 +186,12 @@ void AppCore::playing(const std::string& console, uint64_t titleId) {
 void AppCore::push(const AutoSyncEvent& e) {
   if (e.kind == AutoSyncEvent::Kind::ConsoleFound) consolePresent_ = true;
   if (e.kind == AutoSyncEvent::Kind::ConsoleLost) consolePresent_ = false;
+  // WarpDrop: the Switch appeared, or a sync finished (and may have found a newer
+  // module, or let go of the lock): files may go now.
+  if (drop_ && (e.kind == AutoSyncEvent::Kind::ConsoleFound ||
+                e.kind == AutoSyncEvent::Kind::PassFinished)) {
+    drop_->wake();
+  }
   json j = {{"kind", kindName(e.kind)}, {"console", e.console}, {"local", e.local},
             {"message", e.message}};
   if (e.kind == AutoSyncEvent::Kind::Synced) {

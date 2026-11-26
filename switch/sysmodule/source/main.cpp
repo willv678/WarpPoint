@@ -15,6 +15,7 @@
 #include "save_store.hpp"
 #include "switch_env.hpp"
 #include "switch_album.hpp"
+#include "switch_files.hpp"
 #include "mod_store.hpp"
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
@@ -131,6 +132,7 @@ void logLine(const std::string& line) {
     const size_t from = line.find("for ") + 4;
     activity = gameName(line.substr(from, line.find(':', from) - from)) + ": couldn't sync";
   }
+  if (starts("WarpDrop: got ")) activity = line.substr(14) + ": received from the Mac";
   std::lock_guard<std::mutex> lock(g_logMutex);
   const std::string file = path("background.log");
   struct stat st{};
@@ -321,6 +323,11 @@ int main(int, char**) {
     cfg.users = &users;
     cfg.identity.caps.push_back("users");
   }
+  // WarpDrop: files from the Mac onto the SD card. Every request is refused until the
+  // session is trusted (sessionTrusted in agent/agent_server.cpp: pairing).
+  static WarpPoint::SwitchFiles files;
+  cfg.files = &files;
+  cfg.identity.caps.push_back("files");
   cfg.log = logLine;
   // A fresh start must look new to the Mac (see AgentConfig::initialGeneration).
   randomGet(&cfg.initialGeneration, sizeof(cfg.initialGeneration));

@@ -491,4 +491,149 @@ bool RemoteStore::ping() {
   return true;
 }
 
+// --- WarpDrop ---
+
+namespace {
+
+// The console's Error, or false when the frame is something else entirely.
+bool filesRefusal(const Frame& f, proto::ErrorCode& code, std::string& error) {
+  proto::Error e;
+  if (!is(f, Msg::Error) || !proto::decode(f.payload, e)) return false;
+  code = e.code;
+  error = e.message;
+  return true;
+}
+
+}  // namespace
+
+bool RemoteStore::filesStat(const std::string& path, proto::FileStat& out, proto::ErrorCode& code,
+                            std::string& error) {
+  ByteWriter w;
+  w.str(path);
+  Frame f;
+  code = proto::ErrorCode::Protocol;
+  if (writeOpen_ || !send(Msg::FilesStatReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::FilesStat) && proto::decode(f.payload, out)) return true;
+  if (!filesRefusal(f, code, error)) {
+    broken_ = true;
+    error = "unexpected reply from the console";
+  }
+  return false;
+}
+
+bool RemoteStore::filesList(const std::string& path, std::vector<proto::FileEntry>& out,
+                            proto::ErrorCode& code, std::string& error) {
+  ByteWriter w;
+  w.str(path);
+  Frame f;
+  code = proto::ErrorCode::Protocol;
+  if (writeOpen_ || !send(Msg::FilesListReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::FilesList) && proto::decode(f.payload, out)) return true;
+  if (!filesRefusal(f, code, error)) {
+    broken_ = true;
+    error = "unexpected reply from the console";
+  }
+  return false;
+}
+
+bool RemoteStore::filesMkdir(const std::string& path, proto::ErrorCode& code, std::string& error) {
+  ByteWriter w;
+  w.str(path);
+  Frame f;
+  code = proto::ErrorCode::Protocol;
+  if (writeOpen_ || !send(Msg::FilesMkdirReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::FilesDone)) return true;
+  if (!filesRefusal(f, code, error)) {
+    broken_ = true;
+    error = "unexpected reply from the console";
+  }
+  return false;
+}
+
+bool RemoteStore::filesDiscard(const std::string& path, const std::string& sha256,
+                               proto::ErrorCode& code, std::string& error) {
+  ByteWriter w;
+  w.str(path);
+  w.str(sha256);
+  Frame f;
+  code = proto::ErrorCode::Protocol;
+  if (writeOpen_ || !send(Msg::FilesDiscardReq, w.data()) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::FilesDone)) return true;
+  if (!filesRefusal(f, code, error)) {
+    broken_ = true;
+    error = "unexpected reply from the console";
+  }
+  return false;
+}
+
+bool RemoteStore::filesWriteBegin(const proto::FilesWrite& req, uint64_t& have,
+                                  proto::ErrorCode& code, std::string& error) {
+  Frame f;
+  code = proto::ErrorCode::Protocol;
+  if (writeOpen_ || !send(Msg::FilesWriteReq, proto::encode(req)) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::FilesWriteReady)) {
+    ByteReader r(f.payload);
+    have = r.u64();
+    if (r.done() && have <= req.size) {
+      writeOpen_ = true;
+      return true;
+    }
+  } else if (filesRefusal(f, code, error)) {
+    return false;
+  }
+  broken_ = true;
+  error = "unexpected reply from the console";
+  return false;
+}
+
+bool RemoteStore::filesChunk(const uint8_t* data, size_t len) {
+  while (len > 0) {
+    const size_t n = len < proto::kChunkSize ? len : proto::kChunkSize;
+    if (broken_ || !writeFrame(s_, static_cast<uint8_t>(Msg::Chunk), data, n)) {
+      broken_ = true;
+      return false;
+    }
+    data += n;
+    len -= n;
+  }
+  return true;
+}
+
+bool RemoteStore::filesWriteEnd(const std::string& sha256, proto::ErrorCode& code,
+                                std::string& error) {
+  writeOpen_ = false;
+  code = proto::ErrorCode::Protocol;
+  Frame f;
+  if (!send(Msg::FileEnd, proto::encodeHash(sha256)) || !receive(f)) {
+    error = "connection lost";
+    return false;
+  }
+  if (is(f, Msg::Committed)) return true;
+  if (!filesRefusal(f, code, error)) {
+    broken_ = true;
+    error = "unexpected reply from the console";
+  }
+  return false;
+}
+
+bool RemoteStore::filesPause() {
+  writeOpen_ = false;
+  return send(Msg::Abort);
+}
+
 }  // namespace WarpPoint

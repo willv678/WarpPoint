@@ -57,6 +57,24 @@ class RemoteStore : public UnitStore {
   bool authenticate(const std::string& hostId, const Key32& key, bool& trusted, std::string& error);
   std::unique_ptr<UnitWriter> updateWriter(const std::string& version, std::string& error);
 
+  // WarpDrop (needs "files"). On a refusal, code is the console's reason (NotTrusted,
+  // Exists, BadRequest, Io); on a lost connection it's Protocol and broken() is true.
+  bool filesStat(const std::string& path, proto::FileStat& out, proto::ErrorCode& code,
+                 std::string& error);
+  bool filesList(const std::string& path, std::vector<proto::FileEntry>& out,
+                 proto::ErrorCode& code, std::string& error);
+  bool filesMkdir(const std::string& path, proto::ErrorCode& code, std::string& error);
+  bool filesDiscard(const std::string& path, const std::string& sha256, proto::ErrorCode& code,
+                    std::string& error);
+  // Sending one file: begin (have = bytes the console already has, so send from there),
+  // then chunks, then end (the console checks it and puts it in place), or pause (it
+  // keeps what it got, for a later begin of the same file).
+  bool filesWriteBegin(const proto::FilesWrite& req, uint64_t& have, proto::ErrorCode& code,
+                       std::string& error);
+  bool filesChunk(const uint8_t* data, size_t len);
+  bool filesWriteEnd(const std::string& sha256, proto::ErrorCode& code, std::string& error);
+  bool filesPause();
+
   // The agent's name from the handshake ("Will's Switch").
   std::string displayName() const override { return name_; }
 

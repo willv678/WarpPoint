@@ -435,4 +435,68 @@ bool decodeDiscovery(const uint8_t* data, size_t len, DiscoveryKind& kind, Annou
   return r.ok();
 }
 
+// --- WarpDrop ---
+
+std::vector<uint8_t> encode(const FileStat& m) {
+  ByteWriter w;
+  w.u8(static_cast<uint8_t>((m.exists ? 1 : 0) | (m.isDir ? 2 : 0)));
+  w.u64(m.size);
+  w.u64(m.freeBytes);
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, FileStat& m) {
+  ByteReader r(p);
+  const uint8_t flags = r.u8();
+  m.exists = flags & 1;
+  m.isDir = flags & 2;
+  m.size = r.u64();
+  m.freeBytes = r.u64();
+  return r.done() && flags <= 3;
+}
+
+std::vector<uint8_t> encode(const std::vector<FileEntry>& entries) {
+  ByteWriter w;
+  w.u32(static_cast<uint32_t>(entries.size()));
+  for (const auto& e : entries) {
+    w.str(e.name);
+    w.u8(e.isDir ? 1 : 0);
+    w.u64(e.size);
+  }
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, std::vector<FileEntry>& entries) {
+  ByteReader r(p);
+  const uint32_t n = r.u32();
+  if (n > kMaxFileEntries) return false;
+  entries.clear();
+  for (uint32_t i = 0; i < n && r.ok(); ++i) {
+    FileEntry e;
+    e.name = r.str();
+    e.isDir = r.u8() != 0;
+    e.size = r.u64();
+    entries.push_back(std::move(e));
+  }
+  return r.done();
+}
+
+std::vector<uint8_t> encode(const FilesWrite& m) {
+  ByteWriter w;
+  w.str(m.path);
+  w.u64(m.size);
+  w.str(m.sha256);
+  w.u8(m.replace ? 1 : 0);
+  return std::move(w.data());
+}
+
+bool decode(const std::vector<uint8_t>& p, FilesWrite& m) {
+  ByteReader r(p);
+  m.path = r.str();
+  m.size = r.u64();
+  m.sha256 = r.str();
+  m.replace = r.u8() != 0;
+  return r.done();
+}
+
 }  // namespace WarpPoint::proto

@@ -33,6 +33,10 @@ struct AgentConfig {
   uint16_t discoveryPort = proto::kAgentDiscoveryPort;    // where probes arrive
   uint16_t hostDiscoveryPort = proto::kHostDiscoveryPort;  // where announces go
   LogFn log;
+  FileSource* files = nullptr;  // optional: WarpDrop, files from the Mac onto the SD card
+  // Tests only: treat every session as trusted, standing in for pairing. Ignored on the
+  // Switch (sessionTrusted in agent_server.cpp), so "files" never works unpaired there.
+  bool trustSessionsForTests = false;
 };
 
 class AgentRuntime {

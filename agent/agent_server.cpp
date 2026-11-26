@@ -167,9 +167,128 @@ bool handleTitles(Stream& s, TitleSource* titles, const Frame& f, const LogFn& l
   return send(s, Msg::TitleEnd);
 }
 
+namespace {
+
+// WarpDrop: state one session's files requests share.
+struct FilesSession {
+  bool trustedForTests = false;
+  const bool* proven = nullptr;  // the session's pairing proof, when the agent requires pairing
+
+  // The one gate for "files". It can put .nro, .ovl and boot payloads on the SD card,
+  // so it must never answer anyone on the Wi-Fi: only a session that proved it's a
+  // paired Mac (pairing: a shared key, challenge-response per session). Until pairing
+  // is required (a TrustSource), nothing is trusted outside tests.
+  bool sessionTrusted() const {
+    if (proven) return *proven;  // a paired Mac that proved itself this session
+#ifdef __SWITCH__
+    return false;
+#else
+    return trustedForTests;
+#endif
+  }
+};
+
+// The path in a files request: "" (the card itself) only where allowRoot.
+bool filesPath(ByteReader& r, std::string& path, bool allowRoot) {
+  path = r.str();
+  return r.ok() && ((allowRoot && path.empty()) || isSafeRelativePath(path));
+}
+
+// Answers one files request. Returns false if the stream is unusable afterwards.
+bool handleFiles(Stream& s, FileSource* files, const FilesSession& session, const Frame& f,
+                 const LogFn& log) {
+  const auto type = static_cast<Msg>(f.type);
+  if (!files) return sendError(s, ErrorCode::BadRequest, "this agent can't take files");
+  if (!session.sessionTrusted()) {
+    log("WarpDrop: refused, this Mac isn't paired");
+    // The host waits for FilesWriteReady before sending data, so nothing follows this.
+    return sendError(s, ErrorCode::NotTrusted, "pair this Mac with the Switch first");
+  }
+  ByteReader r(f.payload);
+  std::string path, error;
+  switch (type) {
+    case Msg::FilesStatReq: {
+      proto::FileStat st;
+      if (!filesPath(r, path, true) || !r.done()) {
+        return sendError(s, ErrorCode::BadRequest, "bad path");
+      }
+      if (!files->stat(path, st, error)) return sendError(s, ErrorCode::Io, error);
+      return send(s, Msg::FilesStat, proto::encode(st));
+    }
+    case Msg::FilesListReq: {
+      std::vector<proto::FileEntry> list;
+      if (!filesPath(r, path, true) || !r.done()) {
+        return sendError(s, ErrorCode::BadRequest, "bad path");
+      }
+      if (!files->list(path, list, error)) return sendError(s, ErrorCode::Io, error);
+      if (list.size() > proto::kMaxFileEntries) list.resize(proto::kMaxFileEntries);
+      return send(s, Msg::FilesList, proto::encode(list));
+    }
+    case Msg::FilesMkdirReq: {
+      if (!filesPath(r, path, false) || !r.done()) {
+        return sendError(s, ErrorCode::BadRequest, "bad path");
+      }
+      if (!files->makeDir(path, error)) return sendError(s, ErrorCode::BadRequest, error);
+      return send(s, Msg::FilesDone);
+    }
+    case Msg::FilesDiscardReq: {
+      const bool okPath = filesPath(r, path, false);
+      const std::string sha = r.str();
+      if (!okPath || !r.done()) return sendError(s, ErrorCode::BadRequest, "bad path");
+      if (!files->discard(path, sha, error)) return sendError(s, ErrorCode::BadRequest, error);
+      return send(s, Msg::FilesDone);
+    }
+    default:
+      break;
+  }
+  // FilesWriteReq
+  proto::FilesWrite req;
+  if (!proto::decode(f.payload, req) || !isSafeRelativePath(req.path)) {
+    return sendError(s, ErrorCode::BadRequest, "bad write request");
+  }
+  proto::ErrorCode code = ErrorCode::Io;
+  auto writer = files->write(req, code, error);
+  if (!writer) {
+    log("WarpDrop: refused " + req.path + ": " + error);
+    return sendError(s, code, error);
+  }
+  ByteWriter ready;
+  ready.u64(writer->have());
+  if (!send(s, Msg::FilesWriteReady, ready.data())) return false;
+  // Chunk* then FileEnd, or Abort. After a failed chunk, read on to FileEnd so the
+  // session stays in step, then say why.
+  bool failed = false;
+  Frame in;
+  while (readFrame(s, in)) {
+    const auto t = static_cast<Msg>(in.type);
+    if (t == Msg::Abort) {
+      log("WarpDrop: paused " + req.path);
+      return true;  // the writer keeps what arrived
+    }
+    if (t == Msg::Chunk) {
+      if (!failed) failed = !writer->write(in.payload.data(), in.payload.size());
+      continue;
+    }
+    if (t != Msg::FileEnd) return false;  // protocol violation
+    std::string sha;
+    if (failed || !proto::decodeHash(in.payload, sha) || !writer->finish(sha)) {
+      const std::string why = writer->error().empty() ? "write failed" : writer->error();
+      log("WarpDrop: failed " + req.path + ": " + why);
+      return sendError(s, ErrorCode::Io, why);
+    }
+    log("WarpDrop: got " + req.path);
+    return send(s, Msg::Committed, proto::encodeHash(sha));
+  }
+  return false;  // connection dropped: the writer keeps what arrived
+}
+
+}  // namespace
+
 bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, const LogFn& log,
                   TitleSource* titles, UserSource* users, ReportSource* reports,
-                  AlbumSource* album, TapSource* tap, UpdateSource* update, TrustSource* trust) {
+                  AlbumSource* album, TapSource* tap, UpdateSource* update, TrustSource* trust,
+                  FileSource* files, bool trustForTests) {
+  FilesSession filesSession{trustForTests};
   Frame f;
   proto::Hello hello;
   if (!readFrame(s, f) || static_cast<Msg>(f.type) != Msg::Hello || !proto::decode(f.payload, hello)) {
@@ -196,6 +315,7 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
   Key32 authKey{};
   bool authKnown = false;
   Nonce16 hostNonce{}, agentNonce{};
+  if (trust) filesSession.proven = &trusted;  // "files" needs a proven session, never just "no pairing"
 
   while (readFrame(s, f)) {
     bool ok = true;
@@ -427,6 +547,13 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
       }
       case Msg::Ping:
         ok = send(s, Msg::Pong);
+        break;
+      case Msg::FilesStatReq:
+      case Msg::FilesListReq:
+      case Msg::FilesMkdirReq:
+      case Msg::FilesWriteReq:
+      case Msg::FilesDiscardReq:
+        ok = handleFiles(s, files, filesSession, f, log);
         break;
       default:
         sendError(s, ErrorCode::Protocol, "unexpected message");

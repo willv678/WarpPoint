@@ -4,6 +4,7 @@
 #include "save_store.hpp"
 #include "switch_env.hpp"
 #include "switch_album.hpp"
+#include "switch_files.hpp"
 #include "mod_store.hpp"
 #include "switch_reports.hpp"
 #include "switch_tap.hpp"
@@ -142,6 +143,10 @@ int main(int, char**) {
     cfg.users = &users;
     cfg.identity.caps.push_back("users");
   }
+  // WarpDrop: files from the Mac onto the SD card, only for a trusted (paired) session.
+  static WarpPoint::SwitchFiles files;
+  cfg.files = &files;
+  cfg.identity.caps.push_back("files");
   cfg.log = logLine;
   randomGet(&cfg.initialGeneration, sizeof(cfg.initialGeneration));
 

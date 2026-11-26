@@ -99,6 +99,22 @@ Developer tools for Tap profiles and Mac ports. Terminal only.
 Divergence and the `warp lab-*` commands; see [LABS.md](LABS.md). Turned off, the
 `lab-*` commands refuse to run. On by default.
 
+### Drop
+
+Drag files onto the menu bar UFO to send them to the Switch's SD card.
+
+Hover a file over the UFO and a panel says where it's going; drop it and the Send window
+shows each file's type and destination (`.nro` to `switch/<name>/`, `.ovl` to
+`switch/.overlays/`, `.nxtheme` to `themes/`, cheats to `atmosphere/contents/<game>/cheats/`,
+payloads to `bootloader/payloads/`, anything else to `WarpDrop/`). Mods go to the Mods
+library, Tap profiles to WarpPoint's `tap/` folder, and save folders become a backup you
+can restore. Game packages (`.nsp`, `.xci`) are never installed, only copied if you ask.
+Corrections you make are remembered per file type and source folder. Files queue until the
+Switch is around, resume where they stopped, are checked by SHA-256 on the Switch, and are
+never written over an existing file without asking. The Switch refuses WarpPoint's own
+files, `Nintendo/` and `emuMMC/`, and takes files only from a paired Mac. Needs WarpPoint
+1.12 or later on the Switch. On by default.
+
 ## Turning plugins on and off
 
 - **In the app:** the switch at the top of each plugin's page in the Plugins window.

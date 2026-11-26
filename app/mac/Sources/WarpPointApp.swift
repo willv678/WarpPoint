@@ -47,6 +47,12 @@ struct WarpPointApp: App {
       PluginsView(model: model)
     }
     .defaultSize(width: 900, height: 640)
+
+    // WarpDrop: files dropped on the UFO, before they're sent.
+    Window("Send to Switch", id: "send") {
+      SendView(model: model, drop: model.drop)
+    }
+    .windowResizability(.contentSize)
   }
 }
 
@@ -66,11 +72,23 @@ struct MenuBarLabel: View {
         default: break
         }
         model.startGameData()  // Game Data: sheets for the library's games, daily
+        // WarpDrop: files dragged onto this icon (DropTarget.swift).
+        DropTarget.shared.attach(model: model) { openWindow(id: "send") }
+        let env = ProcessInfo.processInfo.environment
+        if let files = env["WARP_SEND_FILES"] {  // for screenshots: the Send window with these
+          model.drop.prepare(files.split(separator: ":").map { URL(fileURLWithPath: String($0)) })
+          openWindow(id: "send")
+          NSApp.activate()
+        }
+        if env["WARP_SHOW_DROP_PANEL"] == "1" {  // for screenshots: the panel shown during a drag
+          model.refreshPlugins()
+          DropTarget.shared.showPanelForScreenshot()
+        }
         if model.setup.needsSetup {
           openWindow(id: "setup")
           NSApp.activate()
         } else if let w = ProcessInfo.processInfo.environment["WARP_OPEN_WINDOW"],
-                  ["library", "setup", "reports", "live", "lexicon", "plugins"].contains(w) {
+                  ["library", "setup", "reports", "live", "lexicon", "plugins", "send"].contains(w) {
           // For screenshots and checks: open a window at launch without the menu.
           openWindow(id: w)
           NSApp.activate()

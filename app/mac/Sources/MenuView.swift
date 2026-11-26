@@ -27,12 +27,16 @@ struct MenuView: View {
       }
       if !model.conflicts.isEmpty { conflicts }
       if !model.recent.isEmpty { recent }
+      DropQueueSection(drop: model.drop)  // WarpDrop: files on their way (nothing when empty)
       Divider()
       actions
     }
     .padding(14)
     .frame(width: 330)
-    .onAppear { model.refreshPlugins() }
+    .onAppear {
+      model.refreshPlugins()
+      model.drop.loadQueueOnce()
+    }
   }
 
   /// Live Game Info and Lexicon when the game on the Switch has a profile for them,
@@ -139,6 +143,11 @@ struct MenuView: View {
       MenuButton("Plugins…") {
         openWindow(id: "plugins")
         NSApp.activate()
+      }
+      if model.pluginOn("drop") {
+        MenuButton("Send Files to Switch…") {
+          model.drop.pickFiles { openWindow(id: "send") }
+        }
       }
       // Plugin windows only while they're open or have something to show.
       if !pluginWindows.isEmpty {

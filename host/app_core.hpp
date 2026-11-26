@@ -4,6 +4,7 @@
 // UI language that can call C can drive WarpPoint.
 #pragma once
 #include "auto_sync.hpp"
+#include "drop_queue.hpp"
 #include "game_icons.hpp"
 #include "mac_playing.hpp"
 #include "presence.hpp"
@@ -28,6 +29,7 @@ class AppCore {
 
   bool start(std::string& error);
   void stop() {
+    if (drop_) drop_->stop();
     splitStop_ = true;
     if (splitThread_.joinable()) splitThread_.join();
     sync_.stop();
@@ -143,6 +145,23 @@ class AppCore {
   bool tipSeen(const std::string& id);
   bool setTipSeen(const std::string& id, std::string& error);
 
+  // WarpDrop (see app_drop.cpp). What dropped files are and where they'd go:
+  //   in  {"items":[{"path","kind"?,"game"?}]}   kind: a dropKindId to use instead
+  //   out {"console","present","canReceive","status","statusText","kinds":[{"id","label"}],
+  //        "items":[{"path","name","isDir","size","files","kind","label","side","dest",
+  //        "titleId","needsGame","runsAtBoot","notInstallable","remembered","note","problem"}]}
+  std::string dropClassify(const std::string& requestJson);
+  // Send them: {"items":[{"path","kind","dest","game","key","replace"}]}. SD card files go
+  // to the queue; mods, Tap profiles and saves are handled here at once. Corrections to
+  // the type or folder are remembered for files like these from the same folder.
+  // out {"queued","messages":[...],"errors":[...]}
+  std::string dropSend(const std::string& requestJson);
+  std::string dropQueueJson();  // see DropQueue::json
+  bool dropCancel(const std::string& id);
+  bool dropChoose(const std::string& id, const std::string& choice, bool wholeBatch);
+  bool dropRetry(const std::string& id);
+  void dropClear();
+
  private:
   std::mutex updateMutex_;
   std::string switchPackageDir_;
@@ -176,6 +195,11 @@ class AppCore {
   AutoSync sync_;
   std::mutex mutex_;
   std::deque<std::string> events_;
+  // WarpDrop's transfer queue, made on first use; stopped before AutoSync (it asks it
+  // where the console is).
+  DropQueue& drop();
+  std::mutex dropMutex_;
+  std::unique_ptr<DropQueue> drop_;
 };
 
 }  // namespace WarpPoint
