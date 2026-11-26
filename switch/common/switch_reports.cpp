@@ -53,6 +53,10 @@ bool SwitchReports::list(uint64_t newerThan, std::vector<proto::ReportEntry>& ou
         if (endsWith(name, ".jpg")) r.kind = proto::ReportKind::CrashImage;
         else if (!endsWith(name, ".log")) continue;
       }
+      // A screenshot cut short is no use: only offer the ones that fit.
+      if (r.kind == proto::ReportKind::CrashImage && static_cast<size_t>(st.st_size) > maxSize_) {
+        continue;
+      }
       if (f.kind == proto::ReportKind::Fatal && !endsWith(name, ".bin")) continue;
       r.size = static_cast<uint64_t>(st.st_size);
       r.mtime = static_cast<uint64_t>(st.st_mtime);
@@ -78,13 +82,19 @@ bool SwitchReports::read(const std::string& name, std::vector<uint8_t>& out, boo
                    [&](const Folder& f) { return folder == f.dir; })) {
     return false;
   }
-  FILE* in = std::fopen((root_ + "/" + folder + "/" + file).c_str(), "rb");
+  const std::string path = root_ + "/" + folder + "/" + file;
+  struct stat st{};
+  if (stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) return false;
+  // Exactly what's needed, never more than maxSize_: the heap here is small.
+  const size_t limit = std::min(maxSize_, proto::kMaxReportSize);
+  const size_t size = static_cast<size_t>(st.st_size);
+  FILE* in = std::fopen(path.c_str(), "rb");
   if (!in) return false;
-  out.resize(proto::kMaxReportSize + 1);
-  const size_t n = std::fread(out.data(), 1, out.size(), in);
+  out.resize(std::min(size, limit));
+  const size_t n = out.empty() ? 0 : std::fread(out.data(), 1, out.size(), in);
   std::fclose(in);
-  truncated = n > proto::kMaxReportSize;
-  out.resize(std::min(n, proto::kMaxReportSize));
+  out.resize(n);
+  truncated = size > limit;
   return true;
 }
 

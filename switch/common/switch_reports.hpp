@@ -15,14 +15,18 @@ namespace WarpPoint {
 
 class SwitchReports : public ReportSource {
  public:
-  // root: where "atmosphere/" is, "sdmc:" on the console.
-  explicit SwitchReports(std::string root = "sdmc:") : root_(std::move(root)) {}
+  // root: where "atmosphere/" is, "sdmc:" on the console. maxSize: the most read into
+  // memory for one report. The background module's heap is 1 MB, so 160 KB: bigger
+  // text reports are cut there, bigger screenshots aren't offered at all.
+  explicit SwitchReports(std::string root = "sdmc:", size_t maxSize = 160 * 1024)
+      : root_(std::move(root)), maxSize_(maxSize) {}
 
   bool list(uint64_t newerThan, std::vector<proto::ReportEntry>& out) override;
   bool read(const std::string& name, std::vector<uint8_t>& out, bool& truncated) override;
 
  private:
   std::string root_;
+  size_t maxSize_;
 };
 
 }  // namespace WarpPoint

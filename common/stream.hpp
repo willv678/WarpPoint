@@ -23,6 +23,10 @@ struct Frame {
 };
 
 bool writeFrame(Stream& s, uint8_t type, const uint8_t* payload, size_t len);
+// A frame whose payload is a then b, without copying b (big report bytes on the
+// Switch, whose background module has a 1 MB heap).
+bool writeFrame2(Stream& s, uint8_t type, const uint8_t* a, size_t alen, const uint8_t* b,
+                 size_t blen);
 inline bool writeFrame(Stream& s, uint8_t type, const std::vector<uint8_t>& payload) {
   return writeFrame(s, type, payload.data(), payload.size());
 }

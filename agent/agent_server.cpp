@@ -249,7 +249,13 @@ bool serveSession(Stream& s, UnitStore& store, const AgentIdentity& identity, co
             truncated = true;
           }
           log("Sent report " + name);
-          ok = send(s, Msg::Report, proto::encodeReport(name, truncated, bytes));
+          // The header (name, flag, length), then the bytes as they are: no copy of them.
+          const auto head = proto::encodeReport(name, truncated, {});
+          ByteWriter w;
+          w.raw(head.data(), head.size() - 4);  // without its empty length
+          w.u32(static_cast<uint32_t>(bytes.size()));
+          ok = writeFrame2(s, static_cast<uint8_t>(Msg::Report), w.data().data(), w.data().size(),
+                           bytes.data(), bytes.size());
         }
         break;
       }

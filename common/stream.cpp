@@ -20,6 +20,17 @@ bool writeFrame(Stream& s, uint8_t type, const uint8_t* payload, size_t len) {
   return s.writeAll(buf.data(), buf.size());
 }
 
+bool writeFrame2(Stream& s, uint8_t type, const uint8_t* a, size_t alen, const uint8_t* b,
+                 size_t blen) {
+  const size_t len = alen + blen;
+  if (len + 1 > kMaxFrameSize) return false;
+  std::vector<uint8_t> head(5 + alen);
+  writeBe32(head.data(), static_cast<uint32_t>(len + 1));
+  head[4] = type;
+  if (alen) std::memcpy(head.data() + 5, a, alen);
+  return s.writeAll(head.data(), head.size()) && (blen == 0 || s.writeAll(b, blen));
+}
+
 bool readFrame(Stream& s, Frame& out) {
   uint8_t header[5];
   if (!s.readExact(header, sizeof(header))) {

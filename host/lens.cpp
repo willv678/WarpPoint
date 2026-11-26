@@ -386,10 +386,19 @@ std::vector<CrashSummary> Lens::fetch(RemoteStore& console, const TitleCache* na
   // History on a first visit: the newest few crash reports, no error-report backlog.
   size_t historyLeft = 5;
   std::map<std::string, std::string> images;  // stem -> image file on the Mac
+  // Reports first, then only the screenshots of crash reports that are kept.
+  std::stable_partition(list.begin(), list.end(),
+                        [](const proto::ReportEntry& e) { return e.kind != ReportKind::CrashImage; });
   for (const auto& e : list) {
     newest = std::max(newest, e.mtime);
     if (std::any_of(items_.begin(), items_.end(), [&](const CrashSummary& c) { return c.name == e.name; })) {
       continue;
+    }
+    if (e.kind == ReportKind::CrashImage &&
+        std::none_of(items_.begin(), items_.end(), [&](const CrashSummary& c) {
+          return c.image.empty() && stemOf(c.name) == stemOf(e.name);
+        })) {
+      continue;  // no kept report wants it
     }
     if (firstVisit) {
       if (e.kind == ReportKind::ErrorReport) continue;
