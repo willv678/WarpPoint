@@ -90,3 +90,5 @@ switch/**/*.nsp
 switch/**/*.nso
 switch/**/*.npdm
 switch/**/*.ovl
+
+!tests/data/**/*.log
